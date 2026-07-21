@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.70
+// @version      1.71
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.70';
+  const VERSION = '1.71';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
   // et durable, pas une boite de dialogue qu'on clique sans lire.
@@ -205,10 +205,17 @@
   const saveSansAgglo = () => ecrire(STORE_SANS_AGGLO, sansAgglo);
 
   function saveUI() {
-    const r = ui.overlay.getBoundingClientRect();
+    const o = ui.overlay;
+    const r = o.getBoundingClientRect();
+    const memo = lire(STORE_UI, {});
+    // ⚠️ Fenetre repliee : sa hauteur ne represente rien (juste l'en-tete). La
+    // memoriser la rendait minuscule au demarrage suivant — bug vecu.
+    const replie = o.classList.contains('agn-replie');
     ecrire(STORE_UI, {
-      x: r.left, y: r.top, w: ui.overlay.offsetWidth, h: ui.overlay.offsetHeight,
-      ouvert: ui.overlay.style.display !== 'none', options,
+      x: r.left, y: r.top,
+      w: o.offsetWidth,
+      h: replie ? (ui.hAvantRepli || memo.h || 560) : o.offsetHeight,
+      ouvert: o.style.display !== 'none', options,
       vue: vueCourante, uiV: 2
     });
   }
@@ -1828,6 +1835,9 @@
     font:12px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1f2933;
     resize:both;overflow:hidden}
   #agn-main{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;overflow:hidden;border-radius:7px}
+  /* Repliee, la fenetre se limite a son en-tete : le min-height de travail
+     n'a plus lieu d'etre. */
+  #agn-overlay.agn-replie{min-height:0;height:auto}
   /* Volet des donnees de reference : il se DEPLOIE VERS LA GAUCHE de la fenetre,
      pour ne pas lui voler de largeur. Il vit HORS de #agn-overlay, dans le
      body : un enfant debordant obligerait a mettre overflow:visible, et la
@@ -1841,10 +1851,13 @@
   #agn-volet-in{padding:10px 12px 14px;overflow-y:auto;flex:1 1 auto;min-height:0}
   .agn-volet-t{font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.05em;
     color:#546e7a;margin-bottom:8px;border-bottom:1px solid #eceff1;padding-bottom:5px}
-  #agn-donnees{background:rgba(255,255,255,.18);border:none;color:#fff;cursor:pointer;
-    padding:3px 8px;border-radius:4px;font-size:11px;white-space:nowrap;width:auto;height:auto}
-  #agn-donnees:hover{background:rgba(255,255,255,.34)}
-  #agn-donnees.agn-on{background:#fff;color:#1565c0;font-weight:600}
+  /* Le bouton du volet vit dans la barre d'onglets, PAS dans l'en-tete : la
+     ligne de titre n'a pas la place et il la rendait illisible des que la
+     fenetre retrecissait (signale par l'auteur). */
+  #agn-donnees{flex:0 0 auto;width:30px;padding:7px 0;border:none;background:none;cursor:pointer;
+    font-size:13px;color:#546e7a;border-right:1px solid #cfd8dc;border-bottom:2px solid transparent}
+  #agn-donnees:hover{background:#e3eaf0}
+  #agn-donnees.agn-on{background:#fff;color:#1565c0;border-bottom-color:#1e88e5}
   /* Onglets : on ne montre JAMAIS les deux familles d'ecarts en meme temps —
      melangees, la liste devient illisible (demande de l'auteur). */
   #agn-onglets{display:flex;gap:0;flex:0 0 auto;border-bottom:1px solid #cfd8dc;background:#eceff1}
@@ -1856,9 +1869,12 @@
     background:#b0bec5;color:#fff;font-size:10px;font-weight:700}
   .agn-tab.agn-tab-on .agn-tab-n{background:#1e88e5}
   #agn-tete{display:flex;align-items:center;gap:8px;padding:7px 10px;background:#1e88e5;color:#fff;
-    border-radius:7px 7px 0 0;cursor:move;user-select:none;flex:0 0 auto}
-  #agn-tete b{font-size:12.5px}
-  #agn-tete .agn-v{opacity:.75;font-size:11px}
+    border-radius:7px 7px 0 0;cursor:move;user-select:none;flex:0 0 auto;overflow:hidden}
+  #agn-tete button{flex:0 0 auto}
+  /* Le titre cede la place plutot que de pousser les boutons hors de la vue. */
+  #agn-tete b{font-size:12.5px;flex:0 1 auto;min-width:0;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  #agn-tete .agn-v{opacity:.75;font-size:11px;flex:0 0 auto}
   #agn-tete .agn-sp{flex:1}
   #agn-tete button{background:rgba(255,255,255,.18);border:none;color:#fff;cursor:pointer;
     width:22px;height:22px;border-radius:4px;font-size:13px;line-height:1}
@@ -2020,12 +2036,12 @@
       <div id="agn-overlay">
         <div id="agn-main">
         <div id="agn-tete">
-          <button id="agn-donnees" title="Contours, commune, agglomeration">☰ Donnees</button>
           <b>🏙️ Agglo Naming</b><span class="agn-v">v${VERSION}</span><span class="agn-sp"></span>
           <button id="agn-reduire" title="Reduire">–</button>
           <button id="agn-fermer" title="Fermer">✕</button>
         </div>
         <div id="agn-onglets">
+          <button id="agn-donnees" title="Contours, commune, agglomeration">☰</button>
           <button class="agn-tab" data-vue="segments">Segments <span class="agn-tab-n"></span></button>
           <button class="agn-tab" data-vue="adresses">Numerotation <span class="agn-tab-n"></span></button>
         </div>
@@ -2126,14 +2142,21 @@
     }
     o.style.left = x + 'px';
     o.style.top = y + 'px';
-    if (memo.w) o.style.width = memo.w + 'px';
     // On borne la hauteur memorisee : l'ecran a pu retrecir depuis, ou la
     // fenetre avoir ete etiree au-dela quand la liste la poussait encore.
     // ⚠️ `uiV` marque la refonte de la v1.70 : la fenetre descend desormais
     // bien plus bas, et une hauteur memorisee sous l'ancienne mise en page
     // annulerait tout le benefice. On ne reprend donc la hauteur enregistree
     // que si elle a ete choisie APRES la refonte.
-    if (memo.h && memo.uiV >= 2) o.style.height = Math.min(memo.h, window.innerHeight - 70) + 'px';
+    // ⚠️ Une taille ABERRANTE (fenetre repliee enregistree par erreur, ecran
+    // reduit depuis) n'est pas rattrapee au plancher mais simplement IGNOREE :
+    // on rend alors la taille par defaut, la seule confortable. Rattraper au
+    // minimum laisserait l'editeur avec une fenetre riquiqui sans qu'il
+    // comprenne pourquoi.
+    if (memo.h && memo.uiV >= 2 && memo.h >= 260) {
+      o.style.height = Math.min(memo.h, window.innerHeight - 70) + 'px';
+    }
+    if (memo.w && memo.w >= 300) o.style.width = Math.min(memo.w, window.innerWidth - 40) + 'px';
     if (memo.ouvert === false) o.style.display = 'none';
 
     // Volet des donnees : ouvert d'office tant qu'il n'y a pas de contours, car
@@ -2169,12 +2192,26 @@
     };
 
     o.querySelector('#agn-fermer').onclick = fermerOverlay;
+    /**
+     * ⚠️⚠️ Reduire la fenetre ne doit JAMAIS ecraser sa hauteur de travail.
+     * Bug vecu (auteur, 21/07 : « l'overlay est devenu tres petit apres
+     * quelques manipulations ») : replier mettait `height:auto`, le
+     * ResizeObserver voyait la fenetre retrecir et `saveUI` enregistrait la
+     * hauteur REPLIEE (~40 px) — qui devenait la taille au demarrage suivant.
+     * On memorise donc la hauteur avant repli, et `saveUI` n'ecrit rien tant
+     * qu'on est replie.
+     */
     o.querySelector('#agn-reduire').onclick = () => {
-      const c = ui.corps;
-      const replie = c.style.display === 'none';
-      c.style.display = replie ? '' : 'none';
-      o.style.height = replie ? (lire(STORE_UI, {}).h || 520) + 'px' : 'auto';
+      const replie = o.classList.contains('agn-replie');
+      if (!replie) ui.hAvantRepli = o.offsetHeight;      // on la garde sous le coude
+      o.classList.toggle('agn-replie', !replie);
+      ui.corps.style.display = replie ? '' : 'none';
+      const ong = o.querySelector('#agn-onglets');
+      if (ong) ong.style.display = replie ? '' : 'none';
+      o.style.height = replie ? (ui.hAvantRepli || 560) + 'px' : 'auto';
       o.style.resize = replie ? 'both' : 'none';
+      if (replie) placerVolet(); else basculerVolet(false);
+      if (replie) saveUI();
     };
 
     // Deplacement par l'en-tete. On coupe la propagation : sans ca, le
