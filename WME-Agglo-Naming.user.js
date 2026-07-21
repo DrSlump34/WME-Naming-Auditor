@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.10
+// @version      1.20
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -18,7 +18,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.10';
+  const VERSION = '1.20';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   const STORE_UI = 'wmeAggloNaming.ui';
   const IDB_NAME = 'wmeAggloNaming';
@@ -136,6 +136,7 @@
   let ui = {};
   // seuil : part de longueur (0-1) au-dela de laquelle un segment a cheval est
   // rattache d'office a un cote. Entre (1 - seuil) et seuil = zone grise.
+  let DROITS = { autorise: false, niveau: '?', motifs: [] };
   let options = {
     sansAdresse: false, altEnTrop: false, seuil: 0.8,
     zoomClic: true, zoomNiveau: 17, surligner: true,
@@ -987,6 +988,8 @@
         zones.special++;
         findings.push(Object.assign({}, base, {
           cas: estRail ? 'RAIL' : estBretelle ? 'BRET' : 'ROC', ecarts, special: true,
+          cible: { primary: { name: estRail ? '' : nam.primary.name, cityName: '' },
+                   alts: nam.alts.map(a => ({ name: a.name, cityName: '' })) },
           doute: estRocade ? 'identifiee comme rocade d\'apres son nom' : null }));
         continue;
       }
@@ -1033,7 +1036,7 @@
       if (!enAgglo && loc.partAgglo > 0) notes.push('mord de ' + pourcent(loc.partAgglo) + ' sur l\'agglomeration');
       if (loc.partCommune < 1 || (enAgglo ? loc.partAgglo < 1 : loc.partAgglo > 0)) zones.limitrophe++;
 
-      findings.push(Object.assign({}, base, { cas: exp.cas, ecarts,
+      findings.push(Object.assign({}, base, { cas: exp.cas, ecarts, cible: exp,
         // Un segment dont le SEUL defaut est un cartouche absent, ou une faute
         // de redaction, merite sa propre couleur : le zonage, lui, est bon.
         seulementCartouche: ecartsCart.length > 0 && ecartsNom.length === 0 && !forme.length,
@@ -1047,6 +1050,133 @@
                  ecarts: nbSegmentsEnEcart, lignes: findings.length, nbAgglos: listeAgglos.length };
     renderResults();
     redrawEcarts(null);
+  }
+
+  // ===========================================================================
+  // CORRECTION
+  //
+  // Reservee aux rangs eleves (L5/L6) et aux responsables : une correction de
+  // masse sur le nommage se voit, et se discute.
+  //
+  // Regles de sureté tenues ici :
+  //  - on n'appelle JAMAIS sdk.Editing.save(). Les modifications restent en
+  //    attente dans WME, l'editeur les relit et enregistre lui-meme.
+  //  - on n'applique QUE ce dont on connait la cible exacte. Tout le reste
+  //    (coupures, cartouches, redaction) reste a faire a la main.
+  //  - un report couvrant N segments s'applique aux N d'un coup : l'API
+  //    `addAlternateStreet` prend deja `segmentIds` au pluriel.
+  // ===========================================================================
+
+  /** L5, L6, Country/Global Manager ou staff. Le rang de WME est 0-indexe. */
+  function droitDeCorriger() {
+    let rank = -1, cm = false, ge = false, staff = false;
+    try {
+      const u = sdk.State.getUserInfo() || {};
+      rank = typeof u.rank === 'number' ? u.rank : -1;
+      cm = !!u.isCountryManager;
+    } catch (e) { /* */ }
+    try {
+      const a = window.W.loginManager.user.attributes;
+      ge = !!a.globalEditor; staff = !!a.isStaff;
+      if (rank < 0 && typeof a.rank === 'number') rank = a.rank;
+    } catch (e) { /* */ }
+    const niveau = rank >= 0 ? 'L' + (rank + 1) : '?';
+    const motifs = [];
+    if (rank >= 4) motifs.push(niveau);
+    if (cm) motifs.push('Country Manager');
+    if (ge) motifs.push('Global Editor');
+    if (staff) motifs.push('Staff');
+    return { autorise: motifs.length > 0, niveau, motifs };
+  }
+
+  /** La « ville vide » de la zone : c'est un objet City reel, pas un null. */
+  function villeVide() {
+    try { return sdk.DataModel.Cities.getAll().find(c => c.isEmpty) || null; }
+    catch (e) { return null; }
+  }
+
+  /** Resout — en la creant au besoin — la Street correspondant a (nom, ville). */
+  function resoudreStreet(nom, nomVille) {
+    const DM = sdk.DataModel;
+    let city = null;
+    if (nomVille) {
+      city = DM.Cities.getCity({ cityName: nomVille });
+      if (!city) city = DM.Cities.addCity({ cityName: nomVille });
+    } else {
+      city = villeVide();
+    }
+    if (!city) throw new Error('ville « ' + (nomVille || 'sans ville') + ' » introuvable');
+    return DM.Streets.getStreet({ streetName: nom, cityId: city.id }) ||
+           DM.Streets.addStreet({ streetName: nom, cityId: city.id });
+  }
+
+  /**
+   * Ce qu'on sait appliquer d'un report. Rend null si rien n'est automatisable :
+   * le bouton n'apparait alors pas, plutot que de promettre une correction
+   * qu'on ne saurait pas faire.
+   */
+  function planDeCorrection(f) {
+    if (!f.cible || f.traite) return null;
+    const ops = [];
+    const cur = f.ecarts || [];
+    // Nom principal : on ne touche que si la cible porte un nom (renommer vers
+    // « sans nom » demande un objet Street vide, cas rare et delicat).
+    if (cur.some(e => e.champ === 'principal') && f.cible.primary && f.cible.primary.name) {
+      ops.push({ type: 'principal', nom: f.cible.primary.name, ville: f.cible.primary.cityName });
+    }
+    // Villes interdites (autoroute, bretelle, rocade, rail) : on repointe le nom
+    // principal sur la meme rue, sans ville.
+    if (cur.some(e => /^ville interdite \(principal\)/.test(e.champ)) && f.cible.primary.name) {
+      ops.push({ type: 'principal', nom: f.cible.primary.name, ville: '' });
+    }
+    for (const e of cur) {
+      if (e.champ !== 'alt manquant') continue;
+      const m = String(e.apres).split(' / ');
+      const nom = m[0], ville = m.slice(1).join(' / ');
+      if (!nom || nom === '‹sans nom›') continue;
+      ops.push({ type: 'alt', nom, ville: ville === '‹sans ville›' ? '' : ville });
+    }
+    // Doublons eventuels
+    const vus = new Set();
+    const propres = ops.filter(o => {
+      const k = o.type + '|' + o.nom + '|' + o.ville;
+      if (vus.has(k)) return false; vus.add(k); return true;
+    });
+    return propres.length ? propres : null;
+  }
+
+  /** Ce qui restera a faire a la main apres application. */
+  function resteAlaMain(f) {
+    const plan = planDeCorrection(f) || [];
+    const auto = plan.length;
+    const total = (f.ecarts || []).length;
+    return Math.max(0, total - auto);
+  }
+
+  function appliquerCorrection(f) {
+    const plan = planDeCorrection(f);
+    if (!plan) return { ok: false, motif: 'rien d\'automatisable' };
+    const ids = f.segIds || [f.segId];
+    try {
+      for (const op of plan) {
+        const rue = resoudreStreet(op.nom, op.ville);
+        if (!rue) throw new Error('rue « ' + op.nom + ' » introuvable');
+        if (op.type === 'principal') {
+          ids.forEach(id => sdk.DataModel.Segments.updateAddress(
+            { segmentId: id, primaryStreetId: rue.id }));
+        } else {
+          sdk.DataModel.Segments.addAlternateStreet({ segmentIds: ids, streetId: rue.id });
+        }
+      }
+      return { ok: true, nb: ids.length, ops: plan.length };
+    } catch (e) {
+      log('correction impossible', e);
+      return { ok: false, motif: e.message || String(e) };
+    }
+  }
+
+  function nbModifsEnAttente() {
+    try { return window.W.model.actionManager.getActions().length; } catch (e) { return null; }
   }
 
   // ---------------------------------------------------------------------------
@@ -1105,6 +1235,12 @@
   .agn-item.agn-traite{background:#e8f5e9;border-color:#a5d6a7}
   .agn-item.agn-traite .agn-h > span:first-child{text-decoration:line-through;opacity:.6}
   .agn-item.agn-traite .agn-d,.agn-item.agn-traite .agn-warn{opacity:.45}
+  .agn-fix-btn{border:1px solid #ffe082;background:#fffde7;color:#e65100;border-radius:3px;cursor:pointer;
+    font-size:11px;padding:0;line-height:15px;flex:0 0 auto;width:20px;text-align:center}
+  .agn-fix-btn:hover{background:#fff8e1;border-color:#ffb300}
+  .agn-fix-grp{border:1px solid #ffe082;background:#fffde7;color:#e65100;border-radius:3px;cursor:pointer;
+    font-size:10px;padding:1px 6px;flex:0 0 auto;margin-right:2px}
+  .agn-fix-grp:hover{background:#fff8e1;border-color:#ffb300}
   .agn-ok-btn{border:1px solid #c8e6c9;background:#fff;color:#2e7d32;border-radius:3px;cursor:pointer;
     font-size:11px;padding:0;line-height:15px;flex:0 0 auto;width:20px;text-align:center}
   .agn-ok-btn:hover{background:#e8f5e9}
@@ -1228,6 +1364,7 @@
           </div>
           <button class="agn-btn primary" id="agn-scan" disabled>Analyser la commune</button>
           <div id="agn-stats"></div>
+          <div id="agn-fix"></div>
           <div id="agn-results"></div>
         </div>
       </div>`);
@@ -1242,6 +1379,7 @@
     ui.listeAgglos = o.querySelector('#agn-agglos');
     ui.btnScan = o.querySelector('#agn-scan');
     ui.stats = o.querySelector('#agn-stats');
+    ui.bandeauFix = o.querySelector('#agn-fix');
     ui.results = o.querySelector('#agn-results');
     ui.corps = o.querySelector('#agn-corps');
     ui.reglages = o.querySelector('#agn-reglages');
@@ -1358,6 +1496,9 @@
         <div id="agn-r-couleurs"></div>
         <button class="agn-sb-b" id="agn-r-reset">Couleurs par defaut</button>
 
+        <h4>Correction</h4>
+        <div class="agn-sb-n" id="agn-r-droits"></div>
+
         <h4>Fenetre de travail</h4>
         <button class="agn-sb-b agn-sb-p" id="agn-rouvrir">Afficher la fenetre</button>
       </div>`;
@@ -1418,6 +1559,13 @@
       for (const [cle, f] of Object.entries(FAMILLES)) options.couleurs[cle] = f.defaut;
       saveUI(); peindre(); redrawEcarts(null);
     };
+
+    const zoneDroits = q('#agn-r-droits');
+    zoneDroits.style.color = DROITS.autorise ? '#2e7d32' : '#a34a00';
+    zoneDroits.innerHTML = DROITS.autorise
+      ? 'Correction activee — ' + esc(DROITS.motifs.join(', ')) +
+        '.<br>Les corrections ne sont <b>jamais enregistrees</b> automatiquement.'
+      : 'Correction desactivee : reservee aux L5, L6 et responsables (ton rang : ' + esc(DROITS.niveau) + ').';
 
     q('#agn-rouvrir').onclick = ouvrirOverlay;
   }
@@ -1563,6 +1711,39 @@
     majCompteurTraites();
   }
 
+  /**
+   * Applique une serie de corrections, puis rend la main. On ne sauvegarde
+   * pas : le compteur rappelle combien de modifications attendent dans WME,
+   * c'est l'editeur qui relit et enregistre.
+   */
+  function corriger(liste, noeuds) {
+    let ok = 0, segments = 0;
+    const echecs = [];
+    liste.forEach((f, i) => {
+      const res = appliquerCorrection(f);
+      if (res.ok) {
+        ok++; segments += res.nb;
+        if (noeuds && noeuds[i]) marquerTraite(f, noeuds[i], true);
+      } else echecs.push(f.libelle + ' — ' + res.motif);
+    });
+    redrawEcarts(null);
+    majBandeauCorrection(ok, segments, echecs);
+  }
+
+  function majBandeauCorrection(ok, segments, echecs) {
+    if (!ui.bandeauFix) return;
+    const enAttente = nbModifsEnAttente();
+    if (!ok && (!echecs || !echecs.length)) { ui.bandeauFix.innerHTML = ''; return; }
+    ui.bandeauFix.innerHTML =
+      `<div class="agn-stat ${echecs.length ? 'agn-alerte' : 'agn-ok'}">
+        <b>${ok}</b> correction(s) appliquee(s) sur <b>${segments}</b> segment(s).
+        ${enAttente != null ? '<b>' + enAttente + '</b> modification(s) en attente dans WME — ' : ''}
+        <b>rien n'est enregistre</b> : relis, puis clique sur Enregistrer dans WME.
+        ${echecs.length ? '<br>Echecs : ' + echecs.slice(0, 3).map(esc).join(' ; ') +
+          (echecs.length > 3 ? ' …' : '') : ''}
+      </div>`;
+  }
+
   function majCompteurTraites() {
     if (!ui.traites) return;
     const n = findings.filter(f => f.traite).length;
@@ -1666,16 +1847,29 @@
             <span class="agn-chev">▸</span>
             <span class="agn-pastille" style="background:${options.couleurs[cle] || fam.defaut}"></span>
             <b>${esc(fam.libelle)}</b>
+            ${DROITS.autorise && liste.some(planDeCorrection)
+              ? '<button class="agn-fix-grp" title="Appliquer toutes les corrections automatisables de ce groupe">⚡ corriger</button>' : ''}
             <span class="agn-grp-n">${liste.length}</span>
           </div>
           <div class="agn-grp-c" style="display:none"></div></div>`);
       const corps = grp.querySelector('.agn-grp-c');
       grp.querySelector('.agn-grp-t').onclick = () => ouvrirGroupe(grp, !grp.classList.contains('agn-ouvert'));
+      const fixGrp = grp.querySelector('.agn-fix-grp');
+      if (fixGrp) fixGrp.onclick = e => {
+        e.stopPropagation();
+        const aFaire = liste.filter(planDeCorrection);
+        const nbSeg = aFaire.reduce((n, x) => n + (x.nb || 1), 0);
+        if (!confirm('Appliquer ' + aFaire.length + ' correction(s) sur ' + nbSeg + ' segment(s) ?\n\n' +
+          'Rien ne sera enregistre : tu reliras dans WME avant de cliquer sur Enregistrer.')) return;
+        corriger(aFaire, aFaire.map(x => corps.querySelector('.agn-item[data-idx="' + findings.indexOf(x) + '"]')));
+      };
 
       liste.forEach(f => {
         const node = el(`
           <div class="agn-item agn-${cle}" data-seg="${f.segId}" data-idx="${findings.indexOf(f)}">
             <div class="agn-h"><span>${esc(f.libelle)}</span>
+              ${planDeCorrection(f) && DROITS.autorise
+                ? '<button class="agn-fix-btn" title="Appliquer la correction (sans enregistrer)">⚡</button>' : ''}
               <button class="agn-ok-btn" title="Marquer comme traite">✓</button>
               <span class="agn-cas">${f.cas}</span></div>
             <div class="agn-note">${ROADTYPE_LABEL[f.roadType] || f.roadType} · ${
@@ -1688,6 +1882,8 @@
           e.stopPropagation();               // ne pas declencher la navigation
           marquerTraite(f, node);
         };
+        const fix = node.querySelector('.agn-fix-btn');
+        if (fix) fix.onclick = e => { e.stopPropagation(); corriger([f], [node]); };
         corps.appendChild(node);
       });
       ui.results.appendChild(grp);
@@ -1722,6 +1918,8 @@
     // son appel leve une TypeError et fait echouer tout le demarrage.
 
     agglos = lire(STORE_AGGLOS, {});
+    DROITS = droitDeCorriger();
+    log('correction ' + (DROITS.autorise ? 'autorisee (' + DROITS.motifs.join(', ') + ')' : 'non autorisee'));
     buildOverlay();
     installerFab();
     ensureLayers();
