@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.74
+// @version      1.75
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.74';
+  const VERSION = '1.75';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
   // et durable, pas une boite de dialogue qu'on clique sans lire.
@@ -1353,9 +1353,16 @@
       const v = (e.cityName || '').trim();
       if (v) parNom.get(nom).add(v);
     }
-    if (!parNom.size) return null;                   // aucune adresse exploitable
-
     const candidats = [...parNom.entries()].map(([nom, villes]) => ({ nom, villes: [...villes] }));
+
+    // ⚠️ Aucune adresse exploitable (le segment ne porte qu'un numero de route,
+    // « 43 D981 ») : on ne refuse PAS et on n'invente pas non plus — la boite
+    // proposera a l'editeur de SAISIR le nom a donner au POI (arbitrage de
+    // l'auteur, 21/07). C'est lui qui connait le terrain.
+    if (!candidats.length) {
+      return { nom: null, ville: communeActive.nom, candidats: [],
+               ambigu: true, plusieursNoms: false, saisieRequise: true, villeSeg: null };
+    }
     const plusieursNoms = candidats.length > 1;
     const plusieursVilles = candidats.some(c => c.villes.length > 1);
 
@@ -1437,11 +1444,14 @@
                      avant: nums.slice(0, 8).join(', ') + (nums.length > 8 ? '…' : '') +
                             ' porte' + (nums.length > 1 ? 's' : '') + ' par le segment',
                      apres: !rue ? 'a passer en POI residentiel'
+                       : rue.saisieRequise ? 'a passer en POI residentiel — adresse a saisir a la conversion'
                        : rue.ambigu ? 'a passer en POI residentiel — adresse a choisir a la conversion'
                        : 'a passer en POI residentiel — ' + rue.nom + ' / ' + rue.ville }],
           doute: !rue
             ? 'aucune adresse exploitable sur ce segment : la rue du POI ne peut pas etre determinee'
-            : rue.plusieursNoms
+            : rue.saisieRequise
+              ? 'ce segment ne porte qu\'un numero de route : le nom du POI sera demande a la conversion'
+              : rue.plusieursNoms
               ? 'plusieurs noms de rue sur ce segment (' +
                 rue.candidats.map(c => c.nom).join(', ') + ') : le choix sera demande'
               : rue.ambigu
@@ -1914,30 +1924,67 @@
           libelle: esc(c.nom) + ' / ' + esc(v) }));
       }
 
+      // Villes offertes a la saisie libre : celles du segment, la commune du
+      // contour, et le mode « position » qui suit chaque numero.
+      const villesSaisie = [...new Set(r.candidats.flatMap(c => c.villes).concat([communeActive.nom]))];
+
       const boite = el(`
         <div id="agn-modale">
           <div class="agn-modale-in">
-            <div class="agn-modale-t">${r.plusieursNoms
-              ? 'Plusieurs adresses sur ce segment' : 'Voie en limite communale'}</div>
+            <div class="agn-modale-t">${r.saisieRequise
+              ? 'Aucune adresse sur ce segment'
+              : r.plusieursNoms ? 'Plusieurs adresses sur ce segment' : 'Voie en limite communale'}</div>
             <div class="agn-modale-c">
-              Quelle adresse donner ${f.hns.length > 1
-                ? 'aux <b>' + f.hns.length + '</b> numeros' : 'au numero <b>' + esc(f.hns[0].number) + '</b>'} ?
+              ${r.saisieRequise
+                ? 'Ce segment ne porte qu\'un numero de route, qui ne fait pas une adresse. ' +
+                  'Saisis le nom a donner ' + (f.hns.length > 1
+                    ? 'aux <b>' + f.hns.length + '</b> numeros' : 'au numero <b>' + esc(f.hns[0].number) + '</b>') + '.'
+                : 'Quelle adresse donner ' + (f.hns.length > 1
+                    ? 'aux <b>' + f.hns.length + '</b> numeros' : 'au numero <b>' + esc(f.hns[0].number) + '</b>') + ' ?'}
               <div class="agn-modale-geo">D'apres les contours INSEE :${
                 detail || '<div class="agn-d">indeterminable</div>'}</div>
             </div>
             ${options.map((o, i) => `<button class="agn-btn ${o.fort ? 'primary' : ''}" data-i="${i}">${o.libelle}</button>`).join('')}
+            <div class="agn-modale-saisie">
+              <div class="agn-note">${r.saisieRequise ? 'Nom de la rue' : 'Ou saisir une autre adresse'}</div>
+              <input type="text" id="agn-saisie-nom" placeholder="Nom de la rue…" autocomplete="off">
+              <select class="agn-sel" id="agn-saisie-ville">
+                <option value="">Commune selon la position de chaque numero</option>
+                ${villesSaisie.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('')}
+              </select>
+              <button class="agn-btn ${r.saisieRequise ? 'primary' : ''}" id="agn-saisie-ok" disabled>Utiliser cette adresse</button>
+            </div>
             <button class="agn-btn" data-i="-1">Annuler</button>
           </div>
         </div>`);
       document.body.appendChild(boite);
       boite.addEventListener('mousedown', e => e.stopPropagation());
-      boite.querySelectorAll('button').forEach(b => {
+      // La saisie ne doit pas partir dans les raccourcis clavier de WME.
+      ['keydown', 'keypress', 'keyup'].forEach(ev =>
+        boite.addEventListener(ev, e => e.stopPropagation()));
+
+      const champ = boite.querySelector('#agn-saisie-nom');
+      const selVille = boite.querySelector('#agn-saisie-ville');
+      const okSaisie = boite.querySelector('#agn-saisie-ok');
+      const valider = () => { okSaisie.disabled = !champ.value.trim(); };
+      champ.oninput = valider;
+      champ.onkeydown = e => { if (e.key === 'Enter' && champ.value.trim()) okSaisie.click(); };
+      okSaisie.onclick = () => {
+        const nom = champ.value.trim();
+        if (!nom) return;
+        boite.remove();
+        resolve(selVille.value
+          ? { mode: 'fixe', nom, ville: selVille.value }
+          : { mode: 'geo', nom });
+      };
+      boite.querySelectorAll('button[data-i]').forEach(b => {
         b.onclick = () => {
           const i = parseInt(b.dataset.i, 10);
           boite.remove();
           resolve(i < 0 ? null : options[i]);
         };
       });
+      setTimeout(() => { if (r.saisieRequise) champ.focus(); }, 50);
     });
   }
 
@@ -2177,6 +2224,9 @@
   .agn-modale-t{font-weight:700;font-size:13px;margin-bottom:8px;color:#c62828}
   .agn-modale-c{font-size:12px;margin-bottom:10px}
   .agn-modale-geo{background:#eceff1;border-radius:4px;padding:6px 8px;margin-top:8px;font-size:11px}
+  .agn-modale-saisie{border-top:1px dashed #cfd8dc;margin-top:8px;padding-top:8px}
+  .agn-modale-saisie input{width:100%;box-sizing:border-box;padding:5px 7px;font-size:12px;
+    border:1px solid #bbb;border-radius:4px;margin:3px 0}
   /* WCT reinsere son bouton en dernier dans le conteneur (il le surveille) :
      inutile de se battre dans le DOM, le conteneur est une grille, donc on se
      place apres lui par l'ordre CSS. */
