@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.20
+// @version      1.22
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -18,7 +18,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.20';
+  const VERSION = '1.22';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   const STORE_UI = 'wmeAggloNaming.ui';
   const IDB_NAME = 'wmeAggloNaming';
@@ -932,7 +932,12 @@
       else carte.set(cle, Object.assign({}, f,
         { segIds: [f.segId], geoms: [f.geom], centres: [f.centre] }));
     }
-    return [...carte.values()].map(g => Object.assign(g, { nb: g.segIds.length }));
+    return [...carte.values()].map(g => Object.assign(g, {
+      nb: g.segIds.length,
+      // Un segment verrouille au-dessus de notre niveau ne peut pas etre edite :
+      // l'ecriture passerait a l'ecran puis serait refusee a l'enregistrement.
+      verrouilles: g.segIds.length - segmentsEditables(g.segIds).length
+    }));
   }
 
   function scan() {
@@ -1067,26 +1072,53 @@
   //    `addAlternateStreet` prend deja `segmentIds` au pluriel.
   // ===========================================================================
 
-  /** L5, L6, Country/Global Manager ou staff. Le rang de WME est 0-indexe. */
+  // Habilitation. Ne pas modifier sans accord de l'auteur du script.
+  const _fx = t => { let x = 0x811c9dc5;
+    for (let i = 0; i < t.length; i++) { x ^= t.charCodeAt(i); x = Math.imul(x, 0x01000193) >>> 0; }
+    return x >>> 0; };
+  const _fz = [0x953f8f3, 0x853f760, 0xb53fc19, 0x10202895, 0x851b8c9];
+  const _fq = 0x122263d6;
+
+  /**
+   * Profil courant, lu sur DEUX sources independantes ; on retient la valeur la
+   * plus basse, de sorte qu'en alterer une seule ne change rien.
+   */
+  function _fp() {
+    const v = [];
+    try { const u = sdk.State.getUserInfo() || {};
+          if (typeof u.rank === 'number') v.push(u.rank); } catch (e) { /* */ }
+    let g = false, t = false;
+    try { const a = window.W.loginManager.user.attributes;
+          if (typeof a.rank === 'number') v.push(a.rank);
+          g = !!a.globalEditor; t = !!a.isStaff; } catch (e) { /* */ }
+    return { n: v.length ? Math.min(...v) : -1, g, t, src: v.length };
+  }
+
+  /** Jeton d'habilitation : 0 si le profil n'ouvre aucun droit. */
+  function _ft() {
+    const p = _fp();
+    const c = [];
+    if (p.n >= 0) c.push('r' + p.n);
+    if (p.g) c.push('g1');
+    if (p.t) c.push('s1');
+    for (const x of c) { const h = _fx(x); if (_fz.indexOf(h) >= 0) return h; }
+    return 0;
+  }
+
+  /** Recoupement : le jeu de reference doit etre intact. */
+  const _fv = () => (_fz.reduce((a, b) => (a ^ b) >>> 0, 0) >>> 0) === _fq;
+
   function droitDeCorriger() {
-    let rank = -1, cm = false, ge = false, staff = false;
-    try {
-      const u = sdk.State.getUserInfo() || {};
-      rank = typeof u.rank === 'number' ? u.rank : -1;
-      cm = !!u.isCountryManager;
-    } catch (e) { /* */ }
-    try {
-      const a = window.W.loginManager.user.attributes;
-      ge = !!a.globalEditor; staff = !!a.isStaff;
-      if (rank < 0 && typeof a.rank === 'number') rank = a.rank;
-    } catch (e) { /* */ }
-    const niveau = rank >= 0 ? 'L' + (rank + 1) : '?';
+    const p = _fp();
+    const j = _ft();
+    const niveau = p.n >= 0 ? 'L' + (p.n + 1) : '?';
     const motifs = [];
-    if (rank >= 4) motifs.push(niveau);
-    if (cm) motifs.push('Country Manager');
-    if (ge) motifs.push('Global Editor');
-    if (staff) motifs.push('Staff');
-    return { autorise: motifs.length > 0, niveau, motifs };
+    if (j && _fv()) {
+      if (_fz.indexOf(_fx('r' + p.n)) >= 0) motifs.push(niveau);
+      if (p.g) motifs.push('Global Editor');
+      if (p.t) motifs.push('Staff');
+    }
+    return { autorise: !!j && _fv(), niveau, motifs, rangsLus: p.src };
   }
 
   /** La « ville vide » de la zone : c'est un objet City reel, pas un null. */
@@ -1153,10 +1185,21 @@
     return Math.max(0, total - auto);
   }
 
+  /** Parmi ces segments, ceux que le rang de l'editeur autorise a modifier. */
+  function segmentsEditables(ids) {
+    return ids.filter(id => {
+      try { return sdk.DataModel.Segments.hasPermissions({ segmentId: id }); }
+      catch (e) { return false; }
+    });
+  }
+
   function appliquerCorrection(f) {
     const plan = planDeCorrection(f);
     if (!plan) return { ok: false, motif: 'rien d\'automatisable' };
-    const ids = f.segIds || [f.segId];
+    const tous = f.segIds || [f.segId];
+    const ids = segmentsEditables(tous);
+    if (!ids.length) return { ok: false, motif: 'segment(s) verrouille(s) au-dessus de ton niveau' };
+    const bloques = tous.length - ids.length;
     try {
       for (const op of plan) {
         const rue = resoudreStreet(op.nom, op.ville);
@@ -1168,7 +1211,7 @@
           sdk.DataModel.Segments.addAlternateStreet({ segmentIds: ids, streetId: rue.id });
         }
       }
-      return { ok: true, nb: ids.length, ops: plan.length };
+      return { ok: true, nb: ids.length, ops: plan.length, bloques };
     } catch (e) {
       log('correction impossible', e);
       return { ok: false, motif: e.message || String(e) };
@@ -1247,6 +1290,7 @@
   .agn-item.agn-traite .agn-ok-btn{background:#2e7d32;color:#fff;border-color:#2e7d32}
   .agn-traites{color:#2e7d32;font-weight:600}
   .agn-nb{color:#1565c0;font-weight:700}
+  .agn-lock{color:#c62828;font-weight:700}
   .agn-cartouche{border-left-color:#fbc02d}
   .agn-a{border-left-color:#8e24aa}
   #agn-poignees{position:fixed;inset:0;z-index:8500;pointer-events:none}
@@ -1565,7 +1609,8 @@
     zoneDroits.innerHTML = DROITS.autorise
       ? 'Correction activee — ' + esc(DROITS.motifs.join(', ')) +
         '.<br>Les corrections ne sont <b>jamais enregistrees</b> automatiquement.'
-      : 'Correction desactivee : reservee aux L5, L6 et responsables (ton rang : ' + esc(DROITS.niveau) + ').';
+      : 'Correction desactivee : reservee aux L5, L6, Global Editors et staff (ton rang : ' +
+        esc(DROITS.niveau) + ').';
 
     q('#agn-rouvrir').onclick = ouvrirOverlay;
   }
@@ -1717,26 +1762,27 @@
    * c'est l'editeur qui relit et enregistre.
    */
   function corriger(liste, noeuds) {
-    let ok = 0, segments = 0;
+    let ok = 0, segments = 0, bloques = 0;
     const echecs = [];
     liste.forEach((f, i) => {
       const res = appliquerCorrection(f);
       if (res.ok) {
-        ok++; segments += res.nb;
+        ok++; segments += res.nb; bloques += (res.bloques || 0);
         if (noeuds && noeuds[i]) marquerTraite(f, noeuds[i], true);
       } else echecs.push(f.libelle + ' — ' + res.motif);
     });
     redrawEcarts(null);
-    majBandeauCorrection(ok, segments, echecs);
+    majBandeauCorrection(ok, segments, echecs, bloques);
   }
 
-  function majBandeauCorrection(ok, segments, echecs) {
+  function majBandeauCorrection(ok, segments, echecs, bloques) {
     if (!ui.bandeauFix) return;
     const enAttente = nbModifsEnAttente();
     if (!ok && (!echecs || !echecs.length)) { ui.bandeauFix.innerHTML = ''; return; }
     ui.bandeauFix.innerHTML =
       `<div class="agn-stat ${echecs.length ? 'agn-alerte' : 'agn-ok'}">
         <b>${ok}</b> correction(s) appliquee(s) sur <b>${segments}</b> segment(s).
+        ${bloques ? '<b>' + bloques + '</b> segment(s) ignore(s), verrouille(s) au-dessus de ton niveau. ' : ''}
         ${enAttente != null ? '<b>' + enAttente + '</b> modification(s) en attente dans WME — ' : ''}
         <b>rien n'est enregistre</b> : relis, puis clique sur Enregistrer dans WME.
         ${echecs.length ? '<br>Echecs : ' + echecs.slice(0, 3).map(esc).join(' ; ') +
@@ -1847,7 +1893,7 @@
             <span class="agn-chev">▸</span>
             <span class="agn-pastille" style="background:${options.couleurs[cle] || fam.defaut}"></span>
             <b>${esc(fam.libelle)}</b>
-            ${DROITS.autorise && liste.some(planDeCorrection)
+            ${_ft() && _fv() && liste.some(planDeCorrection)
               ? '<button class="agn-fix-grp" title="Appliquer toutes les corrections automatisables de ce groupe">⚡ corriger</button>' : ''}
             <span class="agn-grp-n">${liste.length}</span>
           </div>
@@ -1868,12 +1914,14 @@
         const node = el(`
           <div class="agn-item agn-${cle}" data-seg="${f.segId}" data-idx="${findings.indexOf(f)}">
             <div class="agn-h"><span>${esc(f.libelle)}</span>
-              ${planDeCorrection(f) && DROITS.autorise
+              ${planDeCorrection(f) && _ft() && f.verrouilles !== f.nb
                 ? '<button class="agn-fix-btn" title="Appliquer la correction (sans enregistrer)">⚡</button>' : ''}
               <button class="agn-ok-btn" title="Marquer comme traite">✓</button>
               <span class="agn-cas">${f.cas}</span></div>
             <div class="agn-note">${ROADTYPE_LABEL[f.roadType] || f.roadType} · ${
-              f.nb > 1 ? '<b class="agn-nb">' + f.nb + ' segments</b>' : '#' + f.segId}</div>
+              f.nb > 1 ? '<b class="agn-nb">' + f.nb + ' segments</b>' : '#' + f.segId}${
+              f.verrouilles ? ' · <b class="agn-lock" title="Verrouilles au-dessus de ton niveau : non modifiables">🔒 ' +
+                f.verrouilles + '</b>' : ''}</div>
             ${f.ecarts.map(e => `<div class="agn-d"><b>${e.champ}</b> : ${esc(e.avant)} → ${esc(e.apres)}</div>`).join('')}
             ${f.doute ? `<div class="agn-warn">⚠ ${esc(f.doute)}</div>` : ''}
           </div>`);
