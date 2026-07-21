@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.61
+// @version      1.70
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,8 +28,11 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.61';
+  const VERSION = '1.70';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
+  // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
+  // et durable, pas une boite de dialogue qu'on clique sans lire.
+  const STORE_SANS_AGGLO = 'wmeAggloNaming.sansAgglo';
   const STORE_UI = 'wmeAggloNaming.ui';
   const IDB_NAME = 'wmeAggloNaming';
   const IDB_STORE = 'contours';
@@ -148,6 +151,7 @@
   let communes = [];
   let metaContours = null;
   let agglos = {};
+  let sansAgglo = {};        // { <code INSEE>: true }
   let communeActive = null;
   let findings = [];
   let lastScan = null;
@@ -198,12 +202,14 @@
     try { localStorage.setItem(cle, JSON.stringify(val)); } catch (e) { log('ecriture ' + cle, e); }
   };
   const saveAgglos = () => ecrire(STORE_AGGLOS, agglos);
+  const saveSansAgglo = () => ecrire(STORE_SANS_AGGLO, sansAgglo);
 
   function saveUI() {
     const r = ui.overlay.getBoundingClientRect();
     ecrire(STORE_UI, {
       x: r.left, y: r.top, w: ui.overlay.offsetWidth, h: ui.overlay.offsetHeight,
-      ouvert: ui.overlay.style.display !== 'none', options
+      ouvert: ui.overlay.style.display !== 'none', options,
+      vue: vueCourante, uiV: 2
     });
   }
 
@@ -626,7 +632,9 @@
       try { sdk.Map.removeAllFeaturesFromLayer({ layerName: n }); } catch (e) { /* */ }
     });
     if (!options.surligner || !findings.length) return;
-    const vivants = findings.filter(f => f.geom && !f.traite);  // un ecart traite ne se surligne plus
+    // On ne peint que l'onglet courant : sinon la carte montre des ecarts que
+    // la liste n'affiche pas, et les deux ne se lisent plus ensemble.
+    const vivants = findingsVisibles().filter(f => f.geom && !f.traite);  // un ecart traite ne se surligne plus
     try {
       const lignes = vivants.filter(f => !f.adresse).map(f => ({
         id: 'ec-' + f.segId, type: 'Feature', geometry: f.geom,
@@ -1405,9 +1413,23 @@
       ui.results.innerHTML = ''; return;
     }
     const listeAgglos = agglos[communeActive.code] || [];
-    if (!listeAgglos.length && !confirm(
-      'Aucune agglomeration n\'est tracee pour ' + communeActive.nom + '.\n\n' +
-      'Toute la commune sera analysee comme HORS AGGLOMERATION.\n\nContinuer ?')) return;
+    // ⚠️⚠️ SANS POLYGONE, TOUTE LA COMMUNE PASSE POUR HORS AGGLOMERATION, et
+    // le script deverse alors des centaines d'ecarts qui n'existent pas —
+    // vecu par l'auteur le 21/07 : commune changee (Saint-Genies) sans y
+    // tracer d'agglo, et tous les numeros du village signales « hors agglo ».
+    // Une simple confirmation ne suffisait pas : on la clique par reflexe.
+    // Il faut donc un choix EXPLICITE et memorise, commune par commune.
+    if (!listeAgglos.length && !sansAgglo[communeActive.code]) {
+      ui.stats.innerHTML = `<div class="agn-stat agn-alerte">
+        <b>Aucune agglomeration tracee pour ${esc(communeActive.nom)}.</b><br>
+        Sans polygone, toute la commune serait tenue pour hors agglomeration et
+        l'analyse remonterait des ecarts qui n'existent pas.<br>
+        Trace l'agglomeration (bouton ci-dessus), ou coche
+        <b>« commune sans agglomeration »</b> si elle n'en a reellement aucune.</div>`;
+      ui.results.innerHTML = '';
+      replierSection('agglo', true);
+      return;
+    }
 
     choisirReferentiel(detecterPays());
     replierTout();                 // l'analyse prend toute la place
@@ -1797,11 +1819,42 @@
   const CSS = `
   /* Une hauteur par defaut est necessaire : sans elle la fenetre grandit avec
      la liste et deborde par le bas de l'ecran au lieu de faire defiler. */
+  /* La fenetre descend desormais bas dans l'ecran : la liste des ecarts est
+     longue, et chaque pixel gagne en hauteur est un coup d'ascenseur en moins. */
   #agn-overlay{position:fixed;z-index:9000;width:400px;min-width:300px;min-height:200px;
-    height:560px;max-height:calc(100vh - 90px);
+    height:calc(100vh - 130px);max-height:calc(100vh - 70px);
     background:#fff;border:1px solid #b0bec5;border-radius:8px;
     box-shadow:0 6px 26px rgba(0,0,0,.28);display:flex;flex-direction:column;
-    font:12px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1f2933;resize:both;overflow:hidden}
+    font:12px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1f2933;
+    resize:both;overflow:hidden}
+  #agn-main{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;overflow:hidden;border-radius:7px}
+  /* Volet des donnees de reference : il se DEPLOIE VERS LA GAUCHE de la fenetre,
+     pour ne pas lui voler de largeur. Il vit HORS de #agn-overlay, dans le
+     body : un enfant debordant obligerait a mettre overflow:visible, et la
+     poignee de redimensionnement cesse alors de fonctionner. Sa position est
+     donc calculee a la main (voir placerVolet). */
+  #agn-volet{position:fixed;z-index:9001;width:300px;
+    background:#fff;border:1px solid #b0bec5;border-radius:8px;box-shadow:0 6px 26px rgba(0,0,0,.28);
+    display:none;flex-direction:column;overflow:hidden;
+    font:12px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1f2933}
+  #agn-volet.agn-volet-ouvert{display:flex}
+  #agn-volet-in{padding:10px 12px 14px;overflow-y:auto;flex:1 1 auto;min-height:0}
+  .agn-volet-t{font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.05em;
+    color:#546e7a;margin-bottom:8px;border-bottom:1px solid #eceff1;padding-bottom:5px}
+  #agn-donnees{background:rgba(255,255,255,.18);border:none;color:#fff;cursor:pointer;
+    padding:3px 8px;border-radius:4px;font-size:11px;white-space:nowrap;width:auto;height:auto}
+  #agn-donnees:hover{background:rgba(255,255,255,.34)}
+  #agn-donnees.agn-on{background:#fff;color:#1565c0;font-weight:600}
+  /* Onglets : on ne montre JAMAIS les deux familles d'ecarts en meme temps —
+     melangees, la liste devient illisible (demande de l'auteur). */
+  #agn-onglets{display:flex;gap:0;flex:0 0 auto;border-bottom:1px solid #cfd8dc;background:#eceff1}
+  .agn-tab{flex:1;padding:7px 6px;border:none;border-bottom:2px solid transparent;background:none;
+    cursor:pointer;font-size:11.5px;color:#546e7a;font-weight:600}
+  .agn-tab:hover{background:#e3eaf0}
+  .agn-tab.agn-tab-on{background:#fff;color:#1565c0;border-bottom-color:#1e88e5}
+  .agn-tab-n{display:inline-block;min-width:16px;padding:0 5px;margin-left:3px;border-radius:9px;
+    background:#b0bec5;color:#fff;font-size:10px;font-weight:700}
+  .agn-tab.agn-tab-on .agn-tab-n{background:#1e88e5}
   #agn-tete{display:flex;align-items:center;gap:8px;padding:7px 10px;background:#1e88e5;color:#fff;
     border-radius:7px 7px 0 0;cursor:move;user-select:none;flex:0 0 auto}
   #agn-tete b{font-size:12.5px}
@@ -1918,6 +1971,8 @@
   .agn-lien{border:none;background:none;color:#1e88e5;cursor:pointer;font-size:11px;
     text-decoration:underline;padding:2px;margin-left:auto}
   .agn-empty{opacity:.6;font-style:italic;padding:8px 0;font-size:11px}
+  .agn-sansagglo{display:flex;align-items:flex-start;gap:6px;margin-top:6px;
+    font-style:normal;opacity:1;cursor:pointer;color:#a34a00}
   /* WCT reinsere son bouton en dernier dans le conteneur (il le surveille) :
      inutile de se battre dans le DOM, le conteneur est une grille, donc on se
      place apres lui par l'ordre CSS. */
@@ -1963,12 +2018,26 @@
 
     const o = el(`
       <div id="agn-overlay">
+        <div id="agn-main">
         <div id="agn-tete">
+          <button id="agn-donnees" title="Contours, commune, agglomeration">☰ Donnees</button>
           <b>🏙️ Agglo Naming</b><span class="agn-v">v${VERSION}</span><span class="agn-sp"></span>
           <button id="agn-reduire" title="Reduire">–</button>
           <button id="agn-fermer" title="Fermer">✕</button>
         </div>
+        <div id="agn-onglets">
+          <button class="agn-tab" data-vue="segments">Segments <span class="agn-tab-n"></span></button>
+          <button class="agn-tab" data-vue="adresses">Numerotation <span class="agn-tab-n"></span></button>
+        </div>
         <div id="agn-corps">
+          <button class="agn-btn primary" id="agn-scan" disabled>Analyser la commune</button>
+          <div id="agn-stats"></div>
+          <div id="agn-fix"></div>
+          <div id="agn-results"></div>
+        </div>
+      </div>
+      <div id="agn-volet"><div id="agn-volet-in">
+          <div class="agn-volet-t">Donnees de reference</div>
           <div class="agn-sect" data-s="contours">
             <div class="agn-sect-t"><span class="agn-chev">▾</span><b>1. Contours communaux</b>
               <span class="agn-sect-r"></span></div>
@@ -2012,13 +2081,8 @@
               <div id="agn-agglos"></div>
             </div>
           </div>
-
-          <button class="agn-btn primary" id="agn-scan" disabled>Analyser la commune</button>
-          <div id="agn-stats"></div>
-          <div id="agn-fix"></div>
-          <div id="agn-results"></div>
-        </div>
-      </div>`);
+          <button class="agn-btn" id="agn-volet-ok">Terminer et replier</button>
+      </div></div>`);
     document.body.appendChild(o);
 
     ui.overlay = o;
@@ -2033,6 +2097,9 @@
     ui.bandeauFix = o.querySelector('#agn-fix');
     ui.results = o.querySelector('#agn-results');
     ui.corps = o.querySelector('#agn-corps');
+    ui.volet = o.querySelector('#agn-volet');
+    ui.btnDonnees = o.querySelector('#agn-donnees');
+    ui.onglets = [...o.querySelectorAll('.agn-tab')];
     ui.sections = {};
     o.querySelectorAll('.agn-sect').forEach(sec => {
       ui.sections[sec.dataset.s] = sec;
@@ -2062,8 +2129,19 @@
     if (memo.w) o.style.width = memo.w + 'px';
     // On borne la hauteur memorisee : l'ecran a pu retrecir depuis, ou la
     // fenetre avoir ete etiree au-dela quand la liste la poussait encore.
-    if (memo.h) o.style.height = Math.min(memo.h, window.innerHeight - 90) + 'px';
+    // ⚠️ `uiV` marque la refonte de la v1.70 : la fenetre descend desormais
+    // bien plus bas, et une hauteur memorisee sous l'ancienne mise en page
+    // annulerait tout le benefice. On ne reprend donc la hauteur enregistree
+    // que si elle a ete choisie APRES la refonte.
+    if (memo.h && memo.uiV >= 2) o.style.height = Math.min(memo.h, window.innerHeight - 70) + 'px';
     if (memo.ouvert === false) o.style.display = 'none';
+
+    // Volet des donnees : ouvert d'office tant qu'il n'y a pas de contours, car
+    // c'est par la qu'il faut commencer ; referme des que le travail est pret.
+    o.querySelector('#agn-donnees').onclick = () => basculerVolet();
+    o.querySelector('#agn-volet-ok').onclick = () => basculerVolet(false);
+    ui.onglets.forEach(t => { t.onclick = () => choisirVue(t.dataset.vue); });
+    choisirVue(memo.vue === 'adresses' ? 'adresses' : 'segments');
 
     o.querySelector('#agn-contours').onclick = () => ui.inputFichier.click();
     ui.inputFichier.onchange = surFichierContours;
@@ -2114,15 +2192,26 @@
       const x = Math.min(Math.max(0, e.clientX - drag.dx), window.innerWidth - 120);
       const y = Math.min(Math.max(0, e.clientY - drag.dy), window.innerHeight - 40);
       o.style.left = x + 'px'; o.style.top = y + 'px';
+      placerVolet();                    // le volet reste colle a la fenetre
       e.preventDefault();
     });
     document.addEventListener('mouseup', () => { if (drag) { drag = null; saveUI(); } });
 
-    // La molette et les clics dans l'overlay ne doivent pas atteindre la carte.
-    ['wheel', 'mousedown', 'dblclick', 'contextmenu'].forEach(evt =>
-      o.addEventListener(evt, e => e.stopPropagation()));
+    // La molette et les clics dans nos panneaux ne doivent pas atteindre la carte.
+    ['wheel', 'mousedown', 'dblclick', 'contextmenu'].forEach(evt => {
+      o.addEventListener(evt, e => e.stopPropagation());
+      ui.volet.addEventListener(evt, e => e.stopPropagation());
+    });
 
-    new ResizeObserver(() => { clearTimeout(ui.tResize); ui.tResize = setTimeout(saveUI, 400); }).observe(o);
+    new ResizeObserver(() => {
+      placerVolet();
+      clearTimeout(ui.tResize); ui.tResize = setTimeout(saveUI, 400);
+    }).observe(o);
+
+    // ⚠️ EN DERNIER : le volet quitte la fenetre pour vivre dans le body. Tous
+    // les querySelector ci-dessus le parcourent encore ; deplacer plus tot
+    // casserait le branchement des contours, de la commune et de l'agglo.
+    document.body.appendChild(ui.volet);
   }
 
   /**
@@ -2146,6 +2235,63 @@
 
   function replierTout() {
     ['contours', 'commune', 'agglo'].forEach(k => replierSection(k, false));
+    basculerVolet(false);       // l'analyse commence : place au travail
+  }
+
+  /**
+   * Volet des donnees de reference. Il se deploie a GAUCHE de la fenetre, en
+   * dehors d'elle : la zone de travail garde toute sa largeur. S'il n'y a pas
+   * la place a gauche, il bascule a droite plutot que de sortir de l'ecran.
+   */
+  function basculerVolet(force) {
+    const ouvrir = force !== undefined ? force : !ui.volet.classList.contains('agn-volet-ouvert');
+    ui.volet.classList.toggle('agn-volet-ouvert', ouvrir);
+    ui.btnDonnees.classList.toggle('agn-on', ouvrir);
+    if (ouvrir) { placerVolet(); majResumeSections(); }
+  }
+
+  /**
+   * Colle le volet contre le bord GAUCHE de la fenetre, a la meme hauteur.
+   * S'il n'y a pas la place a gauche, il passe a droite plutot que de sortir
+   * de l'ecran.
+   */
+  function placerVolet() {
+    if (!ui.volet || !ui.volet.classList.contains('agn-volet-ouvert')) return;
+    const r = ui.overlay.getBoundingClientRect();
+    const L = 300, marge = 8;
+    const aGauche = r.left >= L + marge;
+    ui.volet.style.left = (aGauche ? r.left - L - marge : Math.min(r.right + marge, window.innerWidth - L - 4)) + 'px';
+    ui.volet.style.top = r.top + 'px';
+    ui.volet.style.height = r.height + 'px';
+  }
+
+  /**
+   * Onglet courant : segments OU numerotation, jamais les deux. Melangees, les
+   * deux familles rendent la liste illisible (contrainte de l'auteur). Une
+   * seule analyse alimente les deux vues : changer d'onglet ne relance rien.
+   */
+  let vueCourante = 'segments';
+  function choisirVue(vue) {
+    vueCourante = (vue === 'adresses') ? 'adresses' : 'segments';
+    ui.onglets.forEach(t => t.classList.toggle('agn-tab-on', t.dataset.vue === vueCourante));
+    saveUI();
+    renderResults();
+    redrawEcarts(null);
+  }
+
+  /** Les reports de l'onglet courant. */
+  const findingsVisibles = () =>
+    findings.filter(f => (vueCourante === 'adresses') === !!f.adresse);
+
+  /** Chaque onglet annonce son nombre de reports, meme quand il n'est pas actif. */
+  function majCompteursOnglets() {
+    if (!ui.onglets) return;
+    const n = { segments: 0, adresses: 0 };
+    findings.forEach(f => { n[f.adresse ? 'adresses' : 'segments']++; });
+    ui.onglets.forEach(t => {
+      const c = t.querySelector('.agn-tab-n');
+      if (c) c.textContent = n[t.dataset.vue] || '0';
+    });
   }
 
   /** Chaque en-tete rappelle l'essentiel de ce qu'elle contient. */
@@ -2158,7 +2304,10 @@
     mettre('contours', metaContours ? metaContours.nb + ' communes' : 'aucun');
     mettre('commune', communeActive ? communeActive.nom : 'aucune');
     const n = communeActive ? (agglos[communeActive.code] || []).length : 0;
-    mettre('agglo', communeActive ? (n ? n + ' polygone' + (n > 1 ? 's' : '') : 'aucune') : '—');
+    mettre('agglo', !communeActive ? '—'
+      : n ? n + ' polygone' + (n > 1 ? 's' : '')
+      : sansAgglo[communeActive.code] ? 'sans agglomeration (declare)'
+      : '⚠ a tracer');
   }
 
   /**
@@ -2417,14 +2566,31 @@
 
   function renderAgglos() {
     ui.btnTracer.disabled = !communeActive;
-    ui.btnScan.disabled = !communeActive;
     if (!communeActive) {
-      ui.listeAgglos.innerHTML = '<div class="agn-empty">Choisis une commune.</div>'; return;
+      ui.btnScan.disabled = true;
+      ui.listeAgglos.innerHTML = '<div class="agn-empty">Choisis une commune.</div>';
+      majResumeSections();     // sinon l'en-tete annonce encore la commune perdue
+      return;
     }
     const liste = agglos[communeActive.code] || [];
+    // ⚠️ Le bouton d'analyse reste FERME tant qu'on n'a ni polygone ni
+    // declaration explicite : sans zonage, tous les ecarts seraient faux.
+    const declaree = !!sansAgglo[communeActive.code];
+    ui.btnScan.disabled = !liste.length && !declaree;
     if (!liste.length) {
-      ui.listeAgglos.innerHTML = '<div class="agn-empty">Aucune agglomeration pour ' +
-        esc(communeActive.nom) + '.</div>';
+      ui.listeAgglos.innerHTML = '';
+      const bloc = el(`<div class="agn-empty">
+          Aucune agglomeration tracee pour <b>${esc(communeActive.nom)}</b>.<br>
+          <label class="agn-sansagglo"><input type="checkbox" ${declaree ? 'checked' : ''}>
+            cette commune n'a <b>aucune agglomeration</b> (tout est hors agglo)</label>
+        </div>`);
+      bloc.querySelector('input').onchange = e => {
+        if (e.target.checked) sansAgglo[communeActive.code] = true;
+        else delete sansAgglo[communeActive.code];
+        saveSansAgglo(); renderAgglos(); majResumeSections();
+      };
+      ui.listeAgglos.appendChild(bloc);
+      majResumeSections();
       return;
     }
     majResumeSections();
@@ -2658,9 +2824,14 @@
 
   function renderResults() {
     const s = lastScan;
-    if (s) {
+    // Chaque onglet ne montre QUE ses propres reports, et son propre bilan :
+    // afficher les deux ensemble rendait la liste illisible.
+    const liste = findingsVisibles();
+    majCompteursOnglets();
+    if (s && communeActive) {
       const z = s.zones;
-      ui.stats.innerHTML = `<div class="agn-stat">
+      ui.stats.innerHTML = vueCourante === 'segments'
+        ? `<div class="agn-stat">
         <b>${s.ecarts}</b> segment(s) en ecart sur <b>${s.analyses}</b> analyses a ${esc(communeActive.nom)}${
           s.lignes && s.lignes !== s.ecarts ? ', regroupes en <b>' + s.lignes + '</b> report(s)' : ''}.<br>
         ${z.agglo} en agglo · ${z.hors} hors agglo · ${z.cheval} a couper (agglo) · ${z.limCom} a couper (commune)${
@@ -2669,26 +2840,30 @@
           z.special ? ' · ' + z.special + ' voie(s) a regle propre' : ''}${
           z.giratoire ? ' · ' + z.giratoire + ' giratoire(s)' : ''}.<br>
         Ignores : ${s.skipped.horsCommune} hors commune, ${s.skipped.sansAdresse} sans adressage, ${s.skipped.horsRegle} regles propres.
-        ${s.adr && (s.adr.hnLus || s.adr.poiLus || s.adr.hnErreur) ? '<br>Adressage : ' +
-          s.adr.hnLus + ' numero(s) lu(s), <b>' + s.adr.hnHorsAgglo + '</b> hors agglo · ' +
-          s.adr.poiLus + ' POI residentiel(s), <b>' + s.adr.poiAgglo + '</b> en agglo.' +
-          (s.adr.hnErreur ? ' <span class="agn-alerte">Lecture des numeros : ' + esc(s.adr.hnErreur) + '</span>' : '') +
-          (s.adr.hnHorsAgglo && !findings.some(f => f.adresse && planDeCorrection(f))
-            ? ' <b>Ouvre une fois « Ajouter des numeros de rue » sur un segment de la zone, ' +
-              'puis relance : la conversion s\'activera.</b>' : '')
-          : ''}
+      </div>`
+        : `<div class="agn-stat">
+        ${s.adr ? '<b>' + s.adr.hnLus + '</b> numero(s) lu(s) a ' + esc(communeActive.nom) +
+            ', dont <b>' + s.adr.hnHorsAgglo + '</b> hors agglomeration.<br><b>' +
+            s.adr.poiLus + '</b> POI residentiel(s), dont <b>' + s.adr.poiAgglo + '</b> en agglomeration.' +
+            (s.adr.hnErreur ? '<br><span class="agn-alerte">Lecture des numeros : ' + esc(s.adr.hnErreur) + '</span>' : '') +
+            (s.adr.hnHorsAgglo && !findings.some(f => f.adresse && planDeCorrection(f))
+              ? '<br><b>Ouvre une fois « Ajouter des numeros de rue » sur un segment de la zone, ' +
+                'puis relance : la conversion s\'activera.</b>' : '')
+          : 'Analyse non lancee.'}
       </div>`;
     }
     ui.results.innerHTML = '';
     indexCourant = -1;
-    if (!findings.length) {
-      ui.results.innerHTML = '<div class="agn-empty">Aucun ecart detecte.</div>';
+    if (!liste.length) {
+      ui.results.innerHTML = '<div class="agn-empty">' + (findings.length
+        ? 'Aucun ecart dans cet onglet — regarde l\'autre.'
+        : 'Aucun ecart detecte.') + '</div>';
       return;
     }
     const nav = el(`<div class="agn-nav">
         <button class="agn-btn" id="agn-prec" style="width:auto">‹ Precedent</button>
         <button class="agn-btn" id="agn-suiv" style="width:auto">Suivant ›</button>
-        <span id="agn-compteur">— / ${findings.length}</span>
+        <span id="agn-compteur">— / ${liste.length}</span>
         <span id="agn-traites" class="agn-traites"></span>
         <button class="agn-lien" id="agn-tout">tout deplier</button></div>`);
     ui.results.appendChild(nav);
@@ -2706,7 +2881,7 @@
     // donc la liste et la carte se lisent avec la meme cle. Replie par defaut :
     // sur plusieurs centaines d'ecarts, la liste a plat est illisible.
     const parFamille = new Map();
-    findings
+    liste.slice()
       .sort((a, b) => a.cas.localeCompare(b.cas) || a.libelle.localeCompare(b.libelle))
       .forEach(f => {
         const cle = familleDe(f);
@@ -2715,16 +2890,16 @@
       });
 
     for (const [cle, fam] of Object.entries(FAMILLES)) {
-      const liste = parFamille.get(cle);
-      if (!liste || !liste.length) continue;
+      const membres = parFamille.get(cle);
+      if (!membres || !membres.length) continue;
       const grp = el(`<div class="agn-grp" data-fam="${cle}">
           <div class="agn-grp-t">
             <span class="agn-chev">▸</span>
             <span class="agn-pastille" style="background:${options.couleurs[cle] || fam.defaut}"></span>
             <b>${esc(fam.libelle)}</b>
-            ${_ft() && _fv() && liste.some(planDeCorrection)
+            ${_ft() && _fv() && membres.some(planDeCorrection)
               ? '<button class="agn-fix-grp" title="Appliquer toutes les corrections automatisables de ce groupe">⚡ corriger</button>' : ''}
-            <span class="agn-grp-n">${liste.length}</span>
+            <span class="agn-grp-n">${membres.length}</span>
           </div>
           <div class="agn-grp-c" style="display:none"></div></div>`);
       const corps = grp.querySelector('.agn-grp-c');
@@ -2732,14 +2907,14 @@
       const fixGrp = grp.querySelector('.agn-fix-grp');
       if (fixGrp) fixGrp.onclick = e => {
         e.stopPropagation();
-        const aFaire = liste.filter(planDeCorrection);
+        const aFaire = membres.filter(planDeCorrection);
         const nbSeg = aFaire.reduce((n, x) => n + (x.nb || 1), 0);
         if (!confirm('Appliquer ' + aFaire.length + ' correction(s) sur ' + nbSeg + ' segment(s) ?\n\n' +
           'Rien ne sera enregistre : tu reliras dans WME avant de cliquer sur Enregistrer.')) return;
         corriger(aFaire, aFaire.map(x => corps.querySelector('.agn-item[data-idx="' + findings.indexOf(x) + '"]')));
       };
 
-      liste.forEach(f => {
+      membres.forEach(f => {
         const node = el(`
           <div class="agn-item agn-${cle}" data-seg="${f.segId}" data-idx="${findings.indexOf(f)}">
             <div class="agn-h"><span>${esc(f.libelle)}</span>
@@ -2813,6 +2988,7 @@
     // son appel leve une TypeError et fait echouer tout le demarrage.
 
     agglos = lire(STORE_AGGLOS, {});
+    sansAgglo = lire(STORE_SANS_AGGLO, {});
     buildOverlay();
     installerFab();
     ensureLayers();
@@ -2830,6 +3006,9 @@
     rafraichirCommunesDeLaVue();
     renderAgglos();
     if (ui.overlay.style.display === 'none') nettoyerCarte();
+    // Rien a se mettre sous la dent : on ouvre le volet, c'est par la qu'on
+    // commence. Sinon on laisse toute la place au travail.
+    if (!communes.length) basculerVolet(true);
 
     let debounce = null;
     try {
