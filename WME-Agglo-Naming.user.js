@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.22
+// @version      1.30
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -18,7 +18,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.22';
+  const VERSION = '1.30';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   const STORE_UI = 'wmeAggloNaming.ui';
   const IDB_NAME = 'wmeAggloNaming';
@@ -136,7 +136,6 @@
   let ui = {};
   // seuil : part de longueur (0-1) au-dela de laquelle un segment a cheval est
   // rattache d'office a un cote. Entre (1 - seuil) et seuil = zone grise.
-  let DROITS = { autorise: false, niveau: '?', motifs: [] };
   let options = {
     sansAdresse: false, altEnTrop: false, seuil: 0.8,
     zoomClic: true, zoomNiveau: 17, surligner: true,
@@ -692,6 +691,25 @@
   }
 
   /**
+   * Giratoire : en France il ne porte PAS de nom. Waze le reconnait a son
+   * `junctionId` — tous les segments d'un meme rond-point partagent le meme.
+   * En agglomeration il porte la ville, hors agglomeration il n'a ni nom ni
+   * ville. On ne touche pas aux noms alternatifs : le SDK ne sait pas les
+   * retirer, et un alternatif peut avoir ete pose sciemment.
+   */
+  function verifierGiratoire(nam, villeCible) {
+    const ecarts = [];
+    if (nam.primary.name) {
+      ecarts.push({ champ: 'nom interdit (giratoire)', avant: fmt(nam.primary),
+        apres: '‹sans nom› / ' + (villeCible || '‹sans ville›') });
+    } else if ((nam.primary.cityName || '') !== (villeCible || '')) {
+      ecarts.push({ champ: 'ville du giratoire', avant: fmt(nam.primary),
+        apres: '‹sans nom› / ' + (villeCible || '‹sans ville›') });
+    }
+    return ecarts;
+  }
+
+  /**
    * Regles propres a certains types de voies (guide FR, « Cas particuliers ») :
    * voies ferrees, pistes et ferries ne portent NI ville NI rue ; bretelles et
    * rocades sont systematiquement hors agglomeration, donc jamais de ville.
@@ -806,6 +824,7 @@
         { cle: 'bretelles', portee: 'type', libelle: 'Bretelles : jamais de ville' },
         { cle: 'rails', portee: 'type', libelle: 'Voies ferrees, pistes, ferries : ni ville ni nom' },
         { cle: 'rocades', portee: 'type', libelle: 'Rocades et peripheriques : jamais de ville' },
+        { cle: 'giratoires', portee: 'type', libelle: 'Giratoires : sans nom (ville selon la zone)' },
         { cle: 'abreviations', portee: 'forme', libelle: 'Abreviations interdites (Av., Bd., Rte...)' },
         { cle: 'contractions', portee: 'forme', libelle: 'Contractions interdites (St-, R. Poincare)' },
         { cle: 'majuscule', portee: 'forme', libelle: 'Nom commencant par une minuscule' },
@@ -977,6 +996,21 @@
                      centre: centreDe(coords), geom: seg.geometry };
       const forme = REF.verifierForme(nam);
 
+      // --- Giratoire : reconnu par son junctionId, quelle que soit la zone ---
+      if (seg.junctionId != null && c.giratoires) {
+        const enAggloG = loc.partAgglo >= haut;
+        const villeG = enAggloG ? communeActive.nom : '';
+        const ecartsG = verifierGiratoire(nam, villeG).concat(forme);
+        if (!ecartsG.length) continue;
+        zones.special++;
+        findings.push(Object.assign({}, base, {
+          cas: 'GIR', ecarts: ecartsG, special: true, doute: null,
+          cible: { primary: { name: '', cityName: villeG }, alts: [] }
+        }));
+        continue;
+      }
+      if (seg.junctionId != null && !c.giratoires) { skipped.horsRegle++; continue; }
+
       // --- Voies a regle propre : elles sortent du raisonnement agglo ---
       const estRail = REF.typesSansAdresseTotale.has(seg.roadType);      // rail, piste, ferry
       const estBretelle = seg.roadType === REF.typeBretelle;
@@ -1108,6 +1142,20 @@
   /** Recoupement : le jeu de reference doit etre intact. */
   const _fv = () => (_fz.reduce((a, b) => (a ^ b) >>> 0, 0) >>> 0) === _fq;
 
+  let _fcache = null;
+
+  /**
+   * Habilitation, calculee a la demande. Au demarrage, `getUserInfo()` et
+   * `loginManager` peuvent ne pas etre encore garnis : figer le resultat a ce
+   * moment-la afficherait « rang : ? » et desactiverait la correction a tort.
+   * On ne met donc en cache QUE si une source a effectivement repondu.
+   */
+  function droits() {
+    if (_fcache && _fcache.rangsLus) return _fcache;
+    _fcache = droitDeCorriger();
+    return _fcache;
+  }
+
   function droitDeCorriger() {
     const p = _fp();
     const j = _ft();
@@ -1138,7 +1186,9 @@
       city = villeVide();
     }
     if (!city) throw new Error('ville « ' + (nomVille || 'sans ville') + ' » introuvable');
-    return DM.Streets.getStreet({ streetName: nom, cityId: city.id }) ||
+    // Le « sans nom » est un objet Street vide, pas un null : getStreet('')
+    // le rend directement (verifie).
+    return DM.Streets.getStreet({ streetName: nom || '', cityId: city.id }) ||
            DM.Streets.addStreet({ streetName: nom, cityId: city.id });
   }
 
@@ -1155,6 +1205,11 @@
     // « sans nom » demande un objet Street vide, cas rare et delicat).
     if (cur.some(e => e.champ === 'principal') && f.cible.primary && f.cible.primary.name) {
       ops.push({ type: 'principal', nom: f.cible.primary.name, ville: f.cible.primary.cityName });
+    }
+    // Giratoire : la cible est justement « sans nom », donc on l'applique meme
+    // si le nom vise est vide.
+    if (f.cas === 'GIR' && cur.some(e => /giratoire/.test(e.champ))) {
+      ops.push({ type: 'principal', nom: '', ville: f.cible.primary.cityName });
     }
     // Villes interdites (autoroute, bretelle, rocade, rail) : on repointe le nom
     // principal sur la meme rue, sans ville.
@@ -1305,6 +1360,7 @@
   .agn-edit-barre button{display:inline-block;width:auto;margin-right:5px}
   .agn-forme{border-left-color:#00acc1}
   .agn-special{border-left-color:#546e7a}
+  .agn-gir{border-left-color:#546e7a}
   /* Le libelle absorbe la largeur disponible et le badge a une largeur
      minimale : sans ca, la coche se decale selon la longueur du nom et la
      taille du code de cas, et les ✓ ne sont plus alignes d'une ligne a l'autre. */
@@ -1530,8 +1586,9 @@
 
         <h4>Navigation</h4>
         <label class="agn-sb-c"><input type="checkbox" id="agn-r-zoom">
-          Zoomer sur le segment au clic</label>
-        <label class="agn-sb-l"><span>Niveau de zoom</span>
+          Cadrer sur le segment au clic</label>
+        <label class="agn-sb-l" title="Le zoom s'adapte a l'emprise des segments ; cette valeur en est le plafond.">
+          <span>Zoom maximal</span>
           <input type="number" id="agn-r-zoomniv" min="12" max="22" step="1"></label>
 
         <h4>Surlignage des segments</h4>
@@ -1605,12 +1662,22 @@
     };
 
     const zoneDroits = q('#agn-r-droits');
-    zoneDroits.style.color = DROITS.autorise ? '#2e7d32' : '#a34a00';
-    zoneDroits.innerHTML = DROITS.autorise
-      ? 'Correction activee — ' + esc(DROITS.motifs.join(', ')) +
-        '.<br>Les corrections ne sont <b>jamais enregistrees</b> automatiquement.'
-      : 'Correction desactivee : reservee aux L5, L6, Global Editors et staff (ton rang : ' +
-        esc(DROITS.niveau) + ').';
+    const peindreDroits = () => {
+      const d = droits();
+      zoneDroits.style.color = d.autorise ? '#2e7d32' : '#a34a00';
+      zoneDroits.innerHTML = d.autorise
+        ? 'Correction activee — ' + esc(d.motifs.join(', ')) +
+          '.<br>Les corrections ne sont <b>jamais enregistrees</b> automatiquement.'
+        : d.rangsLus
+          ? 'Correction desactivee : reservee aux L5, L6, Global Editors et staff (ton rang : ' +
+            esc(d.niveau) + ').'
+          : 'Lecture du profil en cours…';
+      return d.rangsLus > 0;
+    };
+    if (!peindreDroits()) {                 // profil pas encore lisible : on retente
+      let n = 0;
+      const t = setInterval(() => { if (peindreDroits() || ++n > 20) clearInterval(t); }, 1000);
+    }
 
     q('#agn-rouvrir').onclick = ouvrirOverlay;
   }
@@ -1819,21 +1886,53 @@
     try { sdk.Editing.setSelection({ selection: { ids: f.segIds, objectType: 'segment' } }); }
     catch (e) { log('selection impossible', e); }
 
-    try {
-      if (f.nb > 1) {
-        // Plusieurs troncons : on cadre l'ensemble, sinon on ne verrait qu'une
-        // partie de ce qui vient d'etre selectionne.
-        sdk.Map.centerMapOnGeometry({ geometry: {
-          type: 'MultiLineString', coordinates: f.geoms.filter(Boolean).map(g => g.coordinates) } });
-      } else {
-        // Un seul : centrage + zoom FIXE et reglable, plus previsible qu'un
-        // cadrage qui zoome a fond sur un segment court.
-        sdk.Map.setMapCenter({ lonLat: f.centre });
-        if (options.zoomClic) sdk.Map.setZoomLevel({ zoomLevel: options.zoomNiveau });
-      }
-    } catch (e) { log('recentrage impossible', e); }
+    cadrerSur(f);
 
     redrawEcarts(idx);
+  }
+
+  /**
+   * Centre la carte sur un report et zoome.
+   * ⚠️ `centerMapOnGeometry` n'accepte que Point, LineString et Polygon — il
+   * REJETTE MultiLineString (ValidationError), ce qui faisait echouer en
+   * silence le cadrage de tous les reports multi-segments. On calcule donc
+   * l'emprise nous-memes : centrage au milieu, puis zoom reglé ; et si
+   * l'emprise ne tient pas a l'ecran a ce zoom, on cadre la boite englobante,
+   * seul moyen de voir d'un coup tout ce qui vient d'etre selectionne.
+   */
+  function cadrerSur(f) {
+    const pts = [];
+    (f.geoms || [f.geom]).forEach(g => { if (g && g.coordinates) pts.push(...g.coordinates); });
+    if (!pts.length && f.centre) pts.push([f.centre.lon, f.centre.lat]);
+    if (!pts.length) return;
+
+    let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+    pts.forEach(c => { if (c[0] < x1) x1 = c[0]; if (c[0] > x2) x2 = c[0];
+                       if (c[1] < y1) y1 = c[1]; if (c[1] > y2) y2 = c[1]; });
+    const centre = { lon: (x1 + x2) / 2, lat: (y1 + y2) / 2 };
+
+    try {
+      sdk.Map.setMapCenter({ lonLat: centre });
+      if (options.zoomClic) sdk.Map.setZoomLevel({ zoomLevel: zoomPour(x2 - x1, y2 - y1, centre.lat) });
+    } catch (e) { log('cadrage impossible', e); }
+  }
+
+  /**
+   * Zoom adapte a l'emprise a montrer, plutot qu'une valeur fixe : un tronçon
+   * de dix metres et une departementale de trois kilometres n'appellent pas le
+   * meme cadrage. On garde une marge autour de l'objet, et on borne le
+   * resultat — `options.zoomNiveau` sert de plafond (ne pas coller au sol sur
+   * un segment minuscule), ZOOM_PLANCHER de limite basse.
+   */
+  const ZOOM_PLANCHER = 12;
+  function zoomPour(dLon, dLat, lat) {
+    const marge = 1.35;                       // ~35 % d'air autour de l'objet
+    const cos = Math.max(0.15, Math.cos(lat * Math.PI / 180));
+    // Largeur/hauteur visibles en degres a un zoom donne (projection Mercator).
+    const zLon = Math.log2(window.innerWidth * 360 / (256 * Math.max(dLon, 1e-6) * marge));
+    const zLat = Math.log2(window.innerHeight * 360 * cos / (256 * Math.max(dLat, 1e-6) * marge));
+    const z = Math.floor(Math.min(zLon, zLat));
+    return Math.max(ZOOM_PLANCHER, Math.min(options.zoomNiveau, z));
   }
 
   function renderResults() {
@@ -1966,8 +2065,6 @@
     // son appel leve une TypeError et fait echouer tout le demarrage.
 
     agglos = lire(STORE_AGGLOS, {});
-    DROITS = droitDeCorriger();
-    log('correction ' + (DROITS.autorise ? 'autorisee (' + DROITS.motifs.join(', ') + ')' : 'non autorisee'));
     buildOverlay();
     installerFab();
     ensureLayers();
