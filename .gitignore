@@ -1,0 +1,16 @@
+# Variantes de test generees a la volee (scriptId different pour cohabiter
+# avec l'instance installee dans Tampermonkey)
+_t.user.js
+_variante-test.user.js
+
+# Contours communaux telecharges : volumineux (~3 Mo/departement) et
+# refabricables en un clic avec Recuperer-Communes.html
+*.geojson
+
+# Anciennes versions eventuelles
+Archives/
+
+# Fichiers systeme
+Thumbs.db
+desktop.ini
+.DS_Store

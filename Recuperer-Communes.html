@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Récupérer les contours communaux — WME Agglo Naming</title>
+<style>
+  :root{
+    --fond:#f6f7f9; --carte:#fff; --trait:#dfe3e8; --texte:#1f2933;
+    --doux:#6b7684; --accent:#1e88e5; --ok:#2e7d32; --fondok:#e8f5e9; --alerte:#a34a00; --fondalerte:#fff3e0;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --fond:#15181c; --carte:#1e2228; --trait:#333a44; --texte:#e6e9ed;
+           --doux:#98a2b3; --fondok:#17301c; --ok:#7bc47f; --fondalerte:#3a2a12; --alerte:#e0a458; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:24px;background:var(--fond);color:var(--texte);
+       font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .page{max-width:840px;margin:0 auto}
+  h1{font-size:21px;margin:0 0 4px}
+  .sous{color:var(--doux);font-size:13px;margin-bottom:20px}
+  .carte{background:var(--carte);border:1px solid var(--trait);border-radius:10px;padding:18px;margin-bottom:16px}
+  .barre{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+  input[type=search]{flex:1;min-width:180px;padding:8px 11px;font-size:14px;border:1px solid var(--trait);
+       border-radius:7px;background:var(--fond);color:var(--texte)}
+  .compte{font-size:13px;color:var(--doux);white-space:nowrap}
+  .grille{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:2px 10px;
+       max-height:320px;overflow-y:auto;border:1px solid var(--trait);border-radius:7px;padding:8px;background:var(--fond)}
+  .dep{display:flex;gap:7px;align-items:center;padding:3px 5px;border-radius:5px;cursor:pointer;font-size:13px}
+  .dep:hover{background:var(--carte)}
+  .dep code{color:var(--doux);font-size:12px;min-width:26px}
+  button{font:inherit;padding:9px 16px;border-radius:7px;border:1px solid var(--trait);
+       background:var(--carte);color:var(--texte);cursor:pointer}
+  button:hover:not(:disabled){border-color:var(--accent)}
+  button.principal{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  button:disabled{opacity:.5;cursor:default}
+  .lien{background:none;border:none;color:var(--accent);cursor:pointer;font-size:13px;padding:2px 4px;text-decoration:underline}
+  .journal{margin-top:14px;font-size:13px}
+  .ligne{padding:7px 11px;border-radius:6px;margin-bottom:6px;background:var(--fond);border:1px solid var(--trait)}
+  .ligne.ok{background:var(--fondok);border-color:transparent;color:var(--ok)}
+  .ligne.pb{background:var(--fondalerte);border-color:transparent;color:var(--alerte)}
+  .note{font-size:12.5px;color:var(--doux);margin-top:14px;line-height:1.6}
+  .note b{color:var(--texte)}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <h1>Contours communaux INSEE</h1>
+  <div class="sous">Fabrique le fichier GeoJSON à charger dans <b>WME Agglo Naming</b>.</div>
+
+  <div class="carte">
+    <div class="barre">
+      <input type="search" id="filtre" placeholder="Filtrer : nom ou numéro de département…">
+      <span class="compte" id="compte">0 sélectionné</span>
+      <button class="lien" id="vider">tout décocher</button>
+    </div>
+    <div class="grille" id="grille"></div>
+    <div class="barre" style="margin:14px 0 0">
+      <button class="principal" id="go" disabled>Télécharger le GeoJSON</button>
+      <span class="compte" id="etat"></span>
+    </div>
+    <div class="journal" id="journal"></div>
+  </div>
+
+  <div class="note">
+    <b>Source</b> : API Découpage administratif de l'État (<code>geo.api.gouv.fr</code>), contours issus
+    d'<b>Admin Express (IGN)</b> et du Code Officiel Géographique de l'<b>INSEE</b> — open data permissif.
+    À ne pas confondre avec les jeux de contours dérivés d'OpenStreetMap, en ODbL.<br>
+    <b>Volume</b> : environ 3 Mo et une dizaine de secondes par département.
+    Plusieurs départements cochés produisent <b>un seul fichier fusionné</b> — utile puisque le script
+    remplace ses contours à chaque chargement.<br>
+    <b>Propriétés produites</b> : <code>nom</code> et <code>code</code> (INSEE), directement exploitables.
+  </div>
+
+</div>
+
+<script>
+const DEPS = [
+{"code":"01","nom":"Ain"},{"code":"02","nom":"Aisne"},{"code":"03","nom":"Allier"},{"code":"04","nom":"Alpes-de-Haute-Provence"},
+{"code":"05","nom":"Hautes-Alpes"},{"code":"06","nom":"Alpes-Maritimes"},{"code":"07","nom":"Ardèche"},{"code":"08","nom":"Ardennes"},
+{"code":"09","nom":"Ariège"},{"code":"10","nom":"Aube"},{"code":"11","nom":"Aude"},{"code":"12","nom":"Aveyron"},
+{"code":"13","nom":"Bouches-du-Rhône"},{"code":"14","nom":"Calvados"},{"code":"15","nom":"Cantal"},{"code":"16","nom":"Charente"},
+{"code":"17","nom":"Charente-Maritime"},{"code":"18","nom":"Cher"},{"code":"19","nom":"Corrèze"},{"code":"21","nom":"Côte-d'Or"},
+{"code":"22","nom":"Côtes-d'Armor"},{"code":"23","nom":"Creuse"},{"code":"24","nom":"Dordogne"},{"code":"25","nom":"Doubs"},
+{"code":"26","nom":"Drôme"},{"code":"27","nom":"Eure"},{"code":"28","nom":"Eure-et-Loir"},{"code":"29","nom":"Finistère"},
+{"code":"2A","nom":"Corse-du-Sud"},{"code":"2B","nom":"Haute-Corse"},{"code":"30","nom":"Gard"},{"code":"31","nom":"Haute-Garonne"},
+{"code":"32","nom":"Gers"},{"code":"33","nom":"Gironde"},{"code":"34","nom":"Hérault"},{"code":"35","nom":"Ille-et-Vilaine"},
+{"code":"36","nom":"Indre"},{"code":"37","nom":"Indre-et-Loire"},{"code":"38","nom":"Isère"},{"code":"39","nom":"Jura"},
+{"code":"40","nom":"Landes"},{"code":"41","nom":"Loir-et-Cher"},{"code":"42","nom":"Loire"},{"code":"43","nom":"Haute-Loire"},
+{"code":"44","nom":"Loire-Atlantique"},{"code":"45","nom":"Loiret"},{"code":"46","nom":"Lot"},{"code":"47","nom":"Lot-et-Garonne"},
+{"code":"48","nom":"Lozère"},{"code":"49","nom":"Maine-et-Loire"},{"code":"50","nom":"Manche"},{"code":"51","nom":"Marne"},
+{"code":"52","nom":"Haute-Marne"},{"code":"53","nom":"Mayenne"},{"code":"54","nom":"Meurthe-et-Moselle"},{"code":"55","nom":"Meuse"},
+{"code":"56","nom":"Morbihan"},{"code":"57","nom":"Moselle"},{"code":"58","nom":"Nièvre"},{"code":"59","nom":"Nord"},
+{"code":"60","nom":"Oise"},{"code":"61","nom":"Orne"},{"code":"62","nom":"Pas-de-Calais"},{"code":"63","nom":"Puy-de-Dôme"},
+{"code":"64","nom":"Pyrénées-Atlantiques"},{"code":"65","nom":"Hautes-Pyrénées"},{"code":"66","nom":"Pyrénées-Orientales"},
+{"code":"67","nom":"Bas-Rhin"},{"code":"68","nom":"Haut-Rhin"},{"code":"69","nom":"Rhône"},{"code":"70","nom":"Haute-Saône"},
+{"code":"71","nom":"Saône-et-Loire"},{"code":"72","nom":"Sarthe"},{"code":"73","nom":"Savoie"},{"code":"74","nom":"Haute-Savoie"},
+{"code":"75","nom":"Paris"},{"code":"76","nom":"Seine-Maritime"},{"code":"77","nom":"Seine-et-Marne"},{"code":"78","nom":"Yvelines"},
+{"code":"79","nom":"Deux-Sèvres"},{"code":"80","nom":"Somme"},{"code":"81","nom":"Tarn"},{"code":"82","nom":"Tarn-et-Garonne"},
+{"code":"83","nom":"Var"},{"code":"84","nom":"Vaucluse"},{"code":"85","nom":"Vendée"},{"code":"86","nom":"Vienne"},
+{"code":"87","nom":"Haute-Vienne"},{"code":"88","nom":"Vosges"},{"code":"89","nom":"Yonne"},{"code":"90","nom":"Territoire de Belfort"},
+{"code":"91","nom":"Essonne"},{"code":"92","nom":"Hauts-de-Seine"},{"code":"93","nom":"Seine-Saint-Denis"},{"code":"94","nom":"Val-de-Marne"},
+{"code":"95","nom":"Val-d'Oise"},{"code":"971","nom":"Guadeloupe"},{"code":"972","nom":"Martinique"},{"code":"973","nom":"Guyane"},
+{"code":"974","nom":"La Réunion"},{"code":"976","nom":"Mayotte"}
+];
+
+const $ = s => document.querySelector(s);
+const grille = $('#grille'), journal = $('#journal');
+const choisis = new Set();
+
+// Recherche insensible aux accents : on tape "hera", on trouve "Hérault".
+const norm = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+DEPS.forEach(d => {
+  const l = document.createElement('label');
+  l.className = 'dep';
+  l.dataset.cle = norm(d.code + ' ' + d.nom);
+  l.innerHTML = `<input type="checkbox" value="${d.code}"><code>${d.code}</code><span>${d.nom}</span>`;
+  l.querySelector('input').onchange = e => {
+    e.target.checked ? choisis.add(d.code) : choisis.delete(d.code);
+    majCompte();
+  };
+  grille.appendChild(l);
+});
+
+function majCompte() {
+  $('#compte').textContent = choisis.size + ' sélectionné' + (choisis.size > 1 ? 's' : '');
+  $('#go').disabled = choisis.size === 0;
+}
+
+$('#filtre').oninput = e => {
+  const q = norm(e.target.value.trim());
+  grille.querySelectorAll('.dep').forEach(l => {
+    l.style.display = !q || l.dataset.cle.includes(q) ? '' : 'none';
+  });
+};
+
+$('#vider').onclick = () => {
+  choisis.clear();
+  grille.querySelectorAll('input').forEach(i => { i.checked = false; });
+  majCompte();
+};
+
+function dit(txt, cls) {
+  const d = document.createElement('div');
+  d.className = 'ligne' + (cls ? ' ' + cls : '');
+  d.textContent = txt;
+  journal.appendChild(d);
+  return d;
+}
+
+const nomDe = code => (DEPS.find(d => d.code === code) || {}).nom || code;
+const sansAccent = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '')
+                         .replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
+
+$('#go').onclick = async () => {
+  const codes = [...choisis].sort();
+  $('#go').disabled = true;
+  journal.innerHTML = '';
+  const features = [];
+  let echecs = 0;
+
+  for (let i = 0; i < codes.length; i++) {
+    const code = codes[i];
+    $('#etat').textContent = 'département ' + (i + 1) + ' / ' + codes.length;
+    const ligne = dit('… ' + code + ' ' + nomDe(code));
+    try {
+      const url = 'https://geo.api.gouv.fr/departements/' + code +
+                  '/communes?fields=nom,code,contour&format=geojson&geometry=contour';
+      const rep = await fetch(url);
+      if (!rep.ok) throw new Error('HTTP ' + rep.status);
+      const fc = await rep.json();
+      const lot = (fc.features || []).filter(f => f && f.geometry);
+      if (!lot.length) throw new Error('aucun contour renvoyé');
+      features.push(...lot);
+      ligne.className = 'ligne ok';
+      ligne.textContent = '✓ ' + code + ' ' + nomDe(code) + ' — ' + lot.length + ' communes';
+    } catch (err) {
+      echecs++;
+      ligne.className = 'ligne pb';
+      ligne.textContent = '✗ ' + code + ' ' + nomDe(code) + ' — ' + err.message;
+    }
+  }
+
+  $('#etat').textContent = '';
+  $('#go').disabled = false;
+  if (!features.length) { dit('Rien à enregistrer.', 'pb'); return; }
+
+  const blob = new Blob([JSON.stringify({ type: 'FeatureCollection', features })],
+                        { type: 'application/geo+json' });
+  const nom = codes.length === 1
+    ? 'communes-' + codes[0] + '-' + sansAccent(nomDe(codes[0])) + '.geojson'
+    : 'communes-' + codes.join('-') + '.geojson';
+
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = nom;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+
+  dit('→ ' + nom + ' — ' + features.length + ' communes, ' +
+      (blob.size / 1048576).toFixed(1) + ' Mo' + (echecs ? ' (' + echecs + ' échec(s))' : ''), 'ok');
+};
+
+majCompte();
+</script>
+</body>
+</html>

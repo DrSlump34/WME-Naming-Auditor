@@ -1,0 +1,1755 @@
+// ==UserScript==
+// @name         WME Agglo Naming (FR)
+// @namespace    https://github.com/DrSlump34
+// @version      1.10
+// @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
+// @author       DrSlump34
+// @match        https://www.waze.com/editor*
+// @match        https://www.waze.com/*/editor*
+// @match        https://beta.waze.com/editor*
+// @match        https://beta.waze.com/*/editor*
+// @grant        none
+// @run-at       document-idle
+// ==/UserScript==
+
+/* eslint-disable no-console */
+(function () {
+  'use strict';
+
+  const SCRIPT_ID = 'wme-agglo-naming';
+  const SCRIPT_NAME = 'WME Agglo Naming';
+  const VERSION = '1.10';
+  const STORE_AGGLOS = 'wmeAggloNaming.agglos';
+  const STORE_UI = 'wmeAggloNaming.ui';
+  const IDB_NAME = 'wmeAggloNaming';
+  const IDB_STORE = 'contours';
+  const LAYER_COMMUNE = SCRIPT_ID + '-commune';
+  const LAYER_AGGLO = SCRIPT_ID + '-agglo';
+  const LAYER_ECARTS = SCRIPT_ID + '-ecarts';
+
+  // Familles de problemes : chacune a sa couleur de surlignage, reglable.
+  // Palette choisie pour NE PAS se confondre avec le rendu de WME : le reseau
+  // routier y est massivement orange-jaune (#ee9900 releve en zone rurale),
+  // les alertes rouges (#e53935), les rues blanches ou grises. On s'en tient
+  // donc aux magentas, violets, cyans et turquoises — rares sur la carte — et
+  // le trait est large et transparent pour se lire comme un halo DERRIERE le
+  // segment plutot que comme un trait concurrent. Tout reste reglable.
+  const FAMILLES = {
+    agglo: { libelle: 'En agglomeration (C / R)', defaut: '#00b0ff' },
+    hors: { libelle: 'Hors agglomeration (H)', defaut: '#d500f9' },
+    eb10: { libelle: 'A couper — entree agglo', defaut: '#ff1744' },
+    lim: { libelle: 'A couper — limite communale', defaut: '#1de9b6' },
+    cartouche: { libelle: 'Cartouche seul (nommage bon)', defaut: '#7c4dff' },
+    forme: { libelle: 'Redaction du nom seule', defaut: '#76ff03' },
+    special: { libelle: 'Bretelle / voie ferree / rocade', defaut: '#ff4081' }
+  };
+  const familleDe = f => f.special ? 'special'
+    : f.seulementCartouche ? 'cartouche' : f.seulementForme ? 'forme'
+    : f.cas === 'EB10' ? 'eb10' : f.cas === 'LIM' ? 'lim'
+    : (f.cas[0] === 'C' || f.cas[0] === 'R') ? 'agglo' : 'hors';
+
+  const log = (...a) => console.log('[' + SCRIPT_NAME + ']', ...a);
+
+  // ---------------------------------------------------------------------------
+  // Regles metier (logigramme "Regle de nommage en France", Wazeopedia FR)
+  //   En ville / commune          : C1 C2 C3 C4
+  //   En ville / village rattache : R1 R2 R3 R4
+  //   Hors agglomeration          : H5 H6 H7 H8 H9
+  //
+  // Le script n'INVENTE jamais un nom ni un numero : il reventile ce qui est
+  // deja saisi. Seule la VILLE vient d'ailleurs : du contour INSEE (hors agglo)
+  // ou du libelle du polygone d'agglo (en ville).
+  // ---------------------------------------------------------------------------
+
+  // ===========================================================================
+  // REFERENTIEL FRANCE
+  //
+  // Tout ce qui suit est propre au pays. Le moteur, lui, ne connait que
+  // l'interface decrite en bas de bloc (`REFERENTIELS.FR`) : vocabulaire des
+  // numeros de route, types de voies sans adressage, cles du fichier de
+  // contours, etat cible du nommage, liste des controles. Ajouter un pays =
+  // ecrire un second bloc de ce genre, sans toucher au moteur.
+  // ===========================================================================
+
+  // Numero de route : une lettre de reseau, AU MOINS un chiffre, puis
+  // eventuellement lettres et chiffres (D6, D2e, N88, A9, M113, C6, VC3, D981a).
+  const RE_ROUTE = /^(?:A|N|D|M|E|T|CR|CV|CC|VC|RC|C)\s?\d+[a-zA-Z0-9]*$/;
+  const RE_COMMUNALE = /^(?:C|CV|CC|VC|RC|CR)\s?\d+/i;
+  // Autoroute Axxx : AUCUNE ville, ni en principal ni en alternatif, et ce
+  // quelle que soit la zone traversee. Regle systematique, sans exception.
+  const RE_AUTOROUTE = /^A\s?\d+/;
+
+  // Voies qui ne portent NI ville NI nom de rue : ferry, voie ferree, piste.
+  const ROADTYPE_SANS_ADRESSE_TOTALE = new Set([15, 18, 19]);
+
+  // Types sans vocation d'adressage : une absence de nom n'y est PAS une
+  // anomalie (retour terrain : parkings et voies privees de Saint-Laurent-des-
+  // Arbres). Exclus par defaut, reintegrables par la case a cocher.
+  //  5 = sentier, 16 = escalier, 17 = voie privee, 20 = parking
+  const ROADTYPE_SANS_ADRESSE = new Set([5, 16, 17, 20]);
+
+  const ROADTYPE_LABEL = {
+    1: 'Rue', 2: 'Route principale', 3: 'Autoroute', 4: 'Bretelle', 5: 'Sentier',
+    6: 'Voie rapide', 7: 'Route secondaire', 8: 'Chemin de terre', 10: 'Chemin pietonnier',
+    15: 'Ferry', 16: 'Escalier', 17: 'Voie privee', 18: 'Voie ferree', 19: 'Piste',
+    20: 'Voie de parking', 22: 'Ruelle'
+  };
+
+  // ⚠️ Identifier une rocade est le point faible : rien dans le modele Waze ne
+  // dit « ceci est une rocade ». On s'en tient au NOM, seul indice fiable — une
+  // rocade nommee autrement passera au travers, et c'est assume.
+  const RE_ROCADE = /(p[ée]riph[ée]rique|rocade|voie rapide urbaine|ceinture)/i;
+
+  // --- Controles de forme du nom (guide FR, section « Ce qu'il ne faut PAS faire ») ---
+  // Abreviations de type de voie : le point est exige pour eviter les faux
+  // positifs (« Bd » seul est rare, « Bd. » ne l'est pas).
+  const RE_ABREV = /(^|\s)(av|bd|bld|blvd|bvd|rte|rt|ch|pl|imp|all|sq|fbg)\.(\s|$)/i;
+  const RE_ABREV_SANS_POINT = /^(av|bd|bld|blvd|rte)\s+[a-zà-ÿ]/i;
+  // Contraction de saint : « St-Fargeau », « Ste Marie ».
+  const RE_SAINT = /(^|\s)[Ss]te?s?[-\s][A-ZÀ-Ý]/;
+  // Fonction du segment ou nature du lieu dans le nom.
+  const RE_FONCTION = /(voie de bus|voie bus|couloir bus|piste cyclable|parking|par[ck]ing|acc[eè]s livraison|voie de service)/i;
+  // Direction dans le nom, hors bretelles (ou elle est la regle).
+  const RE_DIRECTION = /\s:\s|\s>\s|^>\s/;
+
+  /** Une initiale isolee (« R. Poincare ») est une contraction interdite ; deux
+   *  ou plus (« T.I.V. », « D.B. ») sont une abreviation officielle, autorisee. */
+  function initialeIsolee(nom) {
+    const points = (nom.match(/\b[A-ZÀ-Ý]\./g) || []).length;
+    return points === 1;
+  }
+
+  const CLES_NOM = ['nom', 'NOM', 'name', 'NOM_COM', 'nom_commune', 'libelle', 'LIBELLE', 'com_name', 'nomcom'];
+  const CLES_CODE = ['code', 'INSEE_COM', 'insee', 'code_insee', 'codeInsee', 'CODE_INSEE', 'com_code', 'insee_com'];
+
+  // ---------------------------------------------------------------------------
+  // Etat
+  // ---------------------------------------------------------------------------
+
+  let sdk = null;
+  let communes = [];
+  let metaContours = null;
+  let agglos = {};
+  let communeActive = null;
+  let findings = [];
+  let lastScan = null;
+  let ui = {};
+  // seuil : part de longueur (0-1) au-dela de laquelle un segment a cheval est
+  // rattache d'office a un cote. Entre (1 - seuil) et seuil = zone grise.
+  let options = {
+    sansAdresse: false, altEnTrop: false, seuil: 0.8,
+    zoomClic: true, zoomNiveau: 17, surligner: true,
+    controles: {},          // rempli d'apres le referentiel au demarrage
+    couleurs: Object.fromEntries(Object.entries(FAMILLES).map(([k, v]) => [k, v.defaut]))
+  };
+
+  // ---------------------------------------------------------------------------
+  // Stockage
+  // ---------------------------------------------------------------------------
+
+  function idb() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function idbSet(cle, valeur) {
+    const db = await idb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put(valeur, cle);
+      tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+    });
+  }
+  async function idbGet(cle) {
+    const db = await idb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const req = tx.objectStore(IDB_STORE).get(cle);
+      req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error);
+    });
+  }
+
+  const lire = (cle, defaut) => {
+    try { const v = localStorage.getItem(cle); return v ? JSON.parse(v) : defaut; }
+    catch (e) { return defaut; }
+  };
+  const ecrire = (cle, val) => {
+    try { localStorage.setItem(cle, JSON.stringify(val)); } catch (e) { log('ecriture ' + cle, e); }
+  };
+  const saveAgglos = () => ecrire(STORE_AGGLOS, agglos);
+
+  function saveUI() {
+    const r = ui.overlay.getBoundingClientRect();
+    ecrire(STORE_UI, {
+      x: r.left, y: r.top, w: ui.overlay.offsetWidth, h: ui.overlay.offsetHeight,
+      ouvert: ui.overlay.style.display !== 'none', options
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Geometrie
+  // ---------------------------------------------------------------------------
+
+  function pointInRing(lon, lat, ring) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+      if (((yi > lat) !== (yj > lat)) && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  }
+  function pointInRings(lon, lat, rings) {
+    if (!rings || !rings.length || !pointInRing(lon, lat, rings[0])) return false;
+    for (let i = 1; i < rings.length; i++) if (pointInRing(lon, lat, rings[i])) return false;
+    return true;
+  }
+  function pointInGeom(lon, lat, geom) {
+    if (!geom) return false;
+    if (geom.type === 'Polygon') return pointInRings(lon, lat, geom.coordinates);
+    if (geom.type === 'MultiPolygon') return geom.coordinates.some(p => pointInRings(lon, lat, p));
+    return false;
+  }
+  function bboxOf(geom) {
+    let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+    const p = co => {
+      if (typeof co[0] === 'number') {
+        if (co[0] < a) a = co[0]; if (co[0] > c) c = co[0];
+        if (co[1] < b) b = co[1]; if (co[1] > d) d = co[1];
+      } else co.forEach(p);
+    };
+    p(geom.coordinates);
+    return [a, b, c, d];
+  }
+  const bboxIntersecte = (x, y) => !(x[2] < y[0] || x[0] > y[2] || x[3] < y[1] || x[1] > y[3]);
+
+  function centreDe(coords) {
+    const i = Math.floor(coords.length / 2);
+    return { lon: coords[i][0], lat: coords[i][1] };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Contours communaux
+  // ---------------------------------------------------------------------------
+
+  function litPropriete(props, cles) {
+    for (const c of cles) if (props && props[c] != null && props[c] !== '') return String(props[c]);
+    return null;
+  }
+
+  function chargerFeatureCollection(fc, nomFichier) {
+    const feats = fc.type === 'FeatureCollection' ? fc.features : [fc];
+    const out = []; let sansNom = 0;
+    for (const f of feats) {
+      if (!f || !f.geometry) continue;
+      const nom = litPropriete(f.properties, REF.clesNom);
+      const code = litPropriete(f.properties, REF.clesCode);
+      if (!nom) { sansNom++; continue; }
+      out.push({ code: code || nom, nom, geom: f.geometry, bbox: bboxOf(f.geometry) });
+    }
+    if (!out.length) throw new Error('aucune commune exploitable (nom introuvable dans les proprietes)');
+    communes = out;
+    metaContours = { nom: nomFichier, nb: out.length, date: new Date().toISOString().slice(0, 10), sansNom };
+    return { nb: out.length, sansNom };
+  }
+
+  async function restaurerContours() {
+    try {
+      const c = await idbGet('communes'), m = await idbGet('meta');
+      if (Array.isArray(c) && c.length) { communes = c; metaContours = m || null; return true; }
+    } catch (e) { log('restauration des contours impossible', e); }
+    return false;
+  }
+
+  function surFichierContours() {
+    const f = ui.inputFichier.files[0]; if (!f) return;
+    // Un chargement REMPLACE les contours en base. Sans ce garde-fou, on perd
+    // silencieusement le fichier precedent (vecu).
+    if (metaContours && metaContours.nb && !confirm(
+      'Des contours sont deja charges : ' + metaContours.nb + ' commune(s) (' + metaContours.nom + ').\n\n' +
+      'Charger ce fichier va les REMPLACER.\n\nContinuer ?')) { ui.inputFichier.value = ''; return; }
+    ui.statutContours.innerHTML = '<div class="agn-stat">Lecture de ' + esc(f.name) + '…</div>';
+    const r = new FileReader();
+    r.onload = async () => {
+      try {
+        const res = chargerFeatureCollection(JSON.parse(r.result), f.name);
+        await idbSet('communes', communes); await idbSet('meta', metaContours);
+        rafraichirCommunesDeLaVue(); renderContours();
+        log(res.nb + ' commune(s) chargee(s)');
+      } catch (e) {
+        ui.statutContours.innerHTML = '<div class="agn-stat agn-alerte">Fichier illisible : ' + esc(e.message) + '</div>';
+      }
+    };
+    r.readAsText(f);
+  }
+
+  function communesDeLaVue() {
+    if (!communes.length) return [];
+    let ext; try { ext = sdk.Map.getMapExtent(); } catch (e) { return []; }
+    if (!ext || ext.length !== 4) return [];
+    return communes.filter(c => bboxIntersecte(c.bbox, ext)).sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+  }
+
+  function rafraichirCommunesDeLaVue() {
+    if (!ui.selCommune) return;
+    const liste = communesDeLaVue();
+    const avant = communeActive ? communeActive.code : '';
+    ui.selCommune.innerHTML = '<option value="">— choisir une commune —</option>' +
+      liste.map(c => `<option value="${esc(c.code)}">${esc(c.nom)}</option>`).join('');
+    if (avant && liste.some(c => c.code === avant)) ui.selCommune.value = avant;
+    else if (communeActive) { communeActive = null; redrawCommune(); }
+    ui.nbCommunes.textContent = communes.length
+      ? liste.length + ' commune(s) dans la vue sur ' + communes.length : '';
+    renderAgglos();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Calques
+  // ---------------------------------------------------------------------------
+
+  let calquesPrets = false;
+  function ensureLayers() {
+    if (calquesPrets) return;
+    const etiquette = { etiquette: ctx => (ctx.feature.properties || {}).label || '' };
+    try {
+      sdk.Map.addLayer({
+        layerName: LAYER_COMMUNE, styleContext: etiquette,
+        styleRules: [{ style: {
+          strokeColor: '#1e88e5', strokeWidth: 3, strokeOpacity: 0.95, strokeDashstyle: 'dash',
+          fillColor: '#1e88e5', fillOpacity: 0.05, label: '${etiquette}',
+          fontColor: '#1565c0', fontSize: '15px', fontWeight: 'bold',
+          labelOutlineColor: '#fff', labelOutlineWidth: 3 } }]
+      });
+      sdk.Map.addLayer({
+        layerName: LAYER_AGGLO, styleContext: etiquette,
+        styleRules: [{ style: {
+          strokeColor: '#e91e63', strokeWidth: 3, strokeOpacity: 0.9,
+          fillColor: '#e91e63', fillOpacity: 0.12, label: '${etiquette}',
+          fontColor: '#c2185b', fontSize: '14px', fontWeight: 'bold',
+          labelOutlineColor: '#fff', labelOutlineWidth: 3 } }]
+      });
+      // Surlignage des segments en ecart : la couleur et l'epaisseur sont
+      // portees par la feature et resolues via le styleContext.
+      sdk.Map.addLayer({
+        layerName: LAYER_ECARTS,
+        styleContext: {
+          couleur: ctx => (ctx.feature.properties || {}).couleur || '#888888',
+          epaisseur: ctx => (ctx.feature.properties || {}).epaisseur || 9
+        },
+        styleRules: [{ style: {
+          strokeColor: '${couleur}', strokeWidth: '${epaisseur}', strokeOpacity: 0.45,
+          strokeLinecap: 'round', fill: false } }]
+      });
+      calquesPrets = true;
+    } catch (e) { log('creation des calques impossible', e); }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Infobulle de survol sur la carte
+  //
+  // `wme-layer-feature-mouse-enter` / `-leave` livrent {featureId, layerName} —
+  // mais PAS la position du curseur : on la suit a part, au mousemove.
+  // ---------------------------------------------------------------------------
+
+  let souris = { x: 0, y: 0 };
+  let bulle = null;
+
+  function installerInfobulle() {
+    document.addEventListener('mousemove', e => {
+      souris = { x: e.clientX, y: e.clientY };
+      if (bulle && bulle.style.display !== 'none') placerBulle();
+    }, { passive: true });
+
+    try { sdk.Events.trackLayerEvents({ layerName: LAYER_ECARTS }); }
+    catch (e) { log('suivi du calque impossible', e); return; }
+
+    sdk.Events.on({ eventName: 'wme-layer-feature-mouse-enter', eventHandler: d => {
+      if (!d || d.layerName !== LAYER_ECARTS) return;
+      const idx = parseInt(String(d.featureId).split('-')[1], 10);
+      const f = findings[idx];
+      if (f) montrerBulle(f);
+    } });
+    sdk.Events.on({ eventName: 'wme-layer-feature-mouse-leave', eventHandler: d => {
+      if (!d || d.layerName === LAYER_ECARTS) cacherBulle();
+    } });
+  }
+
+  function montrerBulle(f) {
+    if (!bulle) { bulle = el('<div id="agn-bulle"></div>'); document.body.appendChild(bulle); }
+    bulle.innerHTML =
+      `<div class="agn-b-t"><span class="agn-pastille" style="background:${
+        options.couleurs[familleDe(f)] || '#888'}"></span>${esc(f.libelle)}
+        <span class="agn-cas">${f.cas}</span></div>` +
+      (f.nb > 1 ? `<div class="agn-b-l"><b>${f.nb} segments</b> dans la meme situation</div>` : '') +
+      f.ecarts.map(e => `<div class="agn-b-l"><b>${esc(e.champ)}</b> : ${esc(e.avant)} → ${esc(e.apres)}</div>`).join('') +
+      (f.doute ? `<div class="agn-b-w">⚠ ${esc(f.doute)}</div>` : '') +
+      (f.traite ? '<div class="agn-b-ok">✓ marque comme traite</div>' : '');
+    bulle.style.display = 'block';
+    placerBulle();
+  }
+
+  function cacherBulle() { if (bulle) bulle.style.display = 'none'; }
+
+  /** Bascule a gauche / au-dessus du curseur quand on approche des bords. */
+  function placerBulle() {
+    const l = bulle.offsetWidth, h = bulle.offsetHeight;
+    let x = souris.x + 16, y = souris.y + 16;
+    if (x + l > window.innerWidth - 8) x = souris.x - l - 16;
+    if (y + h > window.innerHeight - 8) y = souris.y - h - 16;
+    bulle.style.left = Math.max(4, x) + 'px';
+    bulle.style.top = Math.max(4, y) + 'px';
+  }
+
+  /** Repeint les segments en ecart, en mettant en avant celui qui est courant. */
+  function redrawEcarts(idActif) {
+    ensureLayers();
+    try { sdk.Map.removeAllFeaturesFromLayer({ layerName: LAYER_ECARTS }); } catch (e) { /* */ }
+    if (!options.surligner || !findings.length) return;
+    try {
+      sdk.Map.addFeaturesToLayer({ layerName: LAYER_ECARTS, features: findings
+        .filter(f => f.geom && !f.traite)     // un ecart traite ne se surligne plus
+        .map(f => ({
+          id: 'ec-' + f.segId, type: 'Feature', geometry: f.geom,
+          properties: {
+            couleur: options.couleurs[familleDe(f)] || '#888888',
+            epaisseur: f.segId === idActif ? 22 : 14
+          }
+        })) });
+    } catch (e) { log('surlignage impossible', e); }
+  }
+
+  function redrawCommune() {
+    ensureLayers();
+    try { sdk.Map.removeAllFeaturesFromLayer({ layerName: LAYER_COMMUNE }); } catch (e) { /* */ }
+    if (!communeActive) return;
+    try {
+      sdk.Map.addFeaturesToLayer({ layerName: LAYER_COMMUNE, features: [{
+        id: 'commune-' + communeActive.code, type: 'Feature',
+        geometry: communeActive.geom, properties: { label: communeActive.nom } }] });
+    } catch (e) { log('affichage du contour communal impossible', e); }
+  }
+
+  function redrawAgglos() {
+    ensureLayers();
+    try { sdk.Map.removeAllFeaturesFromLayer({ layerName: LAYER_AGGLO }); } catch (e) { /* */ }
+    const liste = communeActive ? (agglos[communeActive.code] || []) : [];
+    if (!liste.length) return;
+    try {
+      sdk.Map.addFeaturesToLayer({ layerName: LAYER_AGGLO, features: liste.map(a => ({
+        id: a.id, type: 'Feature', geometry: { type: 'Polygon', coordinates: [a.ring] },
+        properties: { label: a.label || '' } })) });
+    } catch (e) { log('affichage des agglos impossible', e); }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tracer une agglomeration
+  // ---------------------------------------------------------------------------
+
+  function extractRing(res) {
+    if (!res) return null;
+    if (Array.isArray(res) && Array.isArray(res[0]) && typeof res[0][0] === 'number') return res;
+    if (res.type === 'Feature' && res.geometry) return extractRing(res.geometry);
+    if (res.type === 'Polygon' && res.coordinates) return res.coordinates[0];
+    if (res.geometry) return extractRing(res.geometry);
+    if (res.coordinates) return Array.isArray(res.coordinates[0][0]) ? res.coordinates[0] : res.coordinates;
+    if (res.components && res.components[0] && res.components[0].components) {
+      return res.components[0].components.map(pt => [pt.x, pt.y]);
+    }
+    return null;
+  }
+
+  async function tracerAgglo() {
+    if (!communeActive) return;
+    ui.btnTracer.disabled = true;
+    ui.btnTracer.textContent = 'Trace en cours… (double-clic pour fermer)';
+    try {
+      const ring = extractRing(await sdk.Map.drawPolygon());
+      if (!ring || ring.length < 4) throw new Error('trace inexploitable');
+      const dedans = ring.filter(c => pointInGeom(c[0], c[1], communeActive.geom)).length;
+      if (dedans === 0 && !confirm('Le polygone trace est entierement HORS de ' +
+        communeActive.nom + '.\n\nL\'enregistrer quand meme ?')) return;
+      if (!agglos[communeActive.code]) agglos[communeActive.code] = [];
+      agglos[communeActive.code].push({ id: 'a' + Date.now(), label: communeActive.nom, rattache: false, ring });
+      saveAgglos(); redrawAgglos(); renderAgglos();
+    } catch (e) { log('trace annule ou echoue', e); }
+    finally {
+      ui.btnTracer.disabled = false;
+      ui.btnTracer.textContent = '＋ Tracer l\'agglomeration';
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Edition d'un polygone : poignees maison
+  //
+  // Le SDK ne sait pas editer un polygone de notre calque (enablePolygonResize
+  // ne vise que la selection interne de WME). On pose donc nos propres poignees
+  // en HTML par-dessus la carte : `getPixelFromLonLat` rend des pixels ecran,
+  // directement comparables a clientX/clientY, donc aucun offset a gerer.
+  // Poignee pleine = sommet (glisser pour deplacer, clic droit pour supprimer) ;
+  // poignee creuse = milieu d'un cote (cliquer pour inserer un sommet).
+  // ---------------------------------------------------------------------------
+
+  let edition = null;
+
+  function entrerEdition(a) {
+    if (edition) sortirEdition(false);
+    const zone = el('<div id="agn-poignees"></div>');
+    document.body.appendChild(zone);
+    edition = {
+      agglo: a, zone,
+      points: a.ring.slice(0, -1).map(p => [p[0], p[1]]),   // anneau ouvert
+      ringAvant: a.ring.slice()
+    };
+    dessinerPoignees();
+    renderAgglos();
+  }
+
+  function sortirEdition(sauver) {
+    if (!edition) return;
+    if (sauver) {
+      const p = edition.points;
+      edition.agglo.ring = p.concat([p[0].slice()]);        // on referme
+    } else {
+      edition.agglo.ring = edition.ringAvant;
+    }
+    edition.zone.remove();
+    edition = null;
+    saveAgglos(); redrawAgglos(); renderAgglos();
+  }
+
+  function dessinerPoignees() {
+    if (!edition) return;
+    const z = edition.zone;
+    z.innerHTML = '';
+    const pts = edition.points;
+    const px = p => { try { return sdk.Map.getPixelFromLonLat({ lonLat: { lon: p[0], lat: p[1] } }); }
+                      catch (e) { return null; } };
+
+    pts.forEach((p, i) => {
+      const q = px(p); if (!q) return;
+      const h = el('<div class="agn-poi agn-poi-s" title="Glisser pour deplacer, clic droit pour supprimer"></div>');
+      h.style.left = q.x + 'px'; h.style.top = q.y + 'px';
+      h.onmousedown = e => { if (e.button === 0) demarrerDrag(e, i); };
+      h.oncontextmenu = e => {
+        e.preventDefault(); e.stopPropagation();
+        if (pts.length <= 3) return;                        // un polygone garde 3 sommets
+        pts.splice(i, 1); majPolygoneEnEdition();
+      };
+      z.appendChild(h);
+
+      // milieu du cote [i, i+1] : cliquer y insere un sommet
+      const suivant = pts[(i + 1) % pts.length];
+      const m = px([(p[0] + suivant[0]) / 2, (p[1] + suivant[1]) / 2]);
+      if (!m) return;
+      const a = el('<div class="agn-poi agn-poi-m" title="Cliquer pour ajouter un sommet"></div>');
+      a.style.left = m.x + 'px'; a.style.top = m.y + 'px';
+      a.onmousedown = e => {
+        if (e.button !== 0) return;
+        e.preventDefault(); e.stopPropagation();
+        pts.splice(i + 1, 0, [(p[0] + suivant[0]) / 2, (p[1] + suivant[1]) / 2]);
+        majPolygoneEnEdition();
+        demarrerDrag(e, i + 1);                             // on enchaine sur le glisser
+      };
+      z.appendChild(a);
+    });
+  }
+
+  function demarrerDrag(e, index) {
+    e.preventDefault(); e.stopPropagation();
+    const bouger = ev => {
+      let ll;
+      try { ll = sdk.Map.getLonLatFromPixel({ x: ev.clientX, y: ev.clientY }); } catch (err) { return; }
+      if (!ll) return;
+      edition.points[index] = [ll.lon, ll.lat];
+      majPolygoneEnEdition();
+      ev.preventDefault();
+    };
+    const finir = () => {
+      document.removeEventListener('mousemove', bouger, true);
+      document.removeEventListener('mouseup', finir, true);
+    };
+    document.addEventListener('mousemove', bouger, true);
+    document.addEventListener('mouseup', finir, true);
+  }
+
+  /** Redessine le polygone et ses poignees pendant l'edition. */
+  function majPolygoneEnEdition() {
+    if (!edition) return;
+    const p = edition.points;
+    edition.agglo.ring = p.concat([p[0].slice()]);
+    redrawAgglos();
+    dessinerPoignees();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lecture de l'adressage + moteur
+  // ---------------------------------------------------------------------------
+
+  function readNaming(seg) {
+    const addr = sdk.DataModel.Segments.getAddress({ segmentId: seg.id });
+    if (!addr) return null;
+    const one = (street, city) => ({
+      name: (street && !street.isEmpty && street.name) ? street.name : '',
+      cityName: (city && !city.isEmpty && city.name) ? city.name : '',
+      signText: (street && street.signText) ? street.signText : '',
+      signType: (street && street.signType != null) ? street.signType : null
+    });
+    return { primary: one(addr.street, addr.city), alts: (addr.altStreets || []).map(a => one(a.street, a.city)) };
+  }
+
+  const isRoute = e => !!e.name && (RE_ROUTE.test(e.name.trim()) || (!!e.signText && e.signText.trim() === e.name.trim()));
+  const isCommunale = e => !!e.name && RE_COMMUNALE.test(e.name.trim());
+
+  function expectedNaming(nam, agglo, nomCommune) {
+    const entries = [nam.primary, ...nam.alts].filter(e => e.name || e.cityName);
+    const routes = entries.filter(isRoute);
+    const noms = entries.filter(e => e.name && !isRoute(e));
+    const route = routes[0] || null, nomRue = noms[0] || null;
+
+    let doute = null;
+    if (routes.length > 1) doute = 'plusieurs numeros de route sur le segment';
+    else if (noms.length > 1) doute = 'plusieurs noms de rue — noms alternatifs reels ?';
+
+    const P = (name, city) => ({ name: name || '', cityName: city || '' });
+
+    // Autoroute : aucune ville nulle part, agglo ou pas. On garde les noms
+    // alternatifs existants (E15, second numero...) mais debarrasses de leur
+    // ville, et on force le signalement des alternatifs qui en portent une.
+    const auto = entries.find(e => RE_AUTOROUTE.test((e.name || '').trim()));
+    if (auto) {
+      return {
+        cas: 'A', strict: true, doute,
+        primary: P(auto.name, ''),
+        alts: nam.alts.filter(a => a.name && a.name.trim() !== auto.name.trim())
+                      .map(a => P(a.name, ''))
+      };
+    }
+
+    if (agglo) {
+      // /!\ La ville de reference est le nom de la COMMUNE INSEE, jamais le
+      // libelle du polygone : celui-ci n'est qu'une etiquette de travail, et
+      // s'en servir propagerait une faute de saisie sur toute la commune.
+      // Seul le village rattache fait exception, et son nom se lit alors sur la
+      // City deja portee par le segment — pas sur le polygone non plus.
+      let v = nomCommune;
+      if (agglo.rattache) {
+        const villeSeg = nam.primary.cityName ||
+                         (nam.alts.find(a => a.cityName) || {}).cityName || '';
+        // la ville du segment peut deja etre au format « Village (Commune) »
+        const village = (villeSeg.match(/^\s*(.+?)\s*\(/) || [null, villeSeg])[1].trim();
+        if (village) v = village + ' (' + nomCommune + ')';
+        else doute = (doute ? doute + ' ; ' : '') +
+          'village rattache : aucune ville sur le segment, impossible d\'en deduire le nom du village';
+      }
+      const s = agglo.rattache ? 'R' : 'C';
+      if (nomRue && route) return { cas: s + '1', primary: P(nomRue.name, v), alts: [P(route.name, v)], doute };
+      if (nomRue)          return { cas: s + '2', primary: P(nomRue.name, v), alts: [], doute };
+      if (route)           return { cas: s + '4', primary: P(route.name, v), alts: [], doute };
+      return { cas: s + '3', primary: P('', v), alts: [], doute };
+    }
+    const vAlt = nomCommune;
+    if (!nomRue && !route) return { cas: 'H5', primary: P('', ''), alts: [], doute };
+    if (!nomRue && route)  return { cas: 'H6', primary: P(route.name, ''), alts: [P(route.name, vAlt)], doute };
+    if (nomRue && !route)  return { cas: 'H7', primary: P(nomRue.name, ''), alts: [P(nomRue.name, vAlt)], doute };
+    if (route && isCommunale(route)) return { cas: 'H8', primary: P(nomRue.name, ''),
+      alts: [P(route.name, vAlt), P(nomRue.name, vAlt)], doute };
+    return { cas: 'H9', primary: P(route.name, ''), alts: [P(nomRue.name, vAlt)], doute };
+  }
+
+  /**
+   * Cartouches (road shields). Dans WME, l'ecusson est porte par la Street via
+   * signText + signType. Trois controles, de gravite decroissante :
+   *  1. le NOM PRINCIPAL est un numero de route mais n'a pas de cartouche ;
+   *  2. un NOM ALTERNATIF est un numero de route sans cartouche (moins grave) ;
+   *  3. le numero est en alternatif et le principal est un nom de rue : c'est
+   *     alors le principal qui devrait probablement porter le cartouche — mais
+   *     ca depend du terrain, donc on le signale sans l'affirmer.
+   */
+  const estNumero = e => RE_ROUTE.test((e.name || '').trim());
+  const sansCartouche = e => !(e.signText && e.signText.trim()) || e.signType == null;
+
+  function verifierCartouches(nam) {
+    const ecarts = [];
+    if (estNumero(nam.primary) && sansCartouche(nam.primary)) {
+      ecarts.push({ champ: 'cartouche', avant: nam.primary.name + ' sans cartouche',
+        apres: 'poser le cartouche ' + nam.primary.name + ' sur le nom principal' });
+    }
+    for (const a of nam.alts) {
+      if (estNumero(a) && sansCartouche(a)) {
+        ecarts.push({ champ: 'cartouche (alt)', avant: a.name + ' sans cartouche',
+          apres: 'poser le cartouche ' + a.name + ' sur ce nom alternatif' });
+      }
+    }
+    const numAlt = nam.alts.find(estNumero);
+    if (numAlt && nam.primary.name && !estNumero(nam.primary) && sansCartouche(nam.primary)) {
+      ecarts.push({ champ: 'cartouche (principal)', avant: nam.primary.name + ' sans cartouche',
+        apres: 'porte peut-etre le cartouche ' + numAlt.name + ' — a verifier sur le terrain' });
+    }
+    return ecarts;
+  }
+
+  /**
+   * Regles propres a certains types de voies (guide FR, « Cas particuliers ») :
+   * voies ferrees, pistes et ferries ne portent NI ville NI rue ; bretelles et
+   * rocades sont systematiquement hors agglomeration, donc jamais de ville.
+   */
+  function verifierSansVille(nam, nomPrincipalInterdit) {
+    const ecarts = [];
+    [nam.primary, ...nam.alts].forEach((e, i) => {
+      const ou = i === 0 ? 'principal' : 'alt';
+      if (e.cityName) {
+        ecarts.push({ champ: 'ville interdite (' + ou + ')', avant: fmt(e),
+          apres: (e.name || '‹sans nom›') + ' / ‹sans ville›' });
+      }
+    });
+    // Voie ferree : le nom PRINCIPAL doit rester vide, mais un nom alternatif
+    // est admis — il sert la recherche dans l'application.
+    if (nomPrincipalInterdit && nam.primary.name) {
+      ecarts.push({ champ: 'nom principal interdit', avant: nam.primary.name,
+        apres: '‹sans nom› — a basculer en nom alternatif (utile a la recherche)' });
+    }
+    return ecarts;
+  }
+
+  /**
+   * Forme du nom, independamment de la zone. Chaque controle est active
+   * separement : ce sont des regles de redaction, pas de zonage, et l'auteur
+   * doit pouvoir n'en retenir qu'une partie.
+   */
+  function verifierForme(nam) {
+    const ecarts = [];
+    const c = options.controles;
+    [nam.primary, ...nam.alts].forEach((e, i) => {
+      const nom = (e.name || '').trim();
+      if (!nom) return;
+      const ou = i === 0 ? '' : ' (alt)';
+      if (c.abreviations && (RE_ABREV.test(nom) || RE_ABREV_SANS_POINT.test(nom))) {
+        ecarts.push({ champ: 'abreviation' + ou, avant: nom,
+          apres: 'ecrire le type de voie en toutes lettres' });
+      }
+      if (c.contractions && (RE_SAINT.test(nom) || initialeIsolee(nom))) {
+        ecarts.push({ champ: 'contraction' + ou, avant: nom,
+          apres: 'ecrire le nom complet (contractions interdites)' });
+      }
+      if (c.majuscule && /^[a-zà-ÿ]/.test(nom)) {
+        ecarts.push({ champ: 'majuscule' + ou, avant: nom,
+          apres: nom.charAt(0).toUpperCase() + nom.slice(1) });
+      }
+      if (c.fonctionDirection && RE_FONCTION.test(nom)) {
+        ecarts.push({ champ: 'fonction dans le nom' + ou, avant: nom,
+          apres: 'le nom ne doit pas decrire la fonction du segment' });
+      }
+      if (c.fonctionDirection && RE_DIRECTION.test(nom)) {
+        ecarts.push({ champ: 'direction dans le nom' + ou, avant: nom,
+          apres: 'la direction n\'est admise que sur les bretelles' });
+      }
+    });
+    return ecarts;
+  }
+
+  const fmt = e => (e.name || '‹sans nom›') + ' / ' + (e.cityName || '‹sans ville›');
+  const key = e => (e.name || '').trim().toLowerCase() + '|' + (e.cityName || '').trim().toLowerCase();
+
+  function diffNaming(nam, exp) {
+    const ecarts = [];
+    if (key(nam.primary) !== key(exp.primary)) {
+      ecarts.push({ champ: 'principal', avant: fmt(nam.primary), apres: fmt(exp.primary) });
+    }
+    const cur = nam.alts.map(key), tgt = exp.alts.map(key);
+    for (const a of exp.alts) if (!cur.includes(key(a))) ecarts.push({ champ: 'alt manquant', avant: '—', apres: fmt(a) });
+    // Un nom alternatif surnumeraire est souvent LEGITIME (nom d'usage, ancien
+    // nom, voie a deux villes). On ne le signale que sur demande explicite —
+    // sauf regle stricte (autoroute), ou une ville en alternatif est une faute.
+    if (options.altEnTrop || exp.strict) {
+      for (const a of nam.alts) if (!tgt.includes(key(a))) ecarts.push({ champ: 'alt en trop', avant: fmt(a), apres: '—' });
+    }
+    return ecarts;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Descripteur du referentiel francais : c'est le SEUL point de contact entre
+  // le pays et le moteur. Un autre pays fournit le meme objet.
+  // ---------------------------------------------------------------------------
+
+  const REFERENTIELS = {
+    FR: {
+      code: 'FR',
+      nom: 'France',
+      // Reconnu sur le nom ou l'abreviation du pays renvoyes par WME.
+      correspond: pays => /^(FR|France)$/i.test(String(pays || '').trim()),
+
+      // Decoupage administratif de reference et cles admises dans le GeoJSON.
+      libelleDecoupage: 'communes INSEE',
+      clesNom: CLES_NOM,
+      clesCode: CLES_CODE,
+
+      // Types de voies : sans vocation d'adressage / sans nom ni ville du tout.
+      typesSansAdresse: ROADTYPE_SANS_ADRESSE,
+      typesSansAdresseTotale: ROADTYPE_SANS_ADRESSE_TOTALE,
+      typeBretelle: 4,
+      estRocade: noms => RE_ROCADE.test(noms),
+
+      // Etat cible du nommage selon la zone (le logigramme C/R/H).
+      etatCible: expectedNaming,
+
+      // Controles activables. `portee` dit au moteur quand les appeler :
+      //   'zone'    → compare l'etat courant a l'etat cible
+      //   'segment' → s'applique a tout segment ordinaire
+      //   'type'    → propre a un type de voie, gere par le moteur
+      controles: [
+        { cle: 'nommageZone', portee: 'zone', libelle: 'Nommage agglo / hors agglo (coeur)' },
+        { cle: 'cartouches', portee: 'segment', libelle: 'Cartouches des Dxxx / Nxxx / Cxxx',
+          executer: verifierCartouches },
+        { cle: 'bretelles', portee: 'type', libelle: 'Bretelles : jamais de ville' },
+        { cle: 'rails', portee: 'type', libelle: 'Voies ferrees, pistes, ferries : ni ville ni nom' },
+        { cle: 'rocades', portee: 'type', libelle: 'Rocades et peripheriques : jamais de ville' },
+        { cle: 'abreviations', portee: 'forme', libelle: 'Abreviations interdites (Av., Bd., Rte...)' },
+        { cle: 'contractions', portee: 'forme', libelle: 'Contractions interdites (St-, R. Poincare)' },
+        { cle: 'majuscule', portee: 'forme', libelle: 'Nom commencant par une minuscule' },
+        { cle: 'fonctionDirection', portee: 'forme', libelle: 'Fonction ou direction dans le nom' }
+      ],
+      // Les controles de forme partagent une seule fonction, qui lit elle-meme
+      // quelles cases sont cochees.
+      verifierForme: verifierForme,
+      verifierSansVille: verifierSansVille
+    }
+  };
+
+  /** Referentiel actif. On demarre sur la France et on ajuste des que WME nous
+   *  dit dans quel pays on travaille. */
+  let REF = REFERENTIELS.FR;
+
+  function choisirReferentiel(nomPays) {
+    const trouve = Object.values(REFERENTIELS).find(r => r.correspond(nomPays));
+    if (trouve && trouve !== REF) { REF = trouve; log('referentiel : ' + REF.nom); }
+    return REF;
+  }
+
+  /** Pays de la zone courante, d'apres l'adresse d'un segment charge. */
+  function detecterPays() {
+    try {
+      const segs = sdk.DataModel.Segments.getAll();
+      for (const s of segs.slice(0, 40)) {
+        const a = sdk.DataModel.Segments.getAddress({ segmentId: s.id });
+        const p = a && a.country && (a.country.name || a.country.abbr);
+        if (p) return p;
+      }
+    } catch (e) { /* on reste sur le referentiel courant */ }
+    return null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Analyse
+  // ---------------------------------------------------------------------------
+
+  /** Longueur approchee d'un cote, en degres corriges de la latitude. */
+  function longueur(a, b) {
+    const dx = (b[0] - a[0]) * Math.cos((a[1] + b[1]) * Math.PI / 360);
+    const dy = b[1] - a[1];
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  /**
+   * Part de LONGUEUR d'un trace situee a l'interieur d'une zone.
+   *
+   * On raisonne en longueur et non en nombre de sommets : un virage concentre
+   * dix points sur vingt metres quand une ligne droite en compte deux sur un
+   * kilometre. Et on ne se contente PAS de tester le milieu de chaque cote —
+   * un cote a deux points qui franchit la limite basculerait alors d'un bloc a
+   * 0 ou 100 %, rendant invisibles les segments courts a cheval. Quand les deux
+   * extremites d'un cote different, une dichotomie situe le franchissement.
+   */
+  function partDedans(coords, dedans) {
+    let total = 0, dans = 0;
+    for (let i = 1; i < coords.length; i++) {
+      const a = coords[i - 1], b = coords[i];
+      const d = longueur(a, b);
+      if (!d) continue;
+      total += d;
+      const da = dedans(a[0], a[1]), db = dedans(b[0], b[1]);
+      if (da && db) { dans += d; continue; }
+      if (!da && !db) continue;
+      let lo = 0, hi = 1;
+      for (let k = 0; k < 12; k++) {           // ~0,02 % de precision
+        const t = (lo + hi) / 2;
+        if (dedans(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t) === da) lo = t; else hi = t;
+      }
+      const t = (lo + hi) / 2;
+      dans += d * (da ? t : 1 - t);
+    }
+    return { total, dans };
+  }
+
+  function localiser(coords, listeAgglos) {
+    const dansCommune = (x, y) => pointInGeom(x, y, communeActive.geom);
+    const rc = partDedans(coords, dansCommune);
+
+    // Segment degenere (un seul point, ou longueur nulle) : test ponctuel,
+    // sinon il serait classe « hors commune » a tort.
+    if (!rc.total) {
+      const c = coords[0];
+      const ag = listeAgglos.find(a => pointInRings(c[0], c[1], [a.ring])) || null;
+      return { partCommune: dansCommune(c[0], c[1]) ? 1 : 0, partAgglo: ag ? 1 : 0, agglo: ag };
+    }
+
+    let partAgglo = 0, aggloMaj = null, meilleure = 0;
+    for (const ag of listeAgglos) {
+      const r = partDedans(coords, (x, y) => pointInRings(x, y, [ag.ring]));
+      const part = r.dans / r.total;
+      partAgglo += part;
+      if (part > meilleure) { meilleure = part; aggloMaj = ag; }
+    }
+
+    return {
+      partCommune: rc.dans / rc.total,
+      partAgglo: Math.min(1, partAgglo),
+      agglo: aggloMaj
+    };
+  }
+
+  const pourcent = x => Math.round(x * 100) + ' %';
+
+  /**
+   * Fusionne les segments STRICTEMENT dans la meme situation : meme cas, meme
+   * libelle, memes ecarts. Une rue decoupee en vingt troncons ne fait alors
+   * qu'une ligne, et le clic les selectionne tous d'un bloc.
+   * Les pourcentages de debordement sont neutralises dans la cle : « deborde de
+   * 3 % » et « de 7 % » decrivent la meme situation et doivent se regrouper.
+   */
+  function regrouperFindings(liste) {
+    const carte = new Map();
+    for (const f of liste) {
+      const cle = JSON.stringify([
+        f.cas, f.libelle,
+        f.ecarts.map(e => [e.champ, e.avant, e.apres]),
+        (f.doute || '').replace(/\d+(?:[.,]\d+)?\s?%/g, 'N %')
+      ]);
+      const g = carte.get(cle);
+      if (g) { g.segIds.push(f.segId); g.geoms.push(f.geom); g.centres.push(f.centre); }
+      else carte.set(cle, Object.assign({}, f,
+        { segIds: [f.segId], geoms: [f.geom], centres: [f.centre] }));
+    }
+    return [...carte.values()].map(g => Object.assign(g, { nb: g.segIds.length }));
+  }
+
+  function scan() {
+    if (!communeActive) {
+      ui.stats.innerHTML = '<div class="agn-stat agn-alerte">Choisis d\'abord une commune.</div>';
+      ui.results.innerHTML = ''; return;
+    }
+    const listeAgglos = agglos[communeActive.code] || [];
+    if (!listeAgglos.length && !confirm(
+      'Aucune agglomeration n\'est tracee pour ' + communeActive.nom + '.\n\n' +
+      'Toute la commune sera analysee comme HORS AGGLOMERATION.\n\nContinuer ?')) return;
+
+    choisirReferentiel(detecterPays());
+    afficherReglages(false);
+    findings = [];
+    const skipped = { horsRegle: 0, sansAdresse: 0, horsCommune: 0, sansGeom: 0 };
+    const zones = { agglo: 0, hors: 0, cheval: 0, limCom: 0, limitrophe: 0, cartouche: 0, special: 0 };
+    const segs = sdk.DataModel.Segments.getAll();
+
+    const c = options.controles;
+
+    for (const seg of segs) {
+      if (!options.sansAdresse && REF.typesSansAdresse.has(seg.roadType)) { skipped.sansAdresse++; continue; }
+      const coords = seg.geometry && seg.geometry.coordinates;
+      if (!coords || !coords.length) { skipped.sansGeom++; continue; }
+      const nam = readNaming(seg);
+      if (!nam) { skipped.sansGeom++; continue; }
+
+      const loc = localiser(coords, listeAgglos);
+      const haut = options.seuil, bas = 1 - options.seuil;
+
+      // Majoritairement chez la voisine : ce n'est pas notre chantier.
+      if (loc.partCommune < bas) { skipped.horsCommune++; continue; }
+
+      const nomsBruts = [nam.primary.name, ...nam.alts.map(a => a.name)].join(' ');
+      const base = { segId: seg.id, roadType: seg.roadType, libelle: fmt(nam.primary),
+                     centre: centreDe(coords), geom: seg.geometry };
+      const forme = REF.verifierForme(nam);
+
+      // --- Voies a regle propre : elles sortent du raisonnement agglo ---
+      const estRail = REF.typesSansAdresseTotale.has(seg.roadType);      // rail, piste, ferry
+      const estBretelle = seg.roadType === REF.typeBretelle;
+      const estRocade = REF.estRocade(nomsBruts);
+
+      if (estRail || estBretelle || estRocade) {
+        const actif = estRail ? c.rails : estBretelle ? c.bretelles : c.rocades;
+        if (!actif) { skipped.horsRegle++; continue; }
+        // Rail/piste/ferry : ni ville ni rue. Bretelle et rocade : jamais de
+        // ville (elles sont hors agglomeration par nature), mais un nom est
+        // normal — c'est meme lui qui porte la direction sur une bretelle.
+        const ecarts = REF.verifierSansVille(nam, estRail).concat(estBretelle ? [] : forme);
+        if (!ecarts.length) continue;
+        zones.special++;
+        findings.push(Object.assign({}, base, {
+          cas: estRail ? 'RAIL' : estBretelle ? 'BRET' : 'ROC', ecarts, special: true,
+          doute: estRocade ? 'identifiee comme rocade d\'apres son nom' : null }));
+        continue;
+      }
+
+      // Zone grise sur la limite COMMUNALE : il faut couper avant de nommer,
+      // le bon nommage depend de l'endroit de la coupe.
+      if (loc.partCommune < haut) {
+        zones.limCom++;
+        findings.push(Object.assign({}, base, { cas: 'LIM', doute: null, ecarts: [{
+          champ: 'limite communale',
+          avant: pourcent(loc.partCommune) + ' dans ' + communeActive.nom,
+          apres: 'a couper sur la limite communale' }] }));
+        continue;
+      }
+
+      // Zone grise sur la limite d'AGGLO : idem, coupure au panneau EB10.
+      if (loc.partAgglo > bas && loc.partAgglo < haut) {
+        zones.cheval++;
+        findings.push(Object.assign({}, base, { cas: 'EB10', doute: null, ecarts: [{
+          champ: 'limite d\'agglo',
+          avant: pourcent(loc.partAgglo) + ' dans l\'agglomeration',
+          apres: 'a couper au panneau d\'entree d\'agglomeration (EB10)' }] }));
+        continue;
+      }
+
+      const enAgglo = loc.partAgglo >= haut;
+      if (enAgglo) zones.agglo++; else zones.hors++;
+
+      const exp = REF.etatCible(nam, enAgglo ? loc.agglo : null, communeActive.nom);
+      const ecartsNom = c.nommageZone ? diffNaming(nam, exp) : [];
+      const ecartsCart = REF.controles
+        .filter(ct => ct.portee === 'segment' && c[ct.cle] && ct.executer)
+        .reduce((acc, ct) => acc.concat(ct.executer(nam)), []);
+      const ecarts = ecartsNom.concat(ecartsCart, forme);
+      if (!ecarts.length) continue;
+      if (ecartsCart.length) zones.cartouche++;
+
+      // Alertes mineures : le segment deborde un peu, sans que ca change son
+      // rattachement. On le dit, on ne bloque pas.
+      const notes = [];
+      if (exp.doute) notes.push(exp.doute);
+      if (loc.partCommune < 1) notes.push('deborde de ' + pourcent(1 - loc.partCommune) + ' sur la commune voisine');
+      if (enAgglo && loc.partAgglo < 1) notes.push('deborde de ' + pourcent(1 - loc.partAgglo) + ' hors de l\'agglomeration');
+      if (!enAgglo && loc.partAgglo > 0) notes.push('mord de ' + pourcent(loc.partAgglo) + ' sur l\'agglomeration');
+      if (loc.partCommune < 1 || (enAgglo ? loc.partAgglo < 1 : loc.partAgglo > 0)) zones.limitrophe++;
+
+      findings.push(Object.assign({}, base, { cas: exp.cas, ecarts,
+        // Un segment dont le SEUL defaut est un cartouche absent, ou une faute
+        // de redaction, merite sa propre couleur : le zonage, lui, est bon.
+        seulementCartouche: ecartsCart.length > 0 && ecartsNom.length === 0 && !forme.length,
+        seulementForme: forme.length > 0 && !ecartsNom.length && !ecartsCart.length,
+        doute: notes.length ? notes.join(' ; ') : null }));
+    }
+
+    const nbSegmentsEnEcart = findings.length;
+    findings = regrouperFindings(findings);
+    lastScan = { analyses: zones.agglo + zones.hors + zones.cheval + zones.limCom, skipped, zones,
+                 ecarts: nbSegmentsEnEcart, lignes: findings.length, nbAgglos: listeAgglos.length };
+    renderResults();
+    redrawEcarts(null);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Interface — overlay flottant (le panneau lateral fait disparaitre la liste
+  // des qu'on selectionne un segment : inutilisable pour travailler)
+  // ---------------------------------------------------------------------------
+
+  const CSS = `
+  /* Une hauteur par defaut est necessaire : sans elle la fenetre grandit avec
+     la liste et deborde par le bas de l'ecran au lieu de faire defiler. */
+  #agn-overlay{position:fixed;z-index:9000;width:400px;min-width:300px;min-height:200px;
+    height:560px;max-height:calc(100vh - 90px);
+    background:#fff;border:1px solid #b0bec5;border-radius:8px;
+    box-shadow:0 6px 26px rgba(0,0,0,.28);display:flex;flex-direction:column;
+    font:12px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1f2933;resize:both;overflow:hidden}
+  #agn-tete{display:flex;align-items:center;gap:8px;padding:7px 10px;background:#1e88e5;color:#fff;
+    border-radius:7px 7px 0 0;cursor:move;user-select:none;flex:0 0 auto}
+  #agn-tete b{font-size:12.5px}
+  #agn-tete .agn-v{opacity:.75;font-size:11px}
+  #agn-tete .agn-sp{flex:1}
+  #agn-tete button{background:rgba(255,255,255,.18);border:none;color:#fff;cursor:pointer;
+    width:22px;height:22px;border-radius:4px;font-size:13px;line-height:1}
+  #agn-tete button:hover{background:rgba(255,255,255,.34)}
+  /* min-height:0 est INDISPENSABLE : sans lui un element flex refuse de
+     descendre sous la hauteur de son contenu, donc il pousse la fenetre au
+     lieu de faire defiler la liste. */
+  #agn-corps{padding:10px 12px 14px;overflow-y:auto;flex:1 1 auto;min-height:0}
+  #agn-corps h3{font-size:11px;margin:13px 0 5px;text-transform:uppercase;letter-spacing:.05em;color:#607d8b}
+  #agn-corps h3:first-child{margin-top:0}
+  #agn-reglages h3:first-child{margin-top:0}
+  #agn-resume{font-size:11px;color:#607d8b;cursor:pointer;padding:4px 7px;border-radius:4px;
+    user-select:none;margin-bottom:4px}
+  #agn-resume:hover{background:#eceff1}
+  #agn-resume.agn-replie{background:#e3f2fd;color:#1565c0;font-weight:600;border:1px solid #bbdefb;margin-bottom:8px}
+  .agn-btn{display:block;width:100%;padding:6px 10px;margin:3px 0;border:1px solid #bbb;border-radius:4px;
+    background:#fff;cursor:pointer;font-size:12px;color:inherit}
+  .agn-btn:hover:not(:disabled){background:#f3f3f3}
+  .agn-btn:disabled{opacity:.45;cursor:default}
+  .agn-btn.primary{background:#1e88e5;color:#fff;border-color:#1976d2;font-weight:600}
+  .agn-btn.primary:disabled{background:#9e9e9e;border-color:#9e9e9e}
+  .agn-sel{width:100%;padding:5px;font-size:12px;margin:3px 0;border:1px solid #bbb;border-radius:4px;background:#fff}
+  .agn-note{font-size:10.5px;color:#78909c;margin:2px 0}
+  .agn-poly{border:1px solid #ddd;border-radius:4px;padding:6px;margin:5px 0;background:#fafafa}
+  .agn-poly input[type=text]{width:100%;box-sizing:border-box;margin:2px 0;padding:3px 5px;font-size:12px}
+  .agn-row{display:flex;gap:6px;align-items:center;margin-top:4px}
+  .agn-row label{flex:1;font-size:11px}
+  .agn-mini{border:none;background:none;cursor:pointer;font-size:12px;padding:2px 4px;opacity:.7}
+  .agn-mini:hover{opacity:1}
+  .agn-stat{background:#eceff1;border-radius:4px;padding:6px 8px;margin:6px 0;font-size:11px}
+  .agn-alerte{background:#fff3e0;border:1px solid #ffb74d;color:#a34a00}
+  .agn-ok{background:#e8f5e9;border:1px solid #a5d6a7;color:#2e7d32}
+  .agn-item{border:1px solid #e0e0e0;border-left-width:4px;border-radius:3px;padding:5px 7px;margin:4px 0;
+    cursor:pointer;background:#fff}
+  .agn-item:hover{background:#f6f9ff}
+  .agn-item.agn-actif{background:#fff8e1;border-color:#ffb300;border-left-color:#ff6f00;box-shadow:0 0 0 1px #ffb300}
+  .agn-item.agn-traite{background:#e8f5e9;border-color:#a5d6a7}
+  .agn-item.agn-traite .agn-h > span:first-child{text-decoration:line-through;opacity:.6}
+  .agn-item.agn-traite .agn-d,.agn-item.agn-traite .agn-warn{opacity:.45}
+  .agn-ok-btn{border:1px solid #c8e6c9;background:#fff;color:#2e7d32;border-radius:3px;cursor:pointer;
+    font-size:11px;padding:0;line-height:15px;flex:0 0 auto;width:20px;text-align:center}
+  .agn-ok-btn:hover{background:#e8f5e9}
+  .agn-item.agn-traite .agn-ok-btn{background:#2e7d32;color:#fff;border-color:#2e7d32}
+  .agn-traites{color:#2e7d32;font-weight:600}
+  .agn-nb{color:#1565c0;font-weight:700}
+  .agn-cartouche{border-left-color:#fbc02d}
+  .agn-a{border-left-color:#8e24aa}
+  #agn-poignees{position:fixed;inset:0;z-index:8500;pointer-events:none}
+  .agn-poi{position:fixed;transform:translate(-50%,-50%);border-radius:50%;pointer-events:auto;cursor:grab}
+  .agn-poi-s{width:12px;height:12px;background:#e91e63;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.5)}
+  .agn-poi-s:hover{background:#ad1457;transform:translate(-50%,-50%) scale(1.25)}
+  .agn-poi-m{width:9px;height:9px;background:rgba(255,255,255,.85);border:2px dashed #e91e63;cursor:copy}
+  .agn-poi-m:hover{background:#fff;transform:translate(-50%,-50%) scale(1.3)}
+  .agn-poly.agn-en-edition{border-color:#e91e63;box-shadow:0 0 0 1px #e91e63}
+  .agn-edit-barre{margin-top:6px;padding-top:6px;border-top:1px dashed #e0e0e0}
+  .agn-edit-barre span{display:block;font-size:10px;color:#78909c;margin-bottom:4px}
+  .agn-edit-barre button{display:inline-block;width:auto;margin-right:5px}
+  .agn-forme{border-left-color:#00acc1}
+  .agn-special{border-left-color:#546e7a}
+  /* Le libelle absorbe la largeur disponible et le badge a une largeur
+     minimale : sans ca, la coche se decale selon la longueur du nom et la
+     taille du code de cas, et les ✓ ne sont plus alignes d'une ligne a l'autre. */
+  .agn-item .agn-h{display:flex;align-items:flex-start;gap:6px;font-weight:600}
+  .agn-item .agn-h > span:first-child{flex:1 1 auto;min-width:0;word-break:break-word}
+  .agn-item .agn-cas{font-size:10px;background:#eee;border-radius:3px;padding:1px 5px;font-weight:600;
+    white-space:nowrap;flex:0 0 auto;min-width:38px;text-align:center}
+  .agn-item .agn-d{font-size:11px;margin-top:3px;opacity:.85}
+  .agn-item .agn-warn{color:#c62828;font-size:11px;margin-top:3px}
+  .agn-c1,.agn-c2,.agn-c3,.agn-c4,.agn-r1,.agn-r2,.agn-r3,.agn-r4{border-left-color:#1e88e5}
+  .agn-h5,.agn-h6,.agn-h7,.agn-h8,.agn-h9{border-left-color:#8e24aa}
+  .agn-eb10{border-left-color:#f57c00}
+  .agn-lim{border-left-color:#00897b}
+  #agn-bulle{position:fixed;z-index:9600;display:none;max-width:420px;pointer-events:none;
+    background:#263238;color:#eceff1;border-radius:6px;padding:8px 10px;
+    box-shadow:0 4px 18px rgba(0,0,0,.45);font:11.5px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  #agn-bulle .agn-b-t{display:flex;align-items:center;gap:6px;font-weight:700;font-size:12px;margin-bottom:4px}
+  #agn-bulle .agn-cas{background:rgba(255,255,255,.18);border-radius:3px;padding:1px 5px;font-size:10px}
+  #agn-bulle .agn-b-l{opacity:.9;margin-top:2px}
+  #agn-bulle .agn-b-l b{color:#80d8ff;font-weight:600}
+  #agn-bulle .agn-b-w{color:#ffab91;margin-top:4px}
+  #agn-bulle .agn-b-ok{color:#a5d6a7;margin-top:4px}
+  .agn-grp{border:1px solid #e0e0e0;border-radius:4px;margin:5px 0;overflow:hidden}
+  .agn-grp-t{display:flex;align-items:center;gap:7px;padding:6px 8px;background:#f5f7f9;
+    cursor:pointer;user-select:none;font-size:12px}
+  .agn-grp-t:hover{background:#eceff1}
+  .agn-grp-t .agn-chev{color:#78909c;width:9px}
+  .agn-grp-t b{flex:1;font-weight:600}
+  .agn-pastille{width:11px;height:11px;border-radius:2px;flex:0 0 auto;box-shadow:0 0 0 1px rgba(0,0,0,.15)}
+  .agn-grp-n{background:#546e7a;color:#fff;border-radius:9px;padding:1px 7px;font-size:10.5px;font-weight:700}
+  .agn-grp-c{padding:4px 6px 6px}
+  .agn-lien{border:none;background:none;color:#1e88e5;cursor:pointer;font-size:11px;
+    text-decoration:underline;padding:2px;margin-left:auto}
+  .agn-empty{opacity:.6;font-style:italic;padding:8px 0;font-size:11px}
+  /* WCT reinsere son bouton en dernier dans le conteneur (il le surveille) :
+     inutile de se battre dans le DOM, le conteneur est une grille, donc on se
+     place apres lui par l'ordre CSS. */
+  #agn-fab-wrap{width:40px;height:40px;order:99}
+  #agn-fab-btn{width:40px;height:40px;padding:0;border:none;border-radius:50%;cursor:pointer;
+    background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.3);font-size:19px;line-height:1;
+    display:flex;align-items:center;justify-content:center}
+  #agn-fab-btn:hover{background:#eef3f8}
+  #agn-fab-btn.agn-fab-on{box-shadow:0 0 0 2px #1e88e5,0 2px 6px rgba(0,0,0,.3)}
+  .agn-sb{font:12px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:2px}
+  .agn-sb-t{font-weight:700;font-size:13px;margin-bottom:2px}
+  .agn-sb-t span{opacity:.5;font-weight:400;font-size:11px}
+  .agn-sb h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#607d8b;
+    margin:14px 0 5px;border-bottom:1px solid #eceff1;padding-bottom:3px}
+  .agn-sb-l{display:flex;align-items:center;gap:6px;margin:5px 0}
+  .agn-sb-l span{flex:1}
+  .agn-sb-l input{width:58px;padding:2px 4px;font-size:12px}
+  .agn-sb-c{display:flex;align-items:flex-start;gap:6px;margin:5px 0;cursor:pointer}
+  .agn-sb-col{display:flex;align-items:center;gap:7px;margin:4px 0;cursor:pointer}
+  .agn-sb-col input{width:34px;height:22px;padding:0;border:1px solid #ccc;border-radius:3px;background:none;cursor:pointer}
+  .agn-sb-n{font-size:11px;color:#e65100;min-height:14px;margin-top:4px}
+  .agn-sb-b{width:100%;padding:6px;margin-top:6px;border:1px solid #bbb;border-radius:4px;
+    background:#fff;cursor:pointer;font-size:12px}
+  .agn-sb-b:hover{background:#f3f3f3}
+  .agn-sb-b.agn-sb-p{background:#1e88e5;color:#fff;border-color:#1976d2;font-weight:600}
+  .agn-nav{display:flex;gap:6px;align-items:center;margin:6px 0}
+  .agn-nav button{flex:0 0 auto;padding:4px 9px}
+  .agn-nav span{font-size:11px;color:#607d8b}
+  `;
+
+  function el(html) { const d = document.createElement('div'); d.innerHTML = html.trim(); return d.firstChild; }
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+
+  function buildOverlay() {
+    const style = document.createElement('style'); style.textContent = CSS; document.head.appendChild(style);
+    const memo = lire(STORE_UI, {});
+    if (memo.options) options = Object.assign(options, memo.options);
+    // Les controles disponibles dependent du referentiel : on active par defaut
+    // ceux qu'il declare et que l'utilisateur n'a pas deja regles.
+    REF.controles.forEach(ct => {
+      if (options.controles[ct.cle] === undefined) options.controles[ct.cle] = true;
+    });
+
+    const o = el(`
+      <div id="agn-overlay">
+        <div id="agn-tete">
+          <b>🏙️ Agglo Naming</b><span class="agn-v">v${VERSION}</span><span class="agn-sp"></span>
+          <button id="agn-reduire" title="Reduire">–</button>
+          <button id="agn-fermer" title="Fermer">✕</button>
+        </div>
+        <div id="agn-corps">
+          <div id="agn-resume" title="Afficher ou masquer les reglages">▾ Reglages</div>
+          <div id="agn-reglages">
+            <h3>1. Contours communaux</h3>
+            <button class="agn-btn" id="agn-contours">Charger un GeoJSON de communes</button>
+            <input type="file" id="agn-fichier" accept=".geojson,.json" style="display:none">
+            <div id="agn-statut-contours"></div>
+
+            <h3>2. Commune a traiter</h3>
+            <select class="agn-sel" id="agn-commune"><option value="">— charger d'abord les contours —</option></select>
+            <div class="agn-note" id="agn-nb-communes"></div>
+
+            <h3>3. Agglomeration</h3>
+            <button class="agn-btn" id="agn-tracer" disabled>＋ Tracer l'agglomeration</button>
+            <div id="agn-agglos"></div>
+
+          </div>
+          <button class="agn-btn primary" id="agn-scan" disabled>Analyser la commune</button>
+          <div id="agn-stats"></div>
+          <div id="agn-results"></div>
+        </div>
+      </div>`);
+    document.body.appendChild(o);
+
+    ui.overlay = o;
+    ui.statutContours = o.querySelector('#agn-statut-contours');
+    ui.inputFichier = o.querySelector('#agn-fichier');
+    ui.selCommune = o.querySelector('#agn-commune');
+    ui.nbCommunes = o.querySelector('#agn-nb-communes');
+    ui.btnTracer = o.querySelector('#agn-tracer');
+    ui.listeAgglos = o.querySelector('#agn-agglos');
+    ui.btnScan = o.querySelector('#agn-scan');
+    ui.stats = o.querySelector('#agn-stats');
+    ui.results = o.querySelector('#agn-results');
+    ui.corps = o.querySelector('#agn-corps');
+    ui.reglages = o.querySelector('#agn-reglages');
+    ui.resume = o.querySelector('#agn-resume');
+    ui.resume.onclick = () => afficherReglages(ui.reglages.style.display === 'none');
+
+    // position / taille memorisees
+    o.style.left = (memo.x != null ? memo.x : window.innerWidth - 440) + 'px';
+    o.style.top = (memo.y != null ? memo.y : 90) + 'px';
+    if (memo.w) o.style.width = memo.w + 'px';
+    // On borne la hauteur memorisee : l'ecran a pu retrecir depuis, ou la
+    // fenetre avoir ete etiree au-dela quand la liste la poussait encore.
+    if (memo.h) o.style.height = Math.min(memo.h, window.innerHeight - 90) + 'px';
+    if (memo.ouvert === false) o.style.display = 'none';
+
+    o.querySelector('#agn-contours').onclick = () => ui.inputFichier.click();
+    ui.inputFichier.onchange = surFichierContours;
+    ui.btnTracer.onclick = tracerAgglo;
+    ui.btnScan.onclick = scan;
+    ui.selCommune.onchange = () => {
+      communeActive = communes.find(c => c.code === ui.selCommune.value) || null;
+      redrawCommune(); redrawAgglos(); renderAgglos();
+      if (communeActive) { try { sdk.Map.centerMapOnGeometry({ geometry: communeActive.geom }); } catch (e) { /* */ } }
+    };
+
+    o.querySelector('#agn-fermer').onclick = fermerOverlay;
+    o.querySelector('#agn-reduire').onclick = () => {
+      const c = ui.corps;
+      const replie = c.style.display === 'none';
+      c.style.display = replie ? '' : 'none';
+      o.style.height = replie ? (lire(STORE_UI, {}).h || 520) + 'px' : 'auto';
+      o.style.resize = replie ? 'both' : 'none';
+    };
+
+    // Deplacement par l'en-tete. On coupe la propagation : sans ca, le
+    // glissement part dans la carte de WME.
+    const tete = o.querySelector('#agn-tete');
+    let drag = null;
+    tete.addEventListener('mousedown', e => {
+      if (e.target.tagName === 'BUTTON') return;
+      const r = o.getBoundingClientRect();
+      drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+      e.preventDefault(); e.stopPropagation();
+    });
+    document.addEventListener('mousemove', e => {
+      if (!drag) return;
+      const x = Math.min(Math.max(0, e.clientX - drag.dx), window.innerWidth - 120);
+      const y = Math.min(Math.max(0, e.clientY - drag.dy), window.innerHeight - 40);
+      o.style.left = x + 'px'; o.style.top = y + 'px';
+      e.preventDefault();
+    });
+    document.addEventListener('mouseup', () => { if (drag) { drag = null; saveUI(); } });
+
+    // La molette et les clics dans l'overlay ne doivent pas atteindre la carte.
+    ['wheel', 'mousedown', 'dblclick', 'contextmenu'].forEach(evt =>
+      o.addEventListener(evt, e => e.stopPropagation()));
+
+    new ResizeObserver(() => { clearTimeout(ui.tResize); ui.tResize = setTimeout(saveUI, 400); }).observe(o);
+  }
+
+  /**
+   * Une fois l'analyse lancee, les reglages (contours, commune, agglo, options)
+   * n'ont plus d'interet immediat : on les replie pour rendre la hauteur a la
+   * liste des ecarts. Le bandeau resume rappelle le contexte et rouvre au clic.
+   */
+  function afficherReglages(ouvert) {
+    ui.reglages.style.display = ouvert ? '' : 'none';
+    if (ouvert) { ui.resume.textContent = '▾ Reglages'; ui.resume.classList.remove('agn-replie'); return; }
+    ui.resume.classList.add('agn-replie');
+    const bouts = [communeActive ? communeActive.nom : 'aucune commune'];
+    if (communeActive) {
+      const n = (agglos[communeActive.code] || []).length;
+      bouts.push(n + ' agglo' + (n > 1 ? 's' : ''));
+    }
+    bouts.push('seuil ' + Math.round(options.seuil * 100) + ' %');
+    if (options.sansAdresse) bouts.push('+ voies sans adressage');
+    if (options.altEnTrop) bouts.push('+ alt surnumeraires');
+    ui.resume.innerHTML = '▸ ' + bouts.map(esc).join(' · ');
+  }
+
+  /**
+   * Panneau de reglages, dans l'onglet du panneau lateral. Tout ce qui se
+   * regle une fois pour toutes vit ici ; l'overlay ne garde que le travail
+   * courant. Un changement d'option d'analyse demande une nouvelle analyse :
+   * on le dit plutot que de relancer d'office (le scan coute plusieurs secondes).
+   */
+  function buildReglages(pane) {
+    pane.innerHTML = `
+      <div class="agn-sb">
+        <div class="agn-sb-t">${SCRIPT_NAME} <span>v${VERSION}</span></div>
+
+        <h4>Analyse</h4>
+        <label class="agn-sb-l" title="Part de longueur au-dela de laquelle un segment a cheval est rattache d'office a un cote. En dessous, il est signale comme a couper.">
+          <span>Seuil de rattachement</span>
+          <input type="number" id="agn-r-seuil" min="50" max="100" step="5"> %</label>
+        <label class="agn-sb-c"><input type="checkbox" id="agn-r-sansadresse">
+          Inclure parkings, voies privees, sentiers, escaliers</label>
+        <label class="agn-sb-c"><input type="checkbox" id="agn-r-alt">
+          Signaler les noms alternatifs surnumeraires</label>
+
+        <h4>Controles</h4>
+        <div id="agn-r-controles"></div>
+        <div class="agn-sb-n" id="agn-r-relance"></div>
+
+        <h4>Navigation</h4>
+        <label class="agn-sb-c"><input type="checkbox" id="agn-r-zoom">
+          Zoomer sur le segment au clic</label>
+        <label class="agn-sb-l"><span>Niveau de zoom</span>
+          <input type="number" id="agn-r-zoomniv" min="12" max="22" step="1"></label>
+
+        <h4>Surlignage des segments</h4>
+        <label class="agn-sb-c"><input type="checkbox" id="agn-r-surligner">
+          Surligner les segments en ecart sur la carte</label>
+        <div id="agn-r-couleurs"></div>
+        <button class="agn-sb-b" id="agn-r-reset">Couleurs par defaut</button>
+
+        <h4>Fenetre de travail</h4>
+        <button class="agn-sb-b agn-sb-p" id="agn-rouvrir">Afficher la fenetre</button>
+      </div>`;
+
+    const q = s => pane.querySelector(s);
+    const prevenir = () => { q('#agn-r-relance').textContent = 'Relance une analyse pour appliquer.'; };
+
+    const seuil = q('#agn-r-seuil');
+    seuil.value = Math.round(options.seuil * 100);
+    seuil.onchange = () => {
+      const v = Math.min(100, Math.max(50, parseInt(seuil.value, 10) || 80));
+      seuil.value = v; options.seuil = v / 100; saveUI(); prevenir();
+      if (ui.reglages && ui.reglages.style.display === 'none') afficherReglages(false);
+    };
+
+    const coche = (id, cle, apres) => {
+      const c = q(id); c.checked = !!options[cle];
+      c.onchange = () => { options[cle] = c.checked; saveUI(); if (apres) apres(); };
+    };
+    coche('#agn-r-sansadresse', 'sansAdresse', prevenir);
+    coche('#agn-r-alt', 'altEnTrop', prevenir);
+
+    // La liste des controles vient du REFERENTIEL du pays, pas d'une liste en
+    // dur : un autre pays affichera automatiquement les siens.
+    const zoneCtrl = q('#agn-r-controles');
+    REF.controles.forEach(({ cle, libelle }) => {
+      const l = el(`<label class="agn-sb-c"><input type="checkbox"> ${esc(libelle)}</label>`);
+      const inp = l.querySelector('input');
+      inp.checked = !!options.controles[cle];
+      inp.onchange = () => { options.controles[cle] = inp.checked; saveUI(); prevenir(); };
+      zoneCtrl.appendChild(l);
+    });
+    coche('#agn-r-zoom', 'zoomClic');
+    coche('#agn-r-surligner', 'surligner', () => redrawEcarts(null));
+
+    const zn = q('#agn-r-zoomniv');
+    zn.value = options.zoomNiveau;
+    zn.onchange = () => {
+      const v = Math.min(22, Math.max(12, parseInt(zn.value, 10) || 17));
+      zn.value = v; options.zoomNiveau = v; saveUI();
+    };
+
+    const zoneCouleurs = q('#agn-r-couleurs');
+    const peindre = () => {
+      zoneCouleurs.innerHTML = '';
+      for (const [cle, f] of Object.entries(FAMILLES)) {
+        const l = el(`<label class="agn-sb-col">
+            <input type="color" value="${options.couleurs[cle] || f.defaut}">
+            <span>${f.libelle}</span></label>`);
+        l.querySelector('input').onchange = e => {
+          options.couleurs[cle] = e.target.value; saveUI(); redrawEcarts(null);
+        };
+        zoneCouleurs.appendChild(l);
+      }
+    };
+    peindre();
+    q('#agn-r-reset').onclick = () => {
+      for (const [cle, f] of Object.entries(FAMILLES)) options.couleurs[cle] = f.defaut;
+      saveUI(); peindre(); redrawEcarts(null);
+    };
+
+    q('#agn-rouvrir').onclick = ouvrirOverlay;
+  }
+
+  function ouvrirOverlay() {
+    ui.overlay.style.display = '';
+    ui.overlay.style.left = Math.min(parseInt(ui.overlay.style.left, 10) || 0, window.innerWidth - 200) + 'px';
+    repeindreCarte();
+    saveUI(); majFab();
+  }
+
+  function fermerOverlay() {
+    ui.overlay.style.display = 'none';
+    nettoyerCarte();
+    saveUI(); majFab();
+  }
+
+  /** Fenetre fermee = carte rendue a WME : plus un seul de nos calques. */
+  function nettoyerCarte() {
+    if (edition) sortirEdition(false);
+    cacherBulle();
+    [LAYER_COMMUNE, LAYER_AGGLO, LAYER_ECARTS].forEach(n => {
+      try { sdk.Map.removeAllFeaturesFromLayer({ layerName: n }); } catch (e) { /* */ }
+    });
+  }
+
+  /** Reouverture : on remet ce qui correspond a l'etat courant. */
+  function repeindreCarte() {
+    redrawCommune(); redrawAgglos(); redrawEcarts(null);
+  }
+
+  /**
+   * Bouton flottant dans la colonne d'icones de droite de WME, a la suite de
+   * celui de WCT (meme conteneur `.overlay-buttons-container.top`, donc il
+   * s'empile juste en dessous). Le conteneur n'existe pas forcement au
+   * demarrage : on reessaie tant qu'il n'est pas la.
+   */
+  function installerFab() {
+    const poser = () => {
+      if (document.querySelector('#agn-fab-wrap')) return true;
+      const cont = document.querySelector('.overlay-buttons-container.top') ||
+                   document.querySelector('.overlay-buttons-container');
+      if (!cont) return false;
+      const wrap = el(`<div id="agn-fab-wrap"><button id="agn-fab-btn" type="button">🏙️</button></div>`);
+      cont.appendChild(wrap);
+      wrap.querySelector('button').onclick = () => {
+        if (ui.overlay.style.display === 'none') ouvrirOverlay(); else fermerOverlay();
+      };
+      majFab();
+      return true;
+    };
+    if (poser()) return;
+    let essais = 0;
+    const t = setInterval(() => { if (poser() || ++essais > 40) clearInterval(t); }, 500);
+  }
+
+  function majFab() {
+    const b = document.querySelector('#agn-fab-btn');
+    if (!b || !ui.overlay) return;
+    const ouvert = ui.overlay.style.display !== 'none';
+    b.classList.toggle('agn-fab-on', ouvert);
+    b.title = SCRIPT_NAME + (ouvert ? ' — masquer la fenetre' : ' — afficher la fenetre');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Rendus
+  // ---------------------------------------------------------------------------
+
+  function renderContours() {
+    if (!metaContours) {
+      ui.statutContours.innerHTML = '<div class="agn-empty">Aucun contour charge. ' +
+        'Fabrique le fichier avec Recuperer-Communes.html.</div>';
+      return;
+    }
+    ui.statutContours.innerHTML = `<div class="agn-stat agn-ok">
+      <b>${metaContours.nb}</b> commune(s) — <span style="opacity:.75">${esc(metaContours.nom)}</span></div>`;
+  }
+
+  function renderAgglos() {
+    ui.btnTracer.disabled = !communeActive;
+    ui.btnScan.disabled = !communeActive;
+    if (!communeActive) {
+      ui.listeAgglos.innerHTML = '<div class="agn-empty">Choisis une commune.</div>'; return;
+    }
+    const liste = agglos[communeActive.code] || [];
+    if (!liste.length) {
+      ui.listeAgglos.innerHTML = '<div class="agn-empty">Aucune agglomeration pour ' +
+        esc(communeActive.nom) + '.</div>';
+      return;
+    }
+    ui.listeAgglos.innerHTML = '';
+    liste.forEach((a, i) => {
+      const node = el(`
+        <div class="agn-poly">
+          <input type="text" class="agn-label" title="Simple etiquette de reperage : elle n'entre PAS dans l'analyse"
+                 placeholder="Etiquette (reperage seul)" value="${esc(a.label)}">
+          <div class="agn-row">
+            <label><input type="checkbox" class="agn-ratt" ${a.rattache ? 'checked' : ''}> village rattache</label>
+            <button class="agn-mini agn-edit" title="Editer les sommets">✎</button>
+            <button class="agn-mini agn-zoom" title="Centrer">◎</button>
+            <button class="agn-mini agn-del" title="Supprimer">✕</button>
+          </div>
+          <div class="agn-note">${a.ring.length - 1} sommets — ville appliquee : <b>${
+            esc(a.rattache ? '‹ville du segment› (' + communeActive.nom + ')' : communeActive.nom)}</b></div>
+        </div>`);
+      node.querySelector('.agn-label').onchange = e => { a.label = e.target.value.trim(); saveAgglos(); redrawAgglos(); renderAgglos(); };
+      node.querySelector('.agn-ratt').onchange = e => { a.rattache = e.target.checked; saveAgglos(); renderAgglos(); };
+      node.querySelector('.agn-del').onclick = () => {
+        liste.splice(i, 1);
+        if (!liste.length) delete agglos[communeActive.code];
+        saveAgglos(); redrawAgglos(); renderAgglos();
+      };
+      node.querySelector('.agn-zoom').onclick = () => {
+        try { sdk.Map.centerMapOnGeometry({ geometry: { type: 'Polygon', coordinates: [a.ring] } }); } catch (e) { /* */ }
+      };
+      node.querySelector('.agn-edit').onclick = () => entrerEdition(a);
+      if (edition && edition.agglo === a) {
+        node.classList.add('agn-en-edition');
+        const barre = el(`<div class="agn-edit-barre">
+            <span>Glisser un point plein · cliquer un point creux pour en ajouter · clic droit pour supprimer</span>
+            <button class="agn-btn" data-a="ok">Terminer</button>
+            <button class="agn-btn" data-a="ko">Annuler</button></div>`);
+        barre.querySelector('[data-a=ok]').onclick = () => sortirEdition(true);
+        barre.querySelector('[data-a=ko]').onclick = () => sortirEdition(false);
+        node.appendChild(barre);
+      }
+      ui.listeAgglos.appendChild(node);
+    });
+  }
+
+  let indexCourant = -1;
+
+  /**
+   * Marque un ecart comme traite : il reste dans la liste, barre et coche, mais
+   * son surlignage disparait de la carte. A la prochaine analyse il ne devrait
+   * plus remonter du tout — c'est la verification que la correction a pris.
+   * Cette fonction sera aussi le point d'entree de la correction automatique.
+   */
+  function marquerTraite(f, node, force) {
+    f.traite = force !== undefined ? force : !f.traite;
+    node.classList.toggle('agn-traite', !!f.traite);
+    redrawEcarts(null);
+    majCompteurTraites();
+  }
+
+  function majCompteurTraites() {
+    if (!ui.traites) return;
+    const n = findings.filter(f => f.traite).length;
+    ui.traites.textContent = n ? n + ' traite' + (n > 1 ? 's' : '') : '';
+  }
+
+  function allerA(i) {
+    const items = [...ui.results.querySelectorAll('.agn-item')];
+    if (!items.length) return;
+    indexCourant = Math.min(Math.max(0, i), items.length - 1);
+    const node = items[indexCourant];
+    items.forEach(n => n.classList.remove('agn-actif'));
+    node.classList.add('agn-actif');
+    // un item dans un groupe replie ne peut pas etre montre : on ouvre d'abord
+    const grp = node.closest('.agn-grp');
+    if (grp && !grp.classList.contains('agn-ouvert')) ouvrirGroupe(grp, true);
+    node.scrollIntoView({ block: 'nearest' });
+    ui.compteur.textContent = (indexCourant + 1) + ' / ' + items.length;
+
+    // /!\ Ne PAS deduire le report de la position dans la liste : les lignes
+    // sont reparties par thematique, l'ordre du DOM differe de celui du tableau.
+    const idx = parseInt(node.dataset.idx, 10);
+    const f = findings[idx];
+    if (!f) return;
+    // Un report peut couvrir plusieurs segments identiques : on les selectionne
+    // tous d'un bloc.
+    try { sdk.Editing.setSelection({ selection: { ids: f.segIds, objectType: 'segment' } }); }
+    catch (e) { log('selection impossible', e); }
+
+    try {
+      if (f.nb > 1) {
+        // Plusieurs troncons : on cadre l'ensemble, sinon on ne verrait qu'une
+        // partie de ce qui vient d'etre selectionne.
+        sdk.Map.centerMapOnGeometry({ geometry: {
+          type: 'MultiLineString', coordinates: f.geoms.filter(Boolean).map(g => g.coordinates) } });
+      } else {
+        // Un seul : centrage + zoom FIXE et reglable, plus previsible qu'un
+        // cadrage qui zoome a fond sur un segment court.
+        sdk.Map.setMapCenter({ lonLat: f.centre });
+        if (options.zoomClic) sdk.Map.setZoomLevel({ zoomLevel: options.zoomNiveau });
+      }
+    } catch (e) { log('recentrage impossible', e); }
+
+    redrawEcarts(idx);
+  }
+
+  function renderResults() {
+    const s = lastScan;
+    if (s) {
+      const z = s.zones;
+      ui.stats.innerHTML = `<div class="agn-stat">
+        <b>${s.ecarts}</b> segment(s) en ecart sur <b>${s.analyses}</b> analyses a ${esc(communeActive.nom)}${
+          s.lignes && s.lignes !== s.ecarts ? ', regroupes en <b>' + s.lignes + '</b> report(s)' : ''}.<br>
+        ${z.agglo} en agglo · ${z.hors} hors agglo · ${z.cheval} a couper (agglo) · ${z.limCom} a couper (commune)${
+          z.limitrophe ? ' · ' + z.limitrophe + ' debordent legerement' : ''}${
+          z.cartouche ? ' · ' + z.cartouche + ' cartouche(s) a poser' : ''}${
+          z.special ? ' · ' + z.special + ' voie(s) a regle propre' : ''}.<br>
+        Ignores : ${s.skipped.horsCommune} hors commune, ${s.skipped.sansAdresse} sans adressage, ${s.skipped.horsRegle} regles propres.
+      </div>`;
+    }
+    ui.results.innerHTML = '';
+    indexCourant = -1;
+    if (!findings.length) {
+      ui.results.innerHTML = '<div class="agn-empty">Aucun ecart detecte.</div>';
+      return;
+    }
+    const nav = el(`<div class="agn-nav">
+        <button class="agn-btn" id="agn-prec" style="width:auto">‹ Precedent</button>
+        <button class="agn-btn" id="agn-suiv" style="width:auto">Suivant ›</button>
+        <span id="agn-compteur">— / ${findings.length}</span>
+        <span id="agn-traites" class="agn-traites"></span>
+        <button class="agn-lien" id="agn-tout">tout deplier</button></div>`);
+    ui.results.appendChild(nav);
+    ui.compteur = nav.querySelector('#agn-compteur');
+    ui.traites = nav.querySelector('#agn-traites');
+    nav.querySelector('#agn-prec').onclick = () => allerA(indexCourant - 1);
+    nav.querySelector('#agn-suiv').onclick = () => allerA(indexCourant + 1);
+    nav.querySelector('#agn-tout').onclick = () => {
+      const grps = [...ui.results.querySelectorAll('.agn-grp')];
+      const toutOuvert = grps.every(g => g.classList.contains('agn-ouvert'));
+      grps.forEach(g => ouvrirGroupe(g, !toutOuvert));
+    };
+
+    // Regroupement par thematique : une famille = une couleur sur la carte,
+    // donc la liste et la carte se lisent avec la meme cle. Replie par defaut :
+    // sur plusieurs centaines d'ecarts, la liste a plat est illisible.
+    const parFamille = new Map();
+    findings
+      .sort((a, b) => a.cas.localeCompare(b.cas) || a.libelle.localeCompare(b.libelle))
+      .forEach(f => {
+        const cle = familleDe(f);
+        if (!parFamille.has(cle)) parFamille.set(cle, []);
+        parFamille.get(cle).push(f);
+      });
+
+    for (const [cle, fam] of Object.entries(FAMILLES)) {
+      const liste = parFamille.get(cle);
+      if (!liste || !liste.length) continue;
+      const grp = el(`<div class="agn-grp" data-fam="${cle}">
+          <div class="agn-grp-t">
+            <span class="agn-chev">▸</span>
+            <span class="agn-pastille" style="background:${options.couleurs[cle] || fam.defaut}"></span>
+            <b>${esc(fam.libelle)}</b>
+            <span class="agn-grp-n">${liste.length}</span>
+          </div>
+          <div class="agn-grp-c" style="display:none"></div></div>`);
+      const corps = grp.querySelector('.agn-grp-c');
+      grp.querySelector('.agn-grp-t').onclick = () => ouvrirGroupe(grp, !grp.classList.contains('agn-ouvert'));
+
+      liste.forEach(f => {
+        const node = el(`
+          <div class="agn-item agn-${cle}" data-seg="${f.segId}" data-idx="${findings.indexOf(f)}">
+            <div class="agn-h"><span>${esc(f.libelle)}</span>
+              <button class="agn-ok-btn" title="Marquer comme traite">✓</button>
+              <span class="agn-cas">${f.cas}</span></div>
+            <div class="agn-note">${ROADTYPE_LABEL[f.roadType] || f.roadType} · ${
+              f.nb > 1 ? '<b class="agn-nb">' + f.nb + ' segments</b>' : '#' + f.segId}</div>
+            ${f.ecarts.map(e => `<div class="agn-d"><b>${e.champ}</b> : ${esc(e.avant)} → ${esc(e.apres)}</div>`).join('')}
+            ${f.doute ? `<div class="agn-warn">⚠ ${esc(f.doute)}</div>` : ''}
+          </div>`);
+        node.onclick = () => allerA([...ui.results.querySelectorAll('.agn-item')].indexOf(node));
+        node.querySelector('.agn-ok-btn').onclick = e => {
+          e.stopPropagation();               // ne pas declencher la navigation
+          marquerTraite(f, node);
+        };
+        corps.appendChild(node);
+      });
+      ui.results.appendChild(grp);
+    }
+  }
+
+  function ouvrirGroupe(grp, ouvrir) {
+    grp.classList.toggle('agn-ouvert', ouvrir);
+    grp.querySelector('.agn-grp-c').style.display = ouvrir ? '' : 'none';
+    grp.querySelector('.agn-chev').textContent = ouvrir ? '▾' : '▸';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Demarrage
+  // ---------------------------------------------------------------------------
+
+  function waitForSdk() {
+    if (window.SDK_INITIALIZED) return window.SDK_INITIALIZED;
+    return new Promise(resolve => {
+      const done = () => { clearInterval(timer); resolve(window.SDK_INITIALIZED); };
+      const timer = setInterval(() => { if (window.SDK_INITIALIZED) done(); }, 300);
+      document.addEventListener('wme-initialized', done, { once: true });
+      document.addEventListener('wme-ready', done, { once: true });
+    });
+  }
+
+  async function init() {
+    await waitForSdk();
+    await window.SDK_INITIALIZED;
+    sdk = window.getWmeSdk({ scriptId: SCRIPT_ID, scriptName: SCRIPT_NAME });
+    // /!\ Ne PAS appeler sdk.Events.waitForWmeReady() : la methode existe mais
+    // son appel leve une TypeError et fait echouer tout le demarrage.
+
+    agglos = lire(STORE_AGGLOS, {});
+    buildOverlay();
+    installerFab();
+    ensureLayers();
+    installerInfobulle();
+
+    // Le panneau lateral porte les REGLAGES ; l'overlay porte le travail.
+    const { tabLabel, tabPane } = await sdk.Sidebar.registerScriptTab();
+    tabLabel.textContent = '🏙️';
+    tabLabel.title = SCRIPT_NAME;
+    tabLabel.style.fontSize = '15px';
+    buildReglages(tabPane);
+
+    await restaurerContours();
+    renderContours();
+    rafraichirCommunesDeLaVue();
+    renderAgglos();
+    if (ui.overlay.style.display === 'none') nettoyerCarte();
+
+    let debounce = null;
+    try {
+      sdk.Events.on({ eventName: 'wme-map-move-end', eventHandler: () => {
+        clearTimeout(debounce); debounce = setTimeout(rafraichirCommunesDeLaVue, 400);
+        dessinerPoignees(); } });
+    } catch (e) { log('abonnement au deplacement impossible', e); }
+
+    log('v' + VERSION + ' pret — fenetre flottante — ' +
+      (communes.length ? communes.length + ' commune(s)' : 'aucun contour'));
+  }
+
+  init().catch(e => console.error('[' + SCRIPT_NAME + '] echec du demarrage :', e));
+})();
