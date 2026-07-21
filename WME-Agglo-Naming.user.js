@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.41
+// @version      1.53
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.41';
+  const VERSION = '1.53';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   const STORE_UI = 'wmeAggloNaming.ui';
   const IDB_NAME = 'wmeAggloNaming';
@@ -289,6 +289,7 @@
         const res = chargerFeatureCollection(JSON.parse(r.result), f.name);
         await idbSet('communes', communes); await idbSet('meta', metaContours);
         rafraichirCommunesDeLaVue(); renderContours();
+        replierSection('contours', false);     // etape faite : on rend la place
         log(res.nb + ' commune(s) chargee(s)');
       } catch (e) {
         ui.statutContours.innerHTML = '<div class="agn-stat agn-alerte">Fichier illisible : ' + esc(e.message) + '</div>';
@@ -401,6 +402,7 @@
     const res = chargerFeatureCollection({ type: 'FeatureCollection', features }, nomSource);
     await idbSet('communes', communes); await idbSet('meta', metaContours);
     rafraichirCommunesDeLaVue(); renderContours();
+    replierSection('contours', false);         // etape faite : on rend la place
     return { nb: res.nb, echecs };
   }
 
@@ -1072,6 +1074,14 @@
     }
     return [...carte.values()].map(g => Object.assign(g, {
       nb: g.segIds.length,
+      disperse: (() => {           // troncons eloignes les uns des autres ?
+        const pts = []; g.geoms.forEach(x => { if (x && x.coordinates) pts.push(...x.coordinates); });
+        if (pts.length < 2) return false;
+        let x1 = 1e9, y1 = 1e9, x2 = -1e9, y2 = -1e9;
+        pts.forEach(c => { x1 = Math.min(x1, c[0]); x2 = Math.max(x2, c[0]);
+                           y1 = Math.min(y1, c[1]); y2 = Math.max(y2, c[1]); });
+        return (x2 - x1) > 0.012 || (y2 - y1) > 0.012;   // ~1 km
+      })(),
       // Un segment verrouille au-dessus de notre niveau ne peut pas etre edite :
       // l'ecriture passerait a l'ecran puis serait refusee a l'enregistrement.
       verrouilles: g.segIds.length - segmentsEditables(g.segIds).length
@@ -1089,7 +1099,7 @@
       'Toute la commune sera analysee comme HORS AGGLOMERATION.\n\nContinuer ?')) return;
 
     choisirReferentiel(detecterPays());
-    afficherReglages(false);
+    replierTout();                 // l'analyse prend toute la place
     findings = [];
     const skipped = { horsRegle: 0, sansAdresse: 0, horsCommune: 0, sansGeom: 0 };
     const zones = { agglo: 0, hors: 0, cheval: 0, limCom: 0, limitrophe: 0, cartouche: 0, special: 0, giratoire: 0 };
@@ -1423,11 +1433,16 @@
   #agn-corps{padding:10px 12px 14px;overflow-y:auto;flex:1 1 auto;min-height:0}
   #agn-corps h3{font-size:11px;margin:13px 0 5px;text-transform:uppercase;letter-spacing:.05em;color:#607d8b}
   #agn-corps h3:first-child{margin-top:0}
-  #agn-reglages h3:first-child{margin-top:0}
-  #agn-resume{font-size:11px;color:#607d8b;cursor:pointer;padding:4px 7px;border-radius:4px;
-    user-select:none;margin-bottom:4px}
-  #agn-resume:hover{background:#eceff1}
-  #agn-resume.agn-replie{background:#e3f2fd;color:#1565c0;font-weight:600;border:1px solid #bbdefb;margin-bottom:8px}
+  .agn-sect{border:1px solid #e3e7ea;border-radius:5px;margin-bottom:6px;overflow:hidden}
+  .agn-sect-t{display:flex;align-items:center;gap:7px;padding:6px 8px;background:#f5f7f9;
+    cursor:pointer;user-select:none;font-size:11.5px}
+  .agn-sect-t:hover{background:#eceff1}
+  .agn-sect-t .agn-chev{color:#78909c;width:9px;flex:0 0 auto}
+  .agn-sect-t b{flex:1;font-weight:600;text-transform:uppercase;letter-spacing:.03em;font-size:10.5px;color:#546e7a}
+  .agn-sect-r{font-size:11px;color:#1565c0;font-weight:600;max-width:180px;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  .agn-sect-c{padding:7px 8px 9px}
+  .agn-sect.agn-ferme .agn-sect-t{background:#eef4fa}
   .agn-btn{display:block;width:100%;padding:6px 10px;margin:3px 0;border:1px solid #bbb;border-radius:4px;
     background:#fff;cursor:pointer;font-size:12px;color:inherit}
   .agn-btn:hover:not(:disabled){background:#f3f3f3}
@@ -1571,38 +1586,50 @@
           <button id="agn-fermer" title="Fermer">✕</button>
         </div>
         <div id="agn-corps">
-          <div id="agn-resume" title="Afficher ou masquer les reglages">▾ Reglages</div>
-          <div id="agn-reglages">
-            <h3>1. Contours communaux</h3>
-            <select class="agn-sel" id="agn-source">
-              <option value="gouv">Telecharger (geo.api.gouv.fr)</option>
-              <option value="fichier">Charger un fichier GeoJSON</option>
-              <option value="wazefrance">api.wazefrance.com</option>
-            </select>
-            <div id="agn-src-gouv">
-              <div class="agn-row">
-                <input type="search" id="agn-dep-filtre" placeholder="Filtrer un departement…" style="flex:1">
-                <span class="agn-note" id="agn-dep-n">0</span>
+          <div class="agn-sect" data-s="contours">
+            <div class="agn-sect-t"><span class="agn-chev">▾</span><b>1. Contours communaux</b>
+              <span class="agn-sect-r"></span></div>
+            <div class="agn-sect-c">
+              <select class="agn-sel" id="agn-source">
+                <option value="gouv">Telecharger (geo.api.gouv.fr)</option>
+                <option value="fichier">Charger un fichier GeoJSON</option>
+                <option value="wazefrance">api.wazefrance.com</option>
+              </select>
+              <div id="agn-src-gouv">
+                <div class="agn-row">
+                  <input type="search" id="agn-dep-filtre" placeholder="Filtrer un departement…" style="flex:1">
+                  <span class="agn-note" id="agn-dep-n">0</span>
+                </div>
+                <div class="agn-deps" id="agn-deps"></div>
+                <button class="agn-btn" id="agn-dep-go" disabled>Telecharger et charger</button>
               </div>
-              <div class="agn-deps" id="agn-deps"></div>
-              <button class="agn-btn" id="agn-dep-go" disabled>Telecharger et charger</button>
+              <div id="agn-src-fichier" style="display:none">
+                <button class="agn-btn" id="agn-contours">Choisir un fichier GeoJSON</button>
+              </div>
+              <div id="agn-src-wazefrance" style="display:none"><div class="agn-empty"></div></div>
+              <input type="file" id="agn-fichier" accept=".geojson,.json" style="display:none">
+              <div id="agn-statut-contours"></div>
             </div>
-            <div id="agn-src-fichier" style="display:none">
-              <button class="agn-btn" id="agn-contours">Choisir un fichier GeoJSON</button>
-            </div>
-            <div id="agn-src-wazefrance" style="display:none"><div class="agn-empty"></div></div>
-            <input type="file" id="agn-fichier" accept=".geojson,.json" style="display:none">
-            <div id="agn-statut-contours"></div>
-
-            <h3>2. Commune a traiter</h3>
-            <select class="agn-sel" id="agn-commune"><option value="">— charger d'abord les contours —</option></select>
-            <div class="agn-note" id="agn-nb-communes"></div>
-
-            <h3>3. Agglomeration</h3>
-            <button class="agn-btn" id="agn-tracer" disabled>＋ Tracer l'agglomeration</button>
-            <div id="agn-agglos"></div>
-
           </div>
+
+          <div class="agn-sect" data-s="commune">
+            <div class="agn-sect-t"><span class="agn-chev">▾</span><b>2. Commune a traiter</b>
+              <span class="agn-sect-r"></span></div>
+            <div class="agn-sect-c">
+              <select class="agn-sel" id="agn-commune"><option value="">— charger d'abord les contours —</option></select>
+              <div class="agn-note" id="agn-nb-communes"></div>
+            </div>
+          </div>
+
+          <div class="agn-sect" data-s="agglo">
+            <div class="agn-sect-t"><span class="agn-chev">▾</span><b>3. Agglomeration</b>
+              <span class="agn-sect-r"></span></div>
+            <div class="agn-sect-c">
+              <button class="agn-btn" id="agn-tracer" disabled>＋ Tracer l'agglomeration</button>
+              <div id="agn-agglos"></div>
+            </div>
+          </div>
+
           <button class="agn-btn primary" id="agn-scan" disabled>Analyser la commune</button>
           <div id="agn-stats"></div>
           <div id="agn-fix"></div>
@@ -1623,9 +1650,12 @@
     ui.bandeauFix = o.querySelector('#agn-fix');
     ui.results = o.querySelector('#agn-results');
     ui.corps = o.querySelector('#agn-corps');
-    ui.reglages = o.querySelector('#agn-reglages');
-    ui.resume = o.querySelector('#agn-resume');
-    ui.resume.onclick = () => afficherReglages(ui.reglages.style.display === 'none');
+    ui.sections = {};
+    o.querySelectorAll('.agn-sect').forEach(sec => {
+      ui.sections[sec.dataset.s] = sec;
+      sec.querySelector('.agn-sect-t').onclick = () =>
+        replierSection(sec.dataset.s, sec.classList.contains('agn-ferme'));
+    });
 
     // position / taille memorisees
     // Par defaut la fenetre se range a DROITE, sous la barre d'outils, du meme
@@ -1633,7 +1663,12 @@
     // mais on la rejette si elle tombe hors de l'ecran : une taille d'ecran a
     // pu changer depuis, et une fenetre invisible passe pour un script casse.
     const largeur = memo.w || 400;
-    const parDefaut = { x: Math.max(0, window.innerWidth - largeur - 14), y: 90 };
+    // La colonne d'icones de WME (calques, permalien, boutons de scripts) occupe
+    // le bord droit : on se range a SA gauche, sinon la fenetre passe dessus.
+    const col = document.querySelector('.overlay-buttons-container.top') ||
+                document.querySelector('.overlay-buttons-container');
+    const reserve = col ? (window.innerWidth - col.getBoundingClientRect().left + 12) : 76;
+    const parDefaut = { x: Math.max(0, window.innerWidth - largeur - reserve), y: 90 };
     let x = memo.x != null ? memo.x : parDefaut.x;
     let y = memo.y != null ? memo.y : parDefaut.y;
     if (x < 0 || y < 0 || x > window.innerWidth - 120 || y > window.innerHeight - 60) {
@@ -1655,6 +1690,7 @@
     ui.selCommune.onchange = () => {
       communeActive = communes.find(c => c.code === ui.selCommune.value) || null;
       redrawCommune(); redrawAgglos(); renderAgglos();
+      if (communeActive) replierSection('commune', false);   // choix fait
       if (communeActive) { try { sdk.Map.centerMapOnGeometry({ geometry: communeActive.geom }); } catch (e) { /* */ } }
     };
 
@@ -1698,141 +1734,35 @@
    * n'ont plus d'interet immediat : on les replie pour rendre la hauteur a la
    * liste des ecarts. Le bandeau resume rappelle le contexte et rouvre au clic.
    */
-  function afficherReglages(ouvert) {
-    ui.reglages.style.display = ouvert ? '' : 'none';
-    if (ouvert) { ui.resume.textContent = '▾ Reglages'; ui.resume.classList.remove('agn-replie'); return; }
-    ui.resume.classList.add('agn-replie');
-    const bouts = [communeActive ? communeActive.nom : 'aucune commune'];
-    if (communeActive) {
-      const n = (agglos[communeActive.code] || []).length;
-      bouts.push(n + ' agglo' + (n > 1 ? 's' : ''));
-    }
-    bouts.push('seuil ' + Math.round(options.seuil * 100) + ' %');
-    if (options.sansAdresse) bouts.push('+ voies sans adressage');
-    if (options.altEnTrop) bouts.push('+ alt surnumeraires');
-    ui.resume.innerHTML = '▸ ' + bouts.map(esc).join(' · ');
+  /**
+   * Sections repliables. Une fois une etape faite, son contenu n'a plus
+   * d'interet immediat : on la referme en laissant un resume, pour rendre la
+   * hauteur a la liste des ecarts.
+   */
+  function replierSection(cle, ouvrir) {
+    const sec = ui.sections && ui.sections[cle];
+    if (!sec) return;
+    sec.classList.toggle('agn-ferme', !ouvrir);
+    sec.querySelector('.agn-sect-c').style.display = ouvrir ? '' : 'none';
+    sec.querySelector('.agn-chev').textContent = ouvrir ? '▾' : '▸';
+    majResumeSections();
   }
 
-  /**
-   * Panneau de reglages, dans l'onglet du panneau lateral. Tout ce qui se
-   * regle une fois pour toutes vit ici ; l'overlay ne garde que le travail
-   * courant. Un changement d'option d'analyse demande une nouvelle analyse :
-   * on le dit plutot que de relancer d'office (le scan coute plusieurs secondes).
-   */
-  function buildReglages(pane) {
-    pane.innerHTML = `
-      <div class="agn-sb">
-        <div class="agn-sb-t">${SCRIPT_NAME} <span>v${VERSION}</span></div>
+  function replierTout() {
+    ['contours', 'commune', 'agglo'].forEach(k => replierSection(k, false));
+  }
 
-        <h4>Analyse</h4>
-        <label class="agn-sb-l" title="Part de longueur au-dela de laquelle un segment a cheval est rattache d'office a un cote. En dessous, il est signale comme a couper.">
-          <span>Seuil de rattachement</span>
-          <input type="number" id="agn-r-seuil" min="50" max="100" step="5"> %</label>
-        <label class="agn-sb-c"><input type="checkbox" id="agn-r-sansadresse">
-          Inclure parkings, voies privees, sentiers, escaliers</label>
-        <label class="agn-sb-c"><input type="checkbox" id="agn-r-alt">
-          Signaler les noms alternatifs surnumeraires</label>
-
-        <h4>Controles</h4>
-        <div id="agn-r-controles"></div>
-        <div class="agn-sb-n" id="agn-r-relance"></div>
-
-        <h4>Navigation</h4>
-        <label class="agn-sb-c"><input type="checkbox" id="agn-r-zoom">
-          Cadrer sur le segment au clic</label>
-        <label class="agn-sb-l" title="Le zoom s'adapte a l'emprise des segments ; cette valeur en est le plafond.">
-          <span>Zoom maximal</span>
-          <input type="number" id="agn-r-zoomniv" min="12" max="22" step="1"></label>
-
-        <h4>Surlignage des segments</h4>
-        <label class="agn-sb-c"><input type="checkbox" id="agn-r-surligner">
-          Surligner les segments en ecart sur la carte</label>
-        <div id="agn-r-couleurs"></div>
-        <button class="agn-sb-b" id="agn-r-reset">Couleurs par defaut</button>
-
-        <h4>Correction</h4>
-        <div class="agn-sb-n" id="agn-r-droits"></div>
-
-        <h4>Fenetre de travail</h4>
-        <button class="agn-sb-b agn-sb-p" id="agn-rouvrir">Afficher la fenetre</button>
-      </div>`;
-
-    const q = s => pane.querySelector(s);
-    const prevenir = () => { q('#agn-r-relance').textContent = 'Relance une analyse pour appliquer.'; };
-
-    const seuil = q('#agn-r-seuil');
-    seuil.value = Math.round(options.seuil * 100);
-    seuil.onchange = () => {
-      const v = Math.min(100, Math.max(50, parseInt(seuil.value, 10) || 80));
-      seuil.value = v; options.seuil = v / 100; saveUI(); prevenir();
-      if (ui.reglages && ui.reglages.style.display === 'none') afficherReglages(false);
+  /** Chaque en-tete rappelle l'essentiel de ce qu'elle contient. */
+  function majResumeSections() {
+    if (!ui.sections) return;
+    const mettre = (cle, txt) => {
+      const sec = ui.sections[cle]; if (!sec) return;
+      sec.querySelector('.agn-sect-r').textContent = txt || '';
     };
-
-    const coche = (id, cle, apres) => {
-      const c = q(id); c.checked = !!options[cle];
-      c.onchange = () => { options[cle] = c.checked; saveUI(); if (apres) apres(); };
-    };
-    coche('#agn-r-sansadresse', 'sansAdresse', prevenir);
-    coche('#agn-r-alt', 'altEnTrop', prevenir);
-
-    // La liste des controles vient du REFERENTIEL du pays, pas d'une liste en
-    // dur : un autre pays affichera automatiquement les siens.
-    const zoneCtrl = q('#agn-r-controles');
-    REF.controles.forEach(({ cle, libelle }) => {
-      const l = el(`<label class="agn-sb-c"><input type="checkbox"> ${esc(libelle)}</label>`);
-      const inp = l.querySelector('input');
-      inp.checked = !!options.controles[cle];
-      inp.onchange = () => { options.controles[cle] = inp.checked; saveUI(); prevenir(); };
-      zoneCtrl.appendChild(l);
-    });
-    coche('#agn-r-zoom', 'zoomClic');
-    coche('#agn-r-surligner', 'surligner', () => redrawEcarts(null));
-
-    const zn = q('#agn-r-zoomniv');
-    zn.value = options.zoomNiveau;
-    zn.onchange = () => {
-      const v = Math.min(22, Math.max(12, parseInt(zn.value, 10) || 17));
-      zn.value = v; options.zoomNiveau = v; saveUI();
-    };
-
-    const zoneCouleurs = q('#agn-r-couleurs');
-    const peindre = () => {
-      zoneCouleurs.innerHTML = '';
-      for (const [cle, f] of Object.entries(FAMILLES)) {
-        const l = el(`<label class="agn-sb-col">
-            <input type="color" value="${options.couleurs[cle] || f.defaut}">
-            <span>${f.libelle}</span></label>`);
-        l.querySelector('input').onchange = e => {
-          options.couleurs[cle] = e.target.value; saveUI(); redrawEcarts(null);
-        };
-        zoneCouleurs.appendChild(l);
-      }
-    };
-    peindre();
-    q('#agn-r-reset').onclick = () => {
-      for (const [cle, f] of Object.entries(FAMILLES)) options.couleurs[cle] = f.defaut;
-      saveUI(); peindre(); redrawEcarts(null);
-    };
-
-    const zoneDroits = q('#agn-r-droits');
-    const peindreDroits = () => {
-      const d = droits();
-      zoneDroits.style.color = d.autorise ? '#2e7d32' : '#a34a00';
-      zoneDroits.innerHTML = d.autorise
-        ? 'Correction activee — ' + esc(d.motifs.join(', ')) +
-          '.<br>Les corrections ne sont <b>jamais enregistrees</b> automatiquement.'
-        : d.rangsLus
-          ? 'Correction desactivee : reservee aux L5, L6, Global Editors et staff (ton rang : ' +
-            esc(d.niveau) + ').'
-          : 'Lecture du profil en cours…';
-      return d.rangsLus > 0;
-    };
-    if (!peindreDroits()) {                 // profil pas encore lisible : on retente
-      let n = 0;
-      const t = setInterval(() => { if (peindreDroits() || ++n > 20) clearInterval(t); }, 1000);
-    }
-
-    q('#agn-rouvrir').onclick = ouvrirOverlay;
+    mettre('contours', metaContours ? metaContours.nb + ' communes' : 'aucun');
+    mettre('commune', communeActive ? communeActive.nom : 'aucune');
+    const n = communeActive ? (agglos[communeActive.code] || []).length : 0;
+    mettre('agglo', communeActive ? (n ? n + ' polygone' + (n > 1 ? 's' : '') : 'aucune') : '—');
   }
 
   function ouvrirOverlay() {
@@ -1975,6 +1905,7 @@
         esc(communeActive.nom) + '.</div>';
       return;
     }
+    majResumeSections();
     ui.listeAgglos.innerHTML = '';
     liste.forEach((a, i) => {
       const node = el(`
@@ -2088,12 +2019,26 @@
     const idx = parseInt(node.dataset.idx, 10);
     const f = findings[idx];
     if (!f) return;
-    // Un report peut couvrir plusieurs segments identiques : on les selectionne
-    // tous d'un bloc.
-    try { sdk.Editing.setSelection({ selection: { ids: f.segIds, objectType: 'segment' } }); }
-    catch (e) { log('selection impossible', e); }
-
+    // On cadre AVANT de selectionner : deplacer la carte fait perdre la
+    // selection (les objets sortis de la vue sont laches par WME), et on se
+    // retrouvait avec un cadrage correct mais plus rien de selectionne.
     cadrerSur(f);
+    // On ne peut selectionner que ce qui est CHARGE dans le modele : apres un
+    // deplacement, les troncons eloignes n'arrivent qu'au chargement suivant.
+    // D'ou plusieurs tentatives, sur les seuls segments reellement presents.
+    const selectionner = () => {
+      const dispo = f.segIds.filter(id => {
+        try { return !!sdk.DataModel.Segments.getById({ segmentId: id }); } catch (e) { return false; }
+      });
+      if (!dispo.length) return false;
+      try { sdk.Editing.setSelection({ selection: { ids: dispo, objectType: 'segment' } }); }
+      catch (e) { log('selection impossible', e); }
+      return dispo.length === f.segIds.length;
+    };
+    if (!selectionner()) {
+      let n = 0;
+      const t = setInterval(() => { if (selectionner() || ++n > 6) clearInterval(t); }, 600);
+    }
 
     redrawEcarts(idx);
   }
@@ -2107,39 +2052,71 @@
    * l'emprise ne tient pas a l'ecran a ce zoom, on cadre la boite englobante,
    * seul moyen de voir d'un coup tout ce qui vient d'etre selectionne.
    */
-  function cadrerSur(f) {
-    const pts = [];
-    (f.geoms || [f.geom]).forEach(g => { if (g && g.coordinates) pts.push(...g.coordinates); });
-    if (!pts.length && f.centre) pts.push([f.centre.lon, f.centre.lat]);
-    if (!pts.length) return;
+  /** Emprise d'une liste de points : centre de gravite et rayon. */
+  function emprise(pts) {
+    let sx = 0, sy = 0;
+    pts.forEach(c => { sx += c[0]; sy += c[1]; });
+    const centre = { lon: sx / pts.length, lat: sy / pts.length };
+    let rx = 0, ry = 0;
+    pts.forEach(c => { rx = Math.max(rx, Math.abs(c[0] - centre.lon));
+                       ry = Math.max(ry, Math.abs(c[1] - centre.lat)); });
+    return { centre, rx, ry };
+  }
 
-    let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
-    pts.forEach(c => { if (c[0] < x1) x1 = c[0]; if (c[0] > x2) x2 = c[0];
-                       if (c[1] < y1) y1 = c[1]; if (c[1] > y2) y2 = c[1]; });
-    const centre = { lon: (x1 + x2) / 2, lat: (y1 + y2) / 2 };
+  /**
+   * Cadre la carte sur un report.
+   *
+   * Un report peut couvrir des troncons CONTIGUS (une rue decoupee) ou
+   * DISPERSES sur plusieurs kilometres (une departementale qui traverse la
+   * commune). Cadrer l'ensemble dans le second cas donne un zoom si large que
+   * la selection devient illisible, et un centre qui tombe entre les groupes,
+   * donc a cote de tout. On cadre donc l'ensemble tant qu'il tient a un zoom
+   * de travail, et sinon on se pose sur le troncon le plus long — les autres
+   * restent surlignes sur la carte pour qu'on sache ou ils sont.
+   */
+  function cadrerSur(f) {
+    const geoms = (f.geoms || [f.geom]).filter(g => g && g.coordinates && g.coordinates.length);
+    if (!geoms.length) {
+      if (f.centre) { try { sdk.Map.setMapCenter({ lonLat: f.centre }); } catch (e) { /* */ } }
+      return;
+    }
+    const tous = [];
+    geoms.forEach(g => tous.push(...g.coordinates));
+    let e = emprise(tous);
+    let z = zoomPour(2 * e.rx, 2 * e.ry, e.centre.lat);
+
+    if (f.disperse && geoms.length > 1) {
+      // Trop disperse : on se pose sur le troncon le plus long.
+      let meilleur = geoms[0], long = -1;
+      geoms.forEach(g => {
+        let d = 0;
+        for (let i = 1; i < g.coordinates.length; i++) d += longueur(g.coordinates[i - 1], g.coordinates[i]);
+        if (d > long) { long = d; meilleur = g; }
+      });
+      e = emprise(meilleur.coordinates);
+      z = zoomPour(2 * e.rx, 2 * e.ry, e.centre.lat);
+    }
 
     try {
-      sdk.Map.setMapCenter({ lonLat: centre });
-      if (options.zoomClic) sdk.Map.setZoomLevel({ zoomLevel: zoomPour(x2 - x1, y2 - y1, centre.lat) });
-    } catch (e) { log('cadrage impossible', e); }
+      sdk.Map.setMapCenter({ lonLat: e.centre });
+      if (options.zoomClic) sdk.Map.setZoomLevel({ zoomLevel: z });
+    } catch (err) { log('cadrage impossible', err); }
   }
 
   /**
    * Zoom adapte a l'emprise a montrer, plutot qu'une valeur fixe : un tronçon
    * de dix metres et une departementale de trois kilometres n'appellent pas le
-   * meme cadrage. On garde une marge autour de l'objet, et on borne le
-   * resultat — `options.zoomNiveau` sert de plafond (ne pas coller au sol sur
-   * un segment minuscule), ZOOM_PLANCHER de limite basse.
+   * meme cadrage. `options.zoomNiveau` sert de plafond, ZOOM_PLANCHER de
+   * limite basse. Marge volontairement faible, et arrondi au plus proche : un
+   * arrondi vers le bas perdait un niveau entier, soit un facteur deux.
    */
   const ZOOM_PLANCHER = 12;
   function zoomPour(dLon, dLat, lat) {
-    const marge = 1.35;                       // ~35 % d'air autour de l'objet
+    const marge = 1.12;
     const cos = Math.max(0.15, Math.cos(lat * Math.PI / 180));
-    // Largeur/hauteur visibles en degres a un zoom donne (projection Mercator).
     const zLon = Math.log2(window.innerWidth * 360 / (256 * Math.max(dLon, 1e-6) * marge));
     const zLat = Math.log2(window.innerHeight * 360 * cos / (256 * Math.max(dLat, 1e-6) * marge));
-    const z = Math.floor(Math.min(zLon, zLat));
-    return Math.max(ZOOM_PLANCHER, Math.min(options.zoomNiveau, z));
+    return Math.max(ZOOM_PLANCHER, Math.min(options.zoomNiveau, Math.round(Math.min(zLon, zLat))));
   }
 
   function renderResults() {
@@ -2228,7 +2205,8 @@
             <div class="agn-note">${ROADTYPE_LABEL[f.roadType] || f.roadType} · ${
               f.nb > 1 ? '<b class="agn-nb">' + f.nb + ' segments</b>' : '#' + f.segId}${
               f.verrouilles ? ' · <b class="agn-lock" title="Verrouilles au-dessus de ton niveau : non modifiables">🔒 ' +
-                f.verrouilles + '</b>' : ''}</div>
+                f.verrouilles + '</b>' : ''}${
+              f.disperse ? ' · <span class="agn-note" title="Troncons eloignes : la carte se pose sur le plus long">eparpilles</span>' : ''}</div>
             ${f.ecarts.map(e => `<div class="agn-d"><b>${e.champ}</b> : ${esc(e.avant)} → ${esc(e.apres)}</div>`).join('')}
             ${f.doute ? `<div class="agn-warn">⚠ ${esc(f.doute)}</div>` : ''}
           </div>`);
