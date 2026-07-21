@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.40
+// @version      1.41
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.40';
+  const VERSION = '1.41';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   const STORE_UI = 'wmeAggloNaming.ui';
   const IDB_NAME = 'wmeAggloNaming';
@@ -1628,8 +1628,19 @@
     ui.resume.onclick = () => afficherReglages(ui.reglages.style.display === 'none');
 
     // position / taille memorisees
-    o.style.left = (memo.x != null ? memo.x : window.innerWidth - 440) + 'px';
-    o.style.top = (memo.y != null ? memo.y : 90) + 'px';
+    // Par defaut la fenetre se range a DROITE, sous la barre d'outils, du meme
+    // cote que le bouton flottant. La position choisie par l'editeur prime,
+    // mais on la rejette si elle tombe hors de l'ecran : une taille d'ecran a
+    // pu changer depuis, et une fenetre invisible passe pour un script casse.
+    const largeur = memo.w || 400;
+    const parDefaut = { x: Math.max(0, window.innerWidth - largeur - 14), y: 90 };
+    let x = memo.x != null ? memo.x : parDefaut.x;
+    let y = memo.y != null ? memo.y : parDefaut.y;
+    if (x < 0 || y < 0 || x > window.innerWidth - 120 || y > window.innerHeight - 60) {
+      x = parDefaut.x; y = parDefaut.y;
+    }
+    o.style.left = x + 'px';
+    o.style.top = y + 'px';
     if (memo.w) o.style.width = memo.w + 'px';
     // On borne la hauteur memorisee : l'ecran a pu retrecir depuis, ou la
     // fenetre avoir ete etiree au-dela quand la liste la poussait encore.
