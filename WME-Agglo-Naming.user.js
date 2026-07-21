@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.76
+// @version      1.77
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.76';
+  const VERSION = '1.77';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
   // et durable, pas une boite de dialogue qu'on clique sans lire.
@@ -1402,15 +1402,13 @@
         // segments dans une vue de test — donc on tronconne. Cout : ~0,5 s par
         // lot de 250, soit une paire de secondes pour une commune entiere.
         const TAILLE_LOT = 250;
-        // ⚠️ Meme filtre que pour le nommage : une voie SANS VOCATION
-        // D'ADRESSAGE (voie privee, parking) ne doit pas remonter ici non plus.
-        // Bug vecu le 21/07 : le « 721 Chemin de la Begude » etait porte par une
-        // voie PRIVEE (type 17) — le script proposait donc de convertir un
-        // numero sur une voie qu'il est cense ignorer partout ailleurs.
-        const tousIds = segs
-          .filter(s => options.sansAdresse || !REF.typesSansAdresse.has(s.roadType))
-          .map(s => s.id);
-        stats.hnTypesIgnores = segs.length - tousIds.length;
+        // ⚠️ On analyse TOUS les types, y compris les voies privees et les
+        // parkings : un numero mal place s'y voit aussi, et l'editeur veut le
+        // savoir (arbitrage de l'auteur, 21/07 : « on doit quand meme pouvoir
+        // detecter les ecarts sur les voies privees, on inhibe juste la
+        // correction auto »). C'est la CORRECTION qui est fermee sur ces types,
+        // pas la detection — voir `planDeCorrection`.
+        const tousIds = segs.map(s => s.id);
         const hns = [];
         for (let i = 0; i < tousIds.length; i += TAILLE_LOT) {
           const lot = await sdk.DataModel.HouseNumbers.fetchHouseNumbers(
@@ -1443,6 +1441,9 @@
           libelle: (nam ? fmt(nam.primary) : 'segment ' + segId) +
                    ' — ' + liste.length + ' numero' + (liste.length > 1 ? 's' : ''),
           roadType: seg ? seg.roadType : null,
+          // Voie privee, parking… : l'ecart se signale, mais la conversion
+          // automatique reste fermee (arbitrage de l'auteur).
+          typeSansAdressage: seg ? REF.typesSansAdresse.has(seg.roadType) : false,
           nbPoints: liste.length,
           hns: liste.map(h => ({ id: h.id, number: h.number, geometry: h.geometry })),
           geom: liste[0].geometry,
@@ -1770,6 +1771,10 @@
     // faire, le bouton n'apparait pas et la ligne dit pourquoi.
     if (f.adresse) {
       if (f.sousType !== 'hn') return null;          // un POI en ville se juge sur place
+      // ⚠️ Voie sans vocation d'adressage (privee, parking) : on SIGNALE
+      // l'ecart, mais on ne convertit pas d'office — ce qu'il convient d'y
+      // faire depend du terrain, pas d'une regle.
+      if (f.typeSansAdressage) return null;
       if (!f.rueCible || !f.hns || !f.hns.length) return null;
       if (!segmentsEditables([f.segId]).length) return null;
       // ⚠️ On ne regarde PAS ici si les numeros sont deja dans le modele : ca
@@ -3231,10 +3236,14 @@
               f.disperse ? ' · <span class="agn-note" title="Troncons eloignes : la carte se pose sur le plus long">eparpilles</span>' : ''}</div>
             ${f.ecarts.map(e => `<div class="agn-d"><b>${e.champ}</b> : ${esc(e.avant)} → ${esc(e.apres)}</div>`).join('')}
             ${f.doute ? `<div class="agn-warn">⚠ ${esc(f.doute)}</div>` : ''}
-            ${f.adresse && f.sousType === 'hn' && !f.rueCible
-              ? '<div class="agn-warn">⚠ Nom de rue introuvable ou ambigu sur ce segment : ' +
-                'la conversion ne peut pas etre proposee.</div>'
-              : ''}
+            ${f.adresse && f.sousType === 'hn' && f.typeSansAdressage
+              ? '<div class="agn-warn">⚠ ' + esc(ROADTYPE_LABEL[f.roadType] || 'voie sans adressage') +
+                ' : l\'ecart est signale, mais la conversion automatique est fermee sur ce type. ' +
+                'A traiter a la main si c\'est justifie.</div>'
+              : f.adresse && f.sousType === 'hn' && !f.rueCible
+                ? '<div class="agn-warn">⚠ Nom de rue introuvable ou ambigu sur ce segment : ' +
+                  'la conversion ne peut pas etre proposee.</div>'
+                : ''}
           </div>`);
         node.onclick = () => allerA([...ui.results.querySelectorAll('.agn-item')].indexOf(node));
         node.querySelector('.agn-ok-btn').onclick = e => {
