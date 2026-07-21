@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.53
+// @version      1.54
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.53';
+  const VERSION = '1.54';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   const STORE_UI = 'wmeAggloNaming.ui';
   const IDB_NAME = 'wmeAggloNaming';
@@ -97,8 +97,11 @@
   // Types sans vocation d'adressage : une absence de nom n'y est PAS une
   // anomalie (retour terrain : parkings et voies privees de Saint-Laurent-des-
   // Arbres). Exclus par defaut, reintegrables par la case a cocher.
-  //  5 = sentier, 16 = escalier, 17 = voie privee, 20 = parking
-  const ROADTYPE_SANS_ADRESSE = new Set([5, 16, 17, 20]);
+  //  17 = voie privee, 20 = parking
+  // /!\ Sentiers (5) et escaliers (16) N'EN SONT PAS : l'auteur a tranche le
+  // 21/07 — ils repondent aux regles de nommage meme s'ils ne sont pas
+  // circulables. Ils sont donc analyses comme n'importe quelle voie.
+  const ROADTYPE_SANS_ADRESSE = new Set([17, 20]);
 
   const ROADTYPE_LABEL = {
     1: 'Rue', 2: 'Route principale', 3: 'Autoroute', 4: 'Bretelle', 5: 'Sentier',
@@ -1763,6 +1766,132 @@
     mettre('commune', communeActive ? communeActive.nom : 'aucune');
     const n = communeActive ? (agglos[communeActive.code] || []).length : 0;
     mettre('agglo', communeActive ? (n ? n + ' polygone' + (n > 1 ? 's' : '') : 'aucune') : '—');
+  }
+
+  /**
+   * Panneau de reglages, dans l'onglet du panneau lateral. Tout ce qui se
+   * regle une fois pour toutes vit ici ; l'overlay ne garde que le travail
+   * courant. Un changement d'option d'analyse demande une nouvelle analyse :
+   * on le dit plutot que de relancer d'office (le scan coute plusieurs secondes).
+   * /!\ Cette fonction a disparu par accident en v1.53 alors que son appel
+   * restait dans init() : ReferenceError, et tout ce qui suivait l'appel
+   * (restauration des contours, rendu, abonnement carte) ne tournait plus.
+   */
+  function buildReglages(pane) {
+    pane.innerHTML = `
+      <div class="agn-sb">
+        <div class="agn-sb-t">${SCRIPT_NAME} <span>v${VERSION}</span></div>
+
+        <h4>Analyse</h4>
+        <label class="agn-sb-l" title="Part de longueur au-dela de laquelle un segment a cheval est rattache d'office a un cote. En dessous, il est signale comme a couper.">
+          <span>Seuil de rattachement</span>
+          <input type="number" id="agn-r-seuil" min="50" max="100" step="5"> %</label>
+        <label class="agn-sb-c"><input type="checkbox" id="agn-r-sansadresse">
+          Inclure parkings et voies privees</label>
+        <label class="agn-sb-c"><input type="checkbox" id="agn-r-alt">
+          Signaler les noms alternatifs surnumeraires</label>
+
+        <h4>Controles</h4>
+        <div id="agn-r-controles"></div>
+        <div class="agn-sb-n" id="agn-r-relance"></div>
+
+        <h4>Navigation</h4>
+        <label class="agn-sb-c"><input type="checkbox" id="agn-r-zoom">
+          Cadrer sur le segment au clic</label>
+        <label class="agn-sb-l" title="Le zoom s'adapte a l'emprise des segments ; cette valeur en est le plafond.">
+          <span>Zoom maximal</span>
+          <input type="number" id="agn-r-zoomniv" min="12" max="22" step="1"></label>
+
+        <h4>Surlignage des segments</h4>
+        <label class="agn-sb-c"><input type="checkbox" id="agn-r-surligner">
+          Surligner les segments en ecart sur la carte</label>
+        <div id="agn-r-couleurs"></div>
+        <button class="agn-sb-b" id="agn-r-reset">Couleurs par defaut</button>
+
+        <h4>Correction</h4>
+        <div class="agn-sb-n" id="agn-r-droits"></div>
+
+        <h4>Fenetre de travail</h4>
+        <button class="agn-sb-b agn-sb-p" id="agn-rouvrir">Afficher la fenetre</button>
+      </div>`;
+
+    const q = s => pane.querySelector(s);
+    const prevenir = () => { q('#agn-r-relance').textContent = 'Relance une analyse pour appliquer.'; };
+
+    const seuil = q('#agn-r-seuil');
+    seuil.value = Math.round(options.seuil * 100);
+    seuil.onchange = () => {
+      const v = Math.min(100, Math.max(50, parseInt(seuil.value, 10) || 80));
+      seuil.value = v; options.seuil = v / 100; saveUI(); prevenir();
+    };
+
+    const coche = (id, cle, apres) => {
+      const c = q(id); c.checked = !!options[cle];
+      c.onchange = () => { options[cle] = c.checked; saveUI(); if (apres) apres(); };
+    };
+    coche('#agn-r-sansadresse', 'sansAdresse', prevenir);
+    coche('#agn-r-alt', 'altEnTrop', prevenir);
+
+    // La liste des controles vient du REFERENTIEL du pays, pas d'une liste en
+    // dur : un autre pays affichera automatiquement les siens.
+    const zoneCtrl = q('#agn-r-controles');
+    REF.controles.forEach(({ cle, libelle }) => {
+      const l = el(`<label class="agn-sb-c"><input type="checkbox"> ${esc(libelle)}</label>`);
+      const inp = l.querySelector('input');
+      inp.checked = !!options.controles[cle];
+      inp.onchange = () => { options.controles[cle] = inp.checked; saveUI(); prevenir(); };
+      zoneCtrl.appendChild(l);
+    });
+    coche('#agn-r-zoom', 'zoomClic');
+    coche('#agn-r-surligner', 'surligner', () => redrawEcarts(null));
+
+    const zn = q('#agn-r-zoomniv');
+    zn.value = options.zoomNiveau;
+    zn.onchange = () => {
+      const v = Math.min(22, Math.max(12, parseInt(zn.value, 10) || 17));
+      zn.value = v; options.zoomNiveau = v; saveUI();
+    };
+
+    const zoneCouleurs = q('#agn-r-couleurs');
+    const peindre = () => {
+      zoneCouleurs.innerHTML = '';
+      for (const [cle, f] of Object.entries(FAMILLES)) {
+        const l = el(`<label class="agn-sb-col">
+            <input type="color" value="${options.couleurs[cle] || f.defaut}">
+            <span>${f.libelle}</span></label>`);
+        l.querySelector('input').onchange = e => {
+          options.couleurs[cle] = e.target.value; saveUI(); redrawEcarts(null);
+        };
+        zoneCouleurs.appendChild(l);
+      }
+    };
+    peindre();
+    q('#agn-r-reset').onclick = () => {
+      for (const [cle, f] of Object.entries(FAMILLES)) options.couleurs[cle] = f.defaut;
+      saveUI(); peindre(); redrawEcarts(null);
+    };
+
+    // Le profil n'est pas lisible au demarrage : on retente tant qu'il est muet
+    // (bug vecu — « ton rang : ? » et correction desactivee a tort).
+    const zoneDroits = q('#agn-r-droits');
+    const peindreDroits = () => {
+      const d = droits();
+      zoneDroits.style.color = d.autorise ? '#2e7d32' : '#a34a00';
+      zoneDroits.innerHTML = d.autorise
+        ? 'Correction activee — ' + esc(d.motifs.join(', ')) +
+          '.<br>Les corrections ne sont <b>jamais enregistrees</b> automatiquement.'
+        : d.rangsLus
+          ? 'Correction desactivee : reservee aux L5, L6, Global Editors et staff (ton rang : ' +
+            esc(d.niveau) + ').'
+          : 'Lecture du profil en cours…';
+      return d.rangsLus > 0;
+    };
+    if (!peindreDroits()) {
+      let n = 0;
+      const t = setInterval(() => { if (peindreDroits() || ++n > 20) clearInterval(t); }, 1000);
+    }
+
+    q('#agn-rouvrir').onclick = ouvrirOverlay;
   }
 
   function ouvrirOverlay() {
