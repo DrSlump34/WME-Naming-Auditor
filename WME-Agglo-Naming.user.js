@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.54
+// @version      1.60
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.54';
+  const VERSION = '1.60';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   const STORE_UI = 'wmeAggloNaming.ui';
   const IDB_NAME = 'wmeAggloNaming';
@@ -36,6 +36,7 @@
   const LAYER_COMMUNE = SCRIPT_ID + '-commune';
   const LAYER_AGGLO = SCRIPT_ID + '-agglo';
   const LAYER_ECARTS = SCRIPT_ID + '-ecarts';
+  const LAYER_ADRESSES = SCRIPT_ID + '-adresses';   // points : HN et POI residentiels
 
   // Familles de problemes : chacune a sa couleur de surlignage, reglable.
   // Palette choisie pour NE PAS se confondre avec le rendu de WME : le reseau
@@ -52,9 +53,11 @@
     cartouche: { libelle: 'Cartouche seul (nommage bon)', defaut: '#7c4dff' },
     forme: { libelle: 'Redaction du nom seule', defaut: '#76ff03' },
     special: { libelle: 'Bretelle / voie ferree / rocade', defaut: '#ff4081' },
-    giratoire: { libelle: 'Giratoires', defaut: '#00e676' }
+    giratoire: { libelle: 'Giratoires', defaut: '#00e676' },
+    adresse: { libelle: 'Adressage (numeros / POI residentiels)', defaut: '#00e5ff' }
   };
-  const familleDe = f => f.cas === 'GIR' ? 'giratoire'
+  const familleDe = f => f.adresse ? 'adresse'
+    : f.cas === 'GIR' ? 'giratoire'
     : f.special ? 'special'
     : f.seulementCartouche ? 'cartouche' : f.seulementForme ? 'forme'
     : f.cas === 'EB10' ? 'eb10' : f.cas === 'LIM' ? 'lim'
@@ -466,6 +469,22 @@
           strokeColor: '${couleur}', strokeWidth: '${epaisseur}', strokeOpacity: 0.45,
           strokeLinecap: 'round', fill: false } }]
       });
+      // Les ecarts d'ADRESSE sont des points (un numero, un POI), pas des
+      // lignes : le calque des segments a `fill:false` et ne les montrerait
+      // pas. D'ou un calque a part, avec un rayon plutot qu'une epaisseur.
+      sdk.Map.addLayer({
+        layerName: LAYER_ADRESSES,
+        styleContext: {
+          couleur: ctx => (ctx.feature.properties || {}).couleur || '#00e5ff',
+          rayon: ctx => (ctx.feature.properties || {}).rayon || 7,
+          etiquette: ctx => (ctx.feature.properties || {}).label || ''
+        },
+        styleRules: [{ style: {
+          pointRadius: '${rayon}', fillColor: '${couleur}', fillOpacity: 0.55,
+          strokeColor: '${couleur}', strokeWidth: 2, strokeOpacity: 0.95,
+          label: '${etiquette}', fontColor: '#004d5a', fontSize: '11px', fontWeight: 'bold',
+          labelOutlineColor: '#fff', labelOutlineWidth: 3, labelYOffset: 14 } }]
+      });
       calquesPrets = true;
     } catch (e) { log('creation des calques impossible', e); }
   }
@@ -486,17 +505,28 @@
       if (bulle && bulle.style.display !== 'none') placerBulle();
     }, { passive: true });
 
-    try { sdk.Events.trackLayerEvents({ layerName: LAYER_ECARTS }); }
-    catch (e) { log('suivi du calque impossible', e); return; }
+    let suivis = 0;
+    [LAYER_ECARTS, LAYER_ADRESSES].forEach(n => {
+      try { sdk.Events.trackLayerEvents({ layerName: n }); suivis++; }
+      catch (e) { log('suivi du calque ' + n + ' impossible', e); }
+    });
+    if (!suivis) return;
 
     sdk.Events.on({ eventName: 'wme-layer-feature-mouse-enter', eventHandler: d => {
-      if (!d || d.layerName !== LAYER_ECARTS) return;
-      const idx = parseInt(String(d.featureId).split('-')[1], 10);
-      const f = findings[idx];
+      if (!d || (d.layerName !== LAYER_ECARTS && d.layerName !== LAYER_ADRESSES)) return;
+      // /!\ La feature porte `ec-<segId>` / `ad-<segId>`, PAS un index :
+      // chercher le report par son segment. Le lire comme un index rendait
+      // l'infobulle muette (bug present depuis la v1.10, meme faute que pour
+      // l'ordre du DOM). Le prefixe distingue un ecart de nommage d'un ecart
+      // d'adressage, qui peuvent porter le MEME segId.
+      const brut = String(d.featureId);
+      const adresse = brut.slice(0, 3) === 'ad-';
+      const cle = brut.slice(3);
+      const f = findings.find(x => String(x.segId) === cle && !!x.adresse === adresse);
       if (f) montrerBulle(f);
     } });
     sdk.Events.on({ eventName: 'wme-layer-feature-mouse-leave', eventHandler: d => {
-      if (!d || d.layerName === LAYER_ECARTS) cacherBulle();
+      if (!d || d.layerName === LAYER_ECARTS || d.layerName === LAYER_ADRESSES) cacherBulle();
     } });
   }
 
@@ -526,22 +556,36 @@
     bulle.style.top = Math.max(4, y) + 'px';
   }
 
-  /** Repeint les segments en ecart, en mettant en avant celui qui est courant. */
+  /** Repeint les ecarts, en mettant en avant celui qui est courant. Les ecarts
+   *  de nommage sont des lignes, ceux d'adressage des points : deux calques. */
   function redrawEcarts(idActif) {
     ensureLayers();
-    try { sdk.Map.removeAllFeaturesFromLayer({ layerName: LAYER_ECARTS }); } catch (e) { /* */ }
+    [LAYER_ECARTS, LAYER_ADRESSES].forEach(n => {
+      try { sdk.Map.removeAllFeaturesFromLayer({ layerName: n }); } catch (e) { /* */ }
+    });
     if (!options.surligner || !findings.length) return;
+    const vivants = findings.filter(f => f.geom && !f.traite);  // un ecart traite ne se surligne plus
     try {
-      sdk.Map.addFeaturesToLayer({ layerName: LAYER_ECARTS, features: findings
-        .filter(f => f.geom && !f.traite)     // un ecart traite ne se surligne plus
-        .map(f => ({
-          id: 'ec-' + f.segId, type: 'Feature', geometry: f.geom,
-          properties: {
-            couleur: options.couleurs[familleDe(f)] || '#888888',
-            epaisseur: f.segId === idActif ? 22 : 14
-          }
-        })) });
+      const lignes = vivants.filter(f => !f.adresse).map(f => ({
+        id: 'ec-' + f.segId, type: 'Feature', geometry: f.geom,
+        properties: {
+          couleur: options.couleurs[familleDe(f)] || '#888888',
+          epaisseur: f.segId === idActif ? 22 : 14
+        }
+      }));
+      if (lignes.length) sdk.Map.addFeaturesToLayer({ layerName: LAYER_ECARTS, features: lignes });
     } catch (e) { log('surlignage impossible', e); }
+    try {
+      const points = vivants.filter(f => f.adresse).map(f => ({
+        id: 'ad-' + f.segId, type: 'Feature', geometry: f.geom,
+        properties: {
+          couleur: options.couleurs.adresse || '#00e5ff',
+          rayon: f.segId === idActif ? 11 : 7,
+          label: f.nbPoints > 1 ? String(f.nbPoints) : ''
+        }
+      }));
+      if (points.length) sdk.Map.addFeaturesToLayer({ layerName: LAYER_ADRESSES, features: points });
+    } catch (e) { log('surlignage des adresses impossible', e); }
   }
 
   function redrawCommune() {
@@ -937,10 +981,16 @@
       // Etat cible du nommage selon la zone (le logigramme C/R/H).
       etatCible: expectedNaming,
 
+      // Ou doit vivre une adresse, selon la zone. En France : numero de rue
+      // (House Number) porte par le segment EN agglomeration, POI de type
+      // residentiel HORS agglomeration.
+      adressage: { hnEnAgglo: true, poiHorsAgglo: true, categoriePoi: 'RESIDENTIAL' },
+
       // Controles activables. `portee` dit au moteur quand les appeler :
       //   'zone'    → compare l'etat courant a l'etat cible
       //   'segment' → s'applique a tout segment ordinaire
       //   'type'    → propre a un type de voie, gere par le moteur
+      //   'adresse' → porte sur les numeros et les POI, pas sur les segments
       controles: [
         { cle: 'nommageZone', portee: 'zone', libelle: 'Nommage agglo / hors agglo (coeur)' },
         { cle: 'cartouches', portee: 'segment', libelle: 'Cartouches des Dxxx / Nxxx / Cxxx',
@@ -952,7 +1002,11 @@
         { cle: 'abreviations', portee: 'forme', libelle: 'Abreviations interdites (Av., Bd., Rte...)' },
         { cle: 'contractions', portee: 'forme', libelle: 'Contractions interdites (St-, R. Poincare)' },
         { cle: 'majuscule', portee: 'forme', libelle: 'Nom commencant par une minuscule' },
-        { cle: 'fonctionDirection', portee: 'forme', libelle: 'Fonction ou direction dans le nom' }
+        { cle: 'fonctionDirection', portee: 'forme', libelle: 'Fonction ou direction dans le nom' },
+        { cle: 'hnHorsAgglo', portee: 'adresse',
+          libelle: 'Numeros de rue (HN) hors agglomeration' },
+        { cle: 'poiAgglo', portee: 'adresse',
+          libelle: 'POI residentiels en agglomeration (a verifier)' }
       ],
       // Les controles de forme partagent une seule fonction, qui lit elle-meme
       // quelles cases sont cochees.
@@ -1064,7 +1118,16 @@
    */
   function regrouperFindings(liste) {
     const carte = new Map();
-    for (const f of liste) {
+    // ⚠️ Les ecarts d'ADRESSE ne se regroupent pas : chacun porte ses propres
+    // numeros, et un POI n'a pas de segment (donc rien a verrouiller). Les
+    // fusionner ferait perdre les numeros a corriger.
+    const adresses = liste.filter(f => f.adresse).map(f => Object.assign({}, f, {
+      segIds: [f.segId], geoms: [f.geom], centres: [f.centre],
+      nb: f.nbPoints || 1, disperse: false,
+      verrouilles: f.sousType === 'hn'
+        ? (segmentsEditables([f.segId]).length ? 0 : 1) : 0
+    }));
+    for (const f of liste.filter(x => !x.adresse)) {
       const cle = JSON.stringify([
         f.cas, f.libelle,
         f.ecarts.map(e => [e.champ, e.avant, e.apres]),
@@ -1088,10 +1151,193 @@
       // Un segment verrouille au-dessus de notre niveau ne peut pas etre edite :
       // l'ecriture passerait a l'ecran puis serait refusee a l'enregistrement.
       verrouilles: g.segIds.length - segmentsEditables(g.segIds).length
-    }));
+    })).concat(adresses);
   }
 
-  function scan() {
+  // ===========================================================================
+  // ADRESSAGE — numeros de rue (HN) et POI residentiels
+  //
+  // Regle FR : le numero est porte par le SEGMENT en agglomeration, et par un
+  // POI de type residentiel hors agglomeration. On cherche donc les deux
+  // situations inverses. Un POI residentiel en ville a souvent une bonne
+  // raison d'exister (residence fermee, lotissement) : on le signale comme « a
+  // verifier », jamais comme une faute.
+  //
+  // Verifie en live (2026-07-21) :
+  //  - `fetchHouseNumbers({segmentIds})` est une lecture SERVEUR : rapide
+  //    (120 numeros en 138 ms) mais elle NE PEUPLE PAS le data model.
+  //  - donc `deleteHouseNumber` echoue tant que l'editeur n'est pas entre une
+  //    fois dans le mode « numeros de rue », qui charge toute la vue d'un coup.
+  //  - un POI de categorie RESIDENTIAL porte `isResidential:true` d'office.
+  // ===========================================================================
+
+  /** Centre d'une geometrie quelconque (Point, LineString, Polygon). */
+  function centreGeom(geom) {
+    if (!geom) return null;
+    if (geom.type === 'Point') return geom.coordinates;
+    const plat = [];
+    (function creuser(x) {
+      if (!Array.isArray(x)) return;
+      if (typeof x[0] === 'number') { plat.push(x); return; }
+      x.forEach(creuser);
+    })(geom.coordinates);
+    if (!plat.length) return null;
+    return [plat.reduce((s, p) => s + p[0], 0) / plat.length,
+            plat.reduce((s, p) => s + p[1], 0) / plat.length];
+  }
+
+  /**
+   * CE numero precis est-il manipulable ? (cf. le piege du data model ci-dessus)
+   * ⚠️ Verifier que le depot est non vide NE SUFFIT PAS : le mode « numeros de
+   * rue » ne charge que ceux de la vue ouverte a ce moment-la. Teste en live :
+   * 349 numeros en depot, et pourtant celui qu'on visait n'y etait pas — le POI
+   * avait ete cree et le numero n'avait pas pu etre retire, soit exactement le
+   * doublon d'adresse qu'on veut interdire.
+   */
+  function hnManipulable(id) {
+    try {
+      return hote.W.model.segmentHouseNumbers.getObjectArray()
+        .some(o => String(o.getID ? o.getID() : o.id) === String(id));
+    } catch (e) { return false; }
+  }
+  /** Combien de numeros d'un report sont reellement manipulables. */
+  const hnsManipulables = f => (f.hns || []).filter(h => hnManipulable(h.id));
+
+  /**
+   * Le nom de rue a donner au POI qu'on cree a la place d'un numero. Hors
+   * agglomeration, le segment porte le numero de route en principal et le nom
+   * de rue AVEC sa ville en alternatif : c'est ce dernier qui fait l'adresse
+   * postale (choix de l'auteur, 21/07).
+   * ⚠️ On ne devine RIEN : si aucun alternatif ne porte a la fois un nom de rue
+   * et une ville, on rend null et la correction ne sera pas proposee.
+   */
+  function rueDuPoi(nam) {
+    if (!nam) return null;
+    // Le NOM se lit sur le segment : c'est le seul endroit ou il existe. On ne
+    // retient qu'un vrai nom de rue — un numero de route seul (« 43 D981 ») ne
+    // fait pas une adresse, et on n'en invente pas.
+    const noms = [nam.primary, ...nam.alts]
+      .filter(e => e.name && !RE_ROUTE.test(e.name.trim()))
+      .map(e => e.name.trim());
+    const uniques = [...new Set(noms)];
+    if (uniques.length !== 1) return null;          // aucun, ou ambigu : on ne tranche pas
+    // ⚠️ La VILLE, elle, ne se lit PAS sur le segment : c'est la commune INSEE
+    // determinee par geometrie, exactement comme le `vAlt` du logigramme hors
+    // agglo. Reprendre la ville portee par le segment propagerait sa faute
+    // eventuelle sur tous les POI crees (meme piege que l'etiquette du
+    // polygone, corrige en v1.10).
+    const villeSeg = (nam.primary.cityName ||
+                      (nam.alts.find(a => a.cityName) || {}).cityName || '').trim();
+    return { nom: uniques[0], ville: communeActive.nom,
+             villeSeg: villeSeg && villeSeg !== communeActive.nom ? villeSeg : null };
+  }
+
+  /**
+   * Analyse des adresses. Rendue a part du scan des segments : elle est
+   * asynchrone (un aller-retour serveur) et ne concerne pas la geometrie des
+   * voies mais des points.
+   */
+  async function analyserAdresses(segs, listeAgglos, stats) {
+    const c = options.controles;
+    if (!c.hnHorsAgglo && !c.poiAgglo) return;
+    const dansAgglo = (lon, lat) => listeAgglos.some(a => pointInRings(lon, lat, [a.ring]));
+    const dansCommune = (lon, lat) => pointInGeom(lon, lat, communeActive.geom);
+
+    // --- 1. Numeros de rue hors agglomeration -------------------------------
+    if (c.hnHorsAgglo) {
+      const parSegment = new Map();
+      try {
+        // ⚠️ `fetchHouseNumbers` a une LIMITE DE LOT non documentee : mesuree en
+        // live, 500 segments passent, 600 sont rejetes d'emblee (« Server
+        // Response Error » en 98 ms). Une commune depasse vite ce seuil — 879
+        // segments dans une vue de test — donc on tronconne. Cout : ~0,5 s par
+        // lot de 250, soit une paire de secondes pour une commune entiere.
+        const TAILLE_LOT = 250;
+        const tousIds = segs.map(s => s.id);
+        const hns = [];
+        for (let i = 0; i < tousIds.length; i += TAILLE_LOT) {
+          const lot = await sdk.DataModel.HouseNumbers.fetchHouseNumbers(
+            { segmentIds: tousIds.slice(i, i + TAILLE_LOT) });
+          hns.push(...lot);
+        }
+        stats.hnLus = hns.length;
+        for (const hn of hns) {
+          const p = hn.geometry && hn.geometry.coordinates;
+          if (!p) continue;
+          if (!dansCommune(p[0], p[1])) { stats.hnHorsCommune++; continue; }
+          if (dansAgglo(p[0], p[1])) continue;                 // a sa place
+          if (!parSegment.has(hn.segmentId)) parSegment.set(hn.segmentId, []);
+          parSegment.get(hn.segmentId).push(hn);
+        }
+      } catch (e) {
+        log('lecture des numeros de rue impossible', e);
+        stats.hnErreur = e.message || String(e);
+      }
+
+      // Un report par segment porteur : ce sont les memes rue et zone.
+      for (const [segId, liste] of parSegment) {
+        const seg = sdk.DataModel.Segments.getById({ segmentId: segId });
+        const nam = seg ? readNaming(seg) : null;
+        const rue = rueDuPoi(nam);
+        const nums = liste.map(h => h.number);
+        stats.hnHorsAgglo += liste.length;
+        findings.push({
+          adresse: true, sousType: 'hn', cas: 'HN-H', segId,
+          libelle: (nam ? fmt(nam.primary) : 'segment ' + segId) +
+                   ' — ' + liste.length + ' numero' + (liste.length > 1 ? 's' : ''),
+          roadType: seg ? seg.roadType : null,
+          nbPoints: liste.length,
+          hns: liste.map(h => ({ id: h.id, number: h.number, geometry: h.geometry })),
+          geom: liste[0].geometry,
+          centre: (p => ({ lon: p[0], lat: p[1] }))(centreGeom(liste[0].geometry)),
+          rueCible: rue,
+          ecarts: [{ champ: 'numeros hors agglo',
+                     avant: nums.slice(0, 8).join(', ') + (nums.length > 8 ? '…' : '') +
+                            ' porte' + (nums.length > 1 ? 's' : '') + ' par le segment',
+                     apres: rue ? 'a passer en POI residentiel — ' + rue.nom + ' / ' + rue.ville
+                                : 'a passer en POI residentiel' }],
+          doute: !rue
+            ? 'aucun nom de rue exploitable sur ce segment (absent, ou plusieurs) : ' +
+              'la rue du POI ne peut pas etre determinee'
+            : rue.villeSeg
+              ? 'le segment porte la ville « ' + rue.villeSeg + ' » alors que le contour donne « ' +
+                communeActive.nom + ' » : c\'est la commune INSEE qui est appliquee au POI'
+              : null
+        });
+      }
+    }
+
+    // --- 2. POI residentiels en agglomeration -------------------------------
+    if (c.poiAgglo) {
+      let venues = [];
+      try { venues = sdk.DataModel.Venues.getAll().filter(v => v.isResidential); }
+      catch (e) { log('lecture des POI impossible', e); }
+      stats.poiLus = venues.length;
+      for (const v of venues) {
+        const p = centreGeom(v.geometry);
+        if (!p) continue;
+        if (!dansCommune(p[0], p[1])) continue;
+        if (!dansAgglo(p[0], p[1])) continue;                  // a sa place
+        let num = '';
+        try { const a = sdk.DataModel.Venues.getAddress({ venueId: String(v.id) });
+              num = (a && a.houseNumber) || ''; } catch (e) { /* */ }
+        stats.poiAgglo++;
+        findings.push({
+          adresse: true, sousType: 'poi', cas: 'POI-C', segId: 'v' + v.id,
+          libelle: (v.name || 'POI residentiel') + (num ? ' — n° ' + num : ''),
+          roadType: null, nbPoints: 1,
+          geom: { type: 'Point', coordinates: p },
+          centre: { lon: p[0], lat: p[1] }, venueId: String(v.id),
+          ecarts: [{ champ: 'POI residentiel en agglo',
+                     avant: num ? 'n° ' + num : 'sans numero',
+                     apres: 'en ville, le numero se porte sur le segment (a verifier)' }],
+          doute: 'un POI residentiel en ville peut etre legitime (residence, lotissement ferme) : a juger sur place'
+        });
+      }
+    }
+  }
+
+  async function scan() {
     if (!communeActive) {
       ui.stats.innerHTML = '<div class="agn-stat agn-alerte">Choisis d\'abord une commune.</div>';
       ui.results.innerHTML = ''; return;
@@ -1215,10 +1461,17 @@
         doute: notes.length ? notes.join(' ; ') : null }));
     }
 
+    // Les adresses sont analysees a part : lecture serveur, et objets ponctuels.
+    const statsAdr = { hnLus: 0, hnHorsAgglo: 0, hnHorsCommune: 0, poiLus: 0,
+                       poiAgglo: 0, hnErreur: null };
+    try { await analyserAdresses(segs, listeAgglos, statsAdr); }
+    catch (e) { log('analyse des adresses impossible', e); statsAdr.hnErreur = e.message || String(e); }
+
     const nbSegmentsEnEcart = findings.length;
     findings = regrouperFindings(findings);
     lastScan = { analyses: zones.agglo + zones.hors + zones.cheval + zones.limCom, skipped, zones,
-                 ecarts: nbSegmentsEnEcart, lignes: findings.length, nbAgglos: listeAgglos.length };
+                 ecarts: nbSegmentsEnEcart, lignes: findings.length, nbAgglos: listeAgglos.length,
+                 adr: statsAdr };
     renderResults();
     redrawEcarts(null);
   }
@@ -1330,7 +1583,20 @@
    * qu'on ne saurait pas faire.
    */
   function planDeCorrection(f) {
-    if (!f.cible || f.traite) return null;
+    if (f.traite) return null;
+    // --- Adressage : convertir des numeros en POI residentiels --------------
+    // Regle TOUT OU RIEN : creer le POI sans retirer le numero laisserait
+    // l'adresse en double, donc pire qu'avant. Si l'un des deux ne peut pas se
+    // faire, le bouton n'apparait pas et la ligne dit pourquoi.
+    if (f.adresse) {
+      if (f.sousType !== 'hn') return null;          // un POI en ville se juge sur place
+      if (!f.rueCible || !f.hns || !f.hns.length) return null;
+      if (!segmentsEditables([f.segId]).length) return null;
+      const dispo = hnsManipulables(f);              // numeros absents du data model
+      if (!dispo.length) return null;
+      return [{ type: 'hn2poi', nb: dispo.length, sur: f.hns.length, rue: f.rueCible }];
+    }
+    if (!f.cible) return null;
     const ops = [];
     const cur = f.ecarts || [];
     // Nom principal : on ne touche que si la cible porte un nom (renommer vers
@@ -1380,9 +1646,61 @@
     });
   }
 
+  /**
+   * Conversion des numeros d'un segment en POI residentiels. Chaque numero
+   * devient un POI de categorie RESIDENTIAL pose a SA position, portant le
+   * numero et la rue (nom + ville), puis le numero est retire du segment.
+   * ⚠️ Si la creation d'un POI echoue, on NE supprime pas le numero
+   * correspondant : mieux vaut un ecart qui reste qu'une adresse perdue.
+   */
+  function convertirHnEnPoi(f) {
+    const DM = sdk.DataModel;
+    const rue = resoudreStreet(f.rueCible.nom, f.rueCible.ville);
+    if (!rue) throw new Error('rue « ' + f.rueCible.nom + ' » introuvable');
+    let faits = 0;
+    const echecs = [];
+    const laisses = f.hns.length - hnsManipulables(f).length;
+    for (const hn of hnsManipulables(f)) {
+      let venueId = null;
+      try {
+        // /!\ addVenue rend un NOMBRE, les autres methodes veulent une CHAINE.
+        venueId = String(DM.Venues.addVenue({
+          category: REF.adressage.categoriePoi, geometry: hn.geometry }));
+        DM.Venues.updateAddress({ venueId, houseNumber: String(hn.number), streetId: rue.id });
+      } catch (e) {
+        echecs.push(hn.number + ' : ' + (e.message || e));
+        continue;                       // POI rate ⇒ on garde le numero
+      }
+      try {
+        DM.HouseNumbers.deleteHouseNumber({ houseNumberId: hn.id });
+        faits++;
+      } catch (e) {
+        // ⚠️ Le POI existe mais le numero resiste : on RETIRE le POI, sinon
+        // l'adresse serait en double — pire que l'ecart de depart.
+        try { DM.Venues.deleteVenue({ venueId }); } catch (e2) { /* */ }
+        echecs.push(hn.number + ' : numero non retirable, POI annule (' + (e.message || e) + ')');
+      }
+    }
+    return { faits, echecs, laisses };
+  }
+
   function appliquerCorrection(f) {
     const plan = planDeCorrection(f);
     if (!plan) return { ok: false, motif: 'rien d\'automatisable' };
+    if (f.adresse) {
+      try {
+        const r = convertirHnEnPoi(f);
+        if (!r.faits) return { ok: false, motif: r.echecs[0] || 'aucun numero converti' };
+        // Converti partiellement : la ligne reste a traiter, on ne la barre pas.
+        return { ok: true, nb: r.faits, ops: r.faits, bloques: 0,
+                 partiel: (r.echecs.length + (r.laisses || 0)) > 0,
+                 avertissement: (r.echecs.length + (r.laisses || 0)) +
+                   ' numero(s) laisses de cote' };
+      } catch (e) {
+        log('conversion impossible', e);
+        return { ok: false, motif: e.message || String(e) };
+      }
+    }
     const tous = f.segIds || [f.segId];
     const ids = segmentsEditables(tous);
     if (!ids.length) return { ok: false, motif: 'segment(s) verrouille(s) au-dessus de ton niveau' };
@@ -1689,7 +2007,20 @@
     ui.inputFichier.onchange = surFichierContours;
     brancherSources(o);
     ui.btnTracer.onclick = tracerAgglo;
-    ui.btnScan.onclick = scan;
+    // Le scan est asynchrone depuis qu'il lit les numeros de rue (aller-retour
+    // serveur) : on verrouille le bouton le temps qu'il tourne, et on affiche
+    // l'echec plutot que de laisser une promesse tomber en silence.
+    ui.btnScan.onclick = async () => {
+      const btn = ui.btnScan, texte = btn.textContent;
+      btn.disabled = true; btn.textContent = 'Analyse en cours…';
+      try { await scan(); }
+      catch (e) {
+        log('analyse impossible', e);
+        ui.stats.innerHTML = '<div class="agn-stat agn-alerte">Analyse impossible : ' +
+          esc(e.message || String(e)) + '</div>';
+      }
+      finally { btn.disabled = false; btn.textContent = texte; }
+    };
     ui.selCommune.onchange = () => {
       communeActive = communes.find(c => c.code === ui.selCommune.value) || null;
       redrawCommune(); redrawAgglos(); renderAgglos();
@@ -1911,7 +2242,7 @@
   function nettoyerCarte() {
     if (edition) sortirEdition(false);
     cacherBulle();
-    [LAYER_COMMUNE, LAYER_AGGLO, LAYER_ECARTS].forEach(n => {
+    [LAYER_COMMUNE, LAYER_AGGLO, LAYER_ECARTS, LAYER_ADRESSES].forEach(n => {
       try { sdk.Map.removeAllFeaturesFromLayer({ layerName: n }); } catch (e) { /* */ }
     });
   }
@@ -2097,25 +2428,29 @@
    */
   function corriger(liste, noeuds) {
     let ok = 0, segments = 0, bloques = 0;
+    // Une conversion d'adresses compte des NUMEROS, pas des segments.
+    const unite = liste.every(f => f.adresse) ? 'numero' : 'segment';
     const echecs = [];
     liste.forEach((f, i) => {
       const res = appliquerCorrection(f);
       if (res.ok) {
         ok++; segments += res.nb; bloques += (res.bloques || 0);
-        if (noeuds && noeuds[i]) marquerTraite(f, noeuds[i], true);
+        // Une conversion partielle laisse du travail : on ne barre pas la ligne.
+        if (res.partiel) echecs.push(f.libelle + ' — ' + res.avertissement);
+        else if (noeuds && noeuds[i]) marquerTraite(f, noeuds[i], true);
       } else echecs.push(f.libelle + ' — ' + res.motif);
     });
     redrawEcarts(null);
-    majBandeauCorrection(ok, segments, echecs, bloques);
+    majBandeauCorrection(ok, segments, echecs, bloques, unite);
   }
 
-  function majBandeauCorrection(ok, segments, echecs, bloques) {
+  function majBandeauCorrection(ok, segments, echecs, bloques, unite) {
     if (!ui.bandeauFix) return;
     const enAttente = nbModifsEnAttente();
     if (!ok && (!echecs || !echecs.length)) { ui.bandeauFix.innerHTML = ''; return; }
     ui.bandeauFix.innerHTML =
       `<div class="agn-stat ${echecs.length ? 'agn-alerte' : 'agn-ok'}">
-        <b>${ok}</b> correction(s) appliquee(s) sur <b>${segments}</b> segment(s).
+        <b>${ok}</b> correction(s) appliquee(s) sur <b>${segments}</b> ${(unite || 'segment')}(s).
         ${bloques ? '<b>' + bloques + '</b> segment(s) ignore(s), verrouille(s) au-dessus de ton niveau. ' : ''}
         ${enAttente != null ? '<b>' + enAttente + '</b> modification(s) en attente dans WME — ' : ''}
         <b>rien n'est enregistre</b> : relis, puis clique sur Enregistrer dans WME.
@@ -2152,6 +2487,14 @@
     // selection (les objets sortis de la vue sont laches par WME), et on se
     // retrouvait avec un cadrage correct mais plus rien de selectionne.
     cadrerSur(f);
+    // Un POI n'est pas un segment : on le selectionne comme venue, et on ne
+    // retente pas — il est deja charge puisqu'on vient de le lire.
+    if (f.adresse && f.sousType === 'poi') {
+      try { sdk.Editing.setSelection({ selection: { ids: [f.venueId], objectType: 'venue' } }); }
+      catch (e) { log('selection du POI impossible', e); }
+      redrawEcarts(idx);
+      return;
+    }
     // On ne peut selectionner que ce qui est CHARGE dans le modele : apres un
     // deplacement, les troncons eloignes n'arrivent qu'au chargement suivant.
     // D'ou plusieurs tentatives, sur les seuls segments reellement presents.
@@ -2209,8 +2552,11 @@
       if (f.centre) { try { sdk.Map.setMapCenter({ lonLat: f.centre }); } catch (e) { /* */ } }
       return;
     }
+    // ⚠️ Un Point porte `coordinates: [lon, lat]`, une ligne `[[lon,lat], ...]` :
+    // les etaler pareil donnerait une liste de NOMBRES et casserait l'emprise.
     const tous = [];
-    geoms.forEach(g => tous.push(...g.coordinates));
+    geoms.forEach(g => { if (g.type === 'Point') tous.push(g.coordinates);
+                         else tous.push(...g.coordinates); });
     let e = emprise(tous);
     let z = zoomPour(2 * e.rx, 2 * e.ry, e.centre.lat);
 
@@ -2261,6 +2607,14 @@
           z.special ? ' · ' + z.special + ' voie(s) a regle propre' : ''}${
           z.giratoire ? ' · ' + z.giratoire + ' giratoire(s)' : ''}.<br>
         Ignores : ${s.skipped.horsCommune} hors commune, ${s.skipped.sansAdresse} sans adressage, ${s.skipped.horsRegle} regles propres.
+        ${s.adr && (s.adr.hnLus || s.adr.poiLus || s.adr.hnErreur) ? '<br>Adressage : ' +
+          s.adr.hnLus + ' numero(s) lu(s), <b>' + s.adr.hnHorsAgglo + '</b> hors agglo · ' +
+          s.adr.poiLus + ' POI residentiel(s), <b>' + s.adr.poiAgglo + '</b> en agglo.' +
+          (s.adr.hnErreur ? ' <span class="agn-alerte">Lecture des numeros : ' + esc(s.adr.hnErreur) + '</span>' : '') +
+          (s.adr.hnHorsAgglo && !findings.some(f => f.adresse && planDeCorrection(f))
+            ? ' <b>Ouvre une fois « Ajouter des numeros de rue » sur un segment de la zone, ' +
+              'puis relance : la conversion s\'activera.</b>' : '')
+          : ''}
       </div>`;
     }
     ui.results.innerHTML = '';
@@ -2331,13 +2685,30 @@
                 ? '<button class="agn-fix-btn" title="Appliquer la correction (sans enregistrer)">⚡</button>' : ''}
               <button class="agn-ok-btn" title="Marquer comme traite">✓</button>
               <span class="agn-cas">${f.cas}</span></div>
-            <div class="agn-note">${ROADTYPE_LABEL[f.roadType] || f.roadType} · ${
-              f.nb > 1 ? '<b class="agn-nb">' + f.nb + ' segments</b>' : '#' + f.segId}${
+            <div class="agn-note">${f.adresse
+              ? (f.sousType === 'hn' ? 'Numeros de rue' : 'POI residentiel')
+              : (ROADTYPE_LABEL[f.roadType] || f.roadType)} · ${
+              f.adresse
+                ? (f.sousType === 'hn'
+                    ? '<b class="agn-nb">' + f.nb + ' numero' + (f.nb > 1 ? 's' : '') + '</b> · #' + f.segId
+                    : 'POI ' + f.segId)
+                : f.nb > 1 ? '<b class="agn-nb">' + f.nb + ' segments</b>' : '#' + f.segId}${
               f.verrouilles ? ' · <b class="agn-lock" title="Verrouilles au-dessus de ton niveau : non modifiables">🔒 ' +
                 f.verrouilles + '</b>' : ''}${
               f.disperse ? ' · <span class="agn-note" title="Troncons eloignes : la carte se pose sur le plus long">eparpilles</span>' : ''}</div>
             ${f.ecarts.map(e => `<div class="agn-d"><b>${e.champ}</b> : ${esc(e.avant)} → ${esc(e.apres)}</div>`).join('')}
             ${f.doute ? `<div class="agn-warn">⚠ ${esc(f.doute)}</div>` : ''}
+            ${(() => {
+              if (!f.adresse || f.sousType !== 'hn' || !f.rueCible) return '';
+              const dispo = hnsManipulables(f).length;
+              if (dispo === f.hns.length) return '';
+              return '<div class="agn-warn">⚠ ' + (dispo
+                ? dispo + ' numero(s) sur ' + f.hns.length + ' seulement sont chargés dans WME : ' +
+                  'les autres seront laissés de côté. '
+                : 'Ces numéros ne sont pas chargés dans WME, la conversion est impossible. ') +
+                'Ouvre « Ajouter des numeros de rue » sur un segment de cette zone (WME charge alors ' +
+                'ceux de la vue), puis relance l\'analyse. Sans ça, créer le POI laisserait l\'adresse en double.</div>';
+            })()}
           </div>`);
         node.onclick = () => allerA([...ui.results.querySelectorAll('.agn-item')].indexOf(node));
         node.querySelector('.agn-ok-btn').onclick = e => {
