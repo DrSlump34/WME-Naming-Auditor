@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.78
+// @version      1.79
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.78';
+  const VERSION = '1.79';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
   // et durable, pas une boite de dialogue qu'on clique sans lire.
@@ -582,6 +582,62 @@
       if (d < dMin) { dMin = d; meilleur = f; }
     }
     return meilleur;
+  }
+
+  /**
+   * WME affiche ses erreurs d'enregistrement dans une popover ancree en haut a
+   * DROITE (`.save-popover-container`), pile ou se pose notre fenetre : elle la
+   * masque, et un refus serveur (ex. adresse residuelle cote Waze) devient
+   * alors incomprehensible — l'editeur voit « rien ne s'enregistre » sans le
+   * message. Verifie en live le 21/07 sur le « 721 Chemin de la Begude ».
+   *
+   * Plutot que de bouger notre fenetre (l'editeur a choisi sa position), on
+   * RECOPIE le message de WME dans un bandeau bien visible EN TETE de notre
+   * fenetre — la ou son regard est deja. Le bandeau vit tant que l'erreur est
+   * affichee cote WME, et disparait avec elle.
+   */
+  let derniereErreurSave = '';
+  function surveillerErreursEnregistrement() {
+    const relever = () => {
+      const pop = document.querySelector('.save-popover-container');
+      const txt = pop ? (pop.textContent || '').replace(/\s+/g, ' ').trim() : '';
+      const erreur = txt && /erreur|invalide|impossible|error|invalid/i.test(txt);
+      if (erreur) {
+        const propre = txt.replace(/\s*Fermer\s*$/i, '').trim();
+        if (propre !== derniereErreurSave) { derniereErreurSave = propre; afficherBandeauErreur(propre); }
+      } else if (derniereErreurSave) {
+        derniereErreurSave = ''; cacherBandeauErreur();
+      }
+    };
+    try {
+      new MutationObserver(relever).observe(document.body,
+        { childList: true, subtree: true, characterData: true });
+    } catch (e) { log('surveillance des erreurs d\'enregistrement impossible', e); }
+  }
+
+  function afficherBandeauErreur(texte) {
+    if (!ui.corps) return;
+    let b = document.querySelector('#agn-err-save');
+    if (!b) {
+      b = el('<div id="agn-err-save"></div>');
+      ui.corps.insertBefore(b, ui.corps.firstChild);
+    }
+    b.innerHTML = '<b>⛔ WME a refuse l\'enregistrement</b><div class="agn-err-msg">' +
+      esc(texte) + '</div><span class="agn-err-note">Message repris de WME (sa propre alerte est ' +
+      'cachee derriere cette fenetre). Il disparaitra quand l\'alerte de WME se fermera.</span>';
+    // Si la fenetre est repliee ou fermee, on la rouvre : sinon le bandeau
+    // resterait invisible et on n'aurait rien gagne.
+    if (ui.overlay) {
+      if (ui.overlay.style.display === 'none') ouvrirOverlay();
+      if (ui.overlay.classList.contains('agn-replie')) {
+        const red = ui.overlay.querySelector('#agn-reduire'); if (red) red.click();
+      }
+    }
+    b.scrollIntoView({ block: 'nearest' });
+  }
+  function cacherBandeauErreur() {
+    const b = document.querySelector('#agn-err-save');
+    if (b) b.remove();
   }
 
   function installerInfobulle() {
@@ -2238,6 +2294,11 @@
   .agn-modale-t{font-weight:700;font-size:13px;margin-bottom:8px;color:#c62828}
   .agn-modale-c{font-size:12px;margin-bottom:10px}
   .agn-modale-geo{background:#eceff1;border-radius:4px;padding:6px 8px;margin-top:8px;font-size:11px}
+  #agn-err-save{background:#fdecea;border:1px solid #f5a29a;border-left:4px solid #c62828;
+    border-radius:5px;padding:8px 10px;margin-bottom:8px;font-size:11.5px;color:#8a1c14}
+  #agn-err-save b{font-size:12px}
+  #agn-err-save .agn-err-msg{margin:4px 0;font-weight:600}
+  #agn-err-save .agn-err-note{display:block;font-size:10.5px;opacity:.8;font-style:italic}
   .agn-modale-saisie{border-top:1px dashed #cfd8dc;margin-top:8px;padding-top:8px}
   .agn-modale-saisie input{width:100%;box-sizing:border-box;padding:5px 7px;font-size:12px;
     border:1px solid #bbb;border-radius:4px;margin:3px 0}
@@ -3294,6 +3355,7 @@
     installerFab();
     ensureLayers();
     installerInfobulle();
+    surveillerErreursEnregistrement();
 
     // Le panneau lateral porte les REGLAGES ; l'overlay porte le travail.
     const { tabLabel, tabPane } = await sdk.Sidebar.registerScriptTab();
