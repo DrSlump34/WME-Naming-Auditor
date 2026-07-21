@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.60
+// @version      1.61
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.60';
+  const VERSION = '1.61';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   const STORE_UI = 'wmeAggloNaming.ui';
   const IDB_NAME = 'wmeAggloNaming';
@@ -437,25 +437,45 @@
   // ---------------------------------------------------------------------------
 
   let calquesPrets = false;
+  /**
+   * ⚠️⚠️ `pointerEvents:'none'` EST OBLIGATOIRE SUR TOUS NOS CALQUES.
+   *
+   * WME rend les couches vectorielles en SVG, et une feature y nait avec
+   * `pointer-events: visiblepainted` : elle capte donc la souris sur toute sa
+   * surface peinte. Consequences vecues (bug remonte par l'auteur le 21/07,
+   * « quand un segment est surligne, impossible de le selectionner ») :
+   *  - le surlignage est un trait de 14 px pose SUR le segment : il avalait le
+   *    clic, et WME ne voyait jamais le segment en dessous ;
+   *  - pire, le contour communal et le polygone d'agglo sont des surfaces
+   *    REMPLIES (fillOpacity 0,05 et 0,12) : elles captaient le clic sur toute
+   *    leur etendue, donc sur la commune entiere.
+   * Verifie en live : le style est bien transmis (`getFeatureDomElement` rend
+   * `pointer-events: none`), et nos calques cessent d'intercepter la souris.
+   * ⚠️ En contrepartie, le survol de nos features ne declenche plus les
+   * evenements du SDK : l'infobulle est donc calculee a la main (voir
+   * `installerInfobulle`). Ne PAS remettre `trackLayerEvents` sans rendre le
+   * clic a WME d'une autre facon.
+   */
+  const INERTE = { pointerEvents: 'none' };
   function ensureLayers() {
     if (calquesPrets) return;
     const etiquette = { etiquette: ctx => (ctx.feature.properties || {}).label || '' };
     try {
       sdk.Map.addLayer({
         layerName: LAYER_COMMUNE, styleContext: etiquette,
-        styleRules: [{ style: {
+        styleRules: [{ style: Object.assign({
           strokeColor: '#1e88e5', strokeWidth: 3, strokeOpacity: 0.95, strokeDashstyle: 'dash',
           fillColor: '#1e88e5', fillOpacity: 0.05, label: '${etiquette}',
           fontColor: '#1565c0', fontSize: '15px', fontWeight: 'bold',
-          labelOutlineColor: '#fff', labelOutlineWidth: 3 } }]
+          labelOutlineColor: '#fff', labelOutlineWidth: 3 }, INERTE) }]
       });
       sdk.Map.addLayer({
         layerName: LAYER_AGGLO, styleContext: etiquette,
-        styleRules: [{ style: {
+        styleRules: [{ style: Object.assign({
           strokeColor: '#e91e63', strokeWidth: 3, strokeOpacity: 0.9,
           fillColor: '#e91e63', fillOpacity: 0.12, label: '${etiquette}',
           fontColor: '#c2185b', fontSize: '14px', fontWeight: 'bold',
-          labelOutlineColor: '#fff', labelOutlineWidth: 3 } }]
+          labelOutlineColor: '#fff', labelOutlineWidth: 3 }, INERTE) }]
       });
       // Surlignage des segments en ecart : la couleur et l'epaisseur sont
       // portees par la feature et resolues via le styleContext.
@@ -465,9 +485,9 @@
           couleur: ctx => (ctx.feature.properties || {}).couleur || '#888888',
           epaisseur: ctx => (ctx.feature.properties || {}).epaisseur || 9
         },
-        styleRules: [{ style: {
+        styleRules: [{ style: Object.assign({
           strokeColor: '${couleur}', strokeWidth: '${epaisseur}', strokeOpacity: 0.45,
-          strokeLinecap: 'round', fill: false } }]
+          strokeLinecap: 'round', fill: false }, INERTE) }]
       });
       // Les ecarts d'ADRESSE sont des points (un numero, un POI), pas des
       // lignes : le calque des segments a `fill:false` et ne les montrerait
@@ -479,11 +499,11 @@
           rayon: ctx => (ctx.feature.properties || {}).rayon || 7,
           etiquette: ctx => (ctx.feature.properties || {}).label || ''
         },
-        styleRules: [{ style: {
+        styleRules: [{ style: Object.assign({
           pointRadius: '${rayon}', fillColor: '${couleur}', fillOpacity: 0.55,
           strokeColor: '${couleur}', strokeWidth: 2, strokeOpacity: 0.95,
           label: '${etiquette}', fontColor: '#004d5a', fontSize: '11px', fontWeight: 'bold',
-          labelOutlineColor: '#fff', labelOutlineWidth: 3, labelYOffset: 14 } }]
+          labelOutlineColor: '#fff', labelOutlineWidth: 3, labelYOffset: 14 }, INERTE) }]
       });
       calquesPrets = true;
     } catch (e) { log('creation des calques impossible', e); }
@@ -492,42 +512,84 @@
   // ---------------------------------------------------------------------------
   // Infobulle de survol sur la carte
   //
-  // `wme-layer-feature-mouse-enter` / `-leave` livrent {featureId, layerName} —
-  // mais PAS la position du curseur : on la suit a part, au mousemove.
+  // ⚠️ Elle NE PEUT PLUS reposer sur `wme-layer-feature-mouse-enter` : nos
+  // calques sont volontairement inertes a la souris (voir `INERTE`), faute de
+  // quoi ils avalent les clics et rendent les segments inselectionnables. On
+  // retrouve donc le report survole a la main, par PROXIMITE geometrique : la
+  // position de la souris est convertie en coordonnees, puis comparee aux
+  // geometries des reports. Calcul limite par un pas de temps et par une boite
+  // englobante, sinon on le referait des centaines de fois par seconde.
   // ---------------------------------------------------------------------------
 
   let souris = { x: 0, y: 0 };
   let bulle = null;
+  let survole = null;          // report actuellement sous le curseur
+  let tSurvol = 0;
+
+  /** Distance (en degres) d'un point a un segment [a,b]. */
+  function distPointSegment(p, a, b) {
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const l2 = dx * dx + dy * dy;
+    let t = l2 ? ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    const cx = a[0] + t * dx, cy = a[1] + t * dy;
+    return Math.hypot(p[0] - cx, p[1] - cy);
+  }
+
+  /** Distance d'un point a la geometrie d'un report (ligne ou point). */
+  function distAuReport(p, f) {
+    let best = Infinity;
+    for (const g of (f.geoms || [f.geom])) {
+      if (!g || !g.coordinates) continue;
+      if (g.type === 'Point') { best = Math.min(best, Math.hypot(p[0] - g.coordinates[0], p[1] - g.coordinates[1])); continue; }
+      const c = g.coordinates;
+      for (let i = 1; i < c.length; i++) best = Math.min(best, distPointSegment(p, c[i - 1], c[i]));
+      if (c.length === 1) best = Math.min(best, Math.hypot(p[0] - c[0][0], p[1] - c[0][1]));
+    }
+    return best;
+  }
+
+  function chercherSousLeCurseur() {
+    if (!options.surligner || !findings.length) return null;
+    let ll;
+    try { ll = sdk.Map.getLonLatFromPixel({ x: souris.x, y: souris.y }); } catch (e) { return null; }
+    if (!ll) return null;
+    const p = [ll.lon, ll.lat];
+    // Tolerance = l'epaisseur du trait, convertie en degres a ce zoom.
+    let tol = 0.00012;
+    try {
+      const a = sdk.Map.getLonLatFromPixel({ x: souris.x, y: souris.y });
+      const b = sdk.Map.getLonLatFromPixel({ x: souris.x + 9, y: souris.y });
+      if (a && b) tol = Math.abs(b.lon - a.lon) || tol;
+    } catch (e) { /* on garde la valeur par defaut */ }
+    let meilleur = null, dMin = tol;
+    for (const f of findings) {
+      if (f.traite || !f.geom) continue;
+      const d = distAuReport(p, f);
+      if (d < dMin) { dMin = d; meilleur = f; }
+    }
+    return meilleur;
+  }
 
   function installerInfobulle() {
     document.addEventListener('mousemove', e => {
       souris = { x: e.clientX, y: e.clientY };
       if (bulle && bulle.style.display !== 'none') placerBulle();
+      // La recherche du report survole coute une passe sur les reports : on ne
+      // la refait pas plus de ~12 fois par seconde, et jamais au-dessus de nos
+      // propres panneaux.
+      const t = Date.now();
+      if (t - tSurvol < 80) return;
+      tSurvol = t;
+      if (e.target && e.target.closest && e.target.closest('#agn-overlay, .agn-sb, #agn-bulle')) {
+        if (survole) { survole = null; cacherBulle(); }
+        return;
+      }
+      const f = chercherSousLeCurseur();
+      if (f === survole) return;
+      survole = f;
+      if (f) montrerBulle(f); else cacherBulle();
     }, { passive: true });
-
-    let suivis = 0;
-    [LAYER_ECARTS, LAYER_ADRESSES].forEach(n => {
-      try { sdk.Events.trackLayerEvents({ layerName: n }); suivis++; }
-      catch (e) { log('suivi du calque ' + n + ' impossible', e); }
-    });
-    if (!suivis) return;
-
-    sdk.Events.on({ eventName: 'wme-layer-feature-mouse-enter', eventHandler: d => {
-      if (!d || (d.layerName !== LAYER_ECARTS && d.layerName !== LAYER_ADRESSES)) return;
-      // /!\ La feature porte `ec-<segId>` / `ad-<segId>`, PAS un index :
-      // chercher le report par son segment. Le lire comme un index rendait
-      // l'infobulle muette (bug present depuis la v1.10, meme faute que pour
-      // l'ordre du DOM). Le prefixe distingue un ecart de nommage d'un ecart
-      // d'adressage, qui peuvent porter le MEME segId.
-      const brut = String(d.featureId);
-      const adresse = brut.slice(0, 3) === 'ad-';
-      const cle = brut.slice(3);
-      const f = findings.find(x => String(x.segId) === cle && !!x.adresse === adresse);
-      if (f) montrerBulle(f);
-    } });
-    sdk.Events.on({ eventName: 'wme-layer-feature-mouse-leave', eventHandler: d => {
-      if (!d || d.layerName === LAYER_ECARTS || d.layerName === LAYER_ADRESSES) cacherBulle();
-    } });
   }
 
   function montrerBulle(f) {
