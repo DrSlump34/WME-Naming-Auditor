@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.72
+// @version      1.73
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.72';
+  const VERSION = '1.73';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
   // et durable, pas une boite de dialogue qu'on clique sans lire.
@@ -1319,6 +1319,27 @@
    * ⚠️ On ne devine RIEN : si aucun alternatif ne porte a la fois un nom de rue
    * et une ville, on rend null et la correction ne sera pas proposee.
    */
+  /** La commune INSEE qui contient ce point, d'apres les contours charges. */
+  function communeDuPoint(lon, lat) {
+    for (const c of communes) {
+      if (!bboxIntersecte(c.bbox, [lon, lat, lon, lat])) continue;
+      if (pointInGeom(lon, lat, c.geom)) return c;
+    }
+    return null;
+  }
+
+  /**
+   * Villes distinctes portees par le segment. Sur une voie qui SEPARE deux
+   * communes, les alternatifs portent le meme nom de rue avec deux villes
+   * differentes (cas verifie : « Chemin de la Planque » en Saint-Genies-de-
+   * Comolas ET Saint-Laurent-des-Arbres). Il faut alors trancher numero par
+   * numero, les pairs et les impairs n'etant pas du meme cote.
+   */
+  function villesDuSegment(nam) {
+    const v = [nam.primary, ...nam.alts].map(e => (e.cityName || '').trim()).filter(Boolean);
+    return [...new Set(v)];
+  }
+
   function rueDuPoi(nam) {
     if (!nam) return null;
     // Le NOM se lit sur le segment : c'est le seul endroit ou il existe. On ne
@@ -1334,10 +1355,13 @@
     // agglo. Reprendre la ville portee par le segment propagerait sa faute
     // eventuelle sur tous les POI crees (meme piege que l'etiquette du
     // polygone, corrige en v1.10).
-    const villeSeg = (nam.primary.cityName ||
-                      (nam.alts.find(a => a.cityName) || {}).cityName || '').trim();
+    const villes = villesDuSegment(nam);
+    const villeSeg = villes[0] || '';
     return { nom: uniques[0], ville: communeActive.nom,
-             villeSeg: villeSeg && villeSeg !== communeActive.nom ? villeSeg : null };
+             // Deux communes sur le segment = voie en limite : la conversion
+             // demandera a quelle commune rattacher chaque numero.
+             villesCandidates: villes.length > 1 ? villes.slice() : null,
+             villeSeg: villes.length === 1 && villeSeg !== communeActive.nom ? villeSeg : null };
   }
 
   /**
@@ -1775,16 +1799,38 @@
    * ⚠️ Si la creation d'un POI echoue, on NE supprime pas le numero
    * correspondant : mieux vaut un ecart qui reste qu'une adresse perdue.
    */
-  function convertirHnEnPoi(f) {
+  // POI crees par la derniere conversion : on les selectionne pour que
+  // l'editeur puisse enchainer a la main (typiquement poser le point d'entree).
+  let crees = [];
+
+  function convertirHnEnPoi(f, choix) {
     const DM = sdk.DataModel;
-    const rue = resoudreStreet(f.rueCible.nom, f.rueCible.ville);
-    if (!rue) throw new Error('rue « ' + f.rueCible.nom + ' » introuvable');
+    const rues = new Map();               // ville → Street, resolue une seule fois
+    const rueDe = ville => {
+      if (!rues.has(ville)) {
+        const r = resoudreStreet(f.rueCible.nom, ville);
+        if (!r) throw new Error('rue « ' + f.rueCible.nom + ' / ' + ville + ' » introuvable');
+        rues.set(ville, r);
+      }
+      return rues.get(ville);
+    };
+    // Ville a retenir pour CE numero : soit celle imposee par l'editeur, soit
+    // celle de la commune INSEE qui contient reellement le point.
+    const villePour = hn => {
+      if (choix && choix.mode === 'fixe') return choix.ville;
+      const p = hn.geometry && hn.geometry.coordinates;
+      const c = p && communeDuPoint(p[0], p[1]);
+      return (c && c.nom) || f.rueCible.ville;
+    };
     let faits = 0;
     const echecs = [];
+    const villesUtilisees = new Set();
     const laisses = f.hns.length - hnsManipulables(f).length;
     for (const hn of hnsManipulables(f)) {
       let venueId = null;
+      const ville = villePour(hn);
       try {
+        const rue = rueDe(ville);
         // /!\ addVenue rend un NOMBRE, les autres methodes veulent une CHAINE.
         venueId = String(DM.Venues.addVenue({
           category: REF.adressage.categoriePoi, geometry: hn.geometry }));
@@ -1795,7 +1841,8 @@
       }
       try {
         DM.HouseNumbers.deleteHouseNumber({ houseNumberId: hn.id });
-        faits++;
+        faits++; villesUtilisees.add(ville);
+        crees.push(venueId);            // pour selectionner le POI ensuite
       } catch (e) {
         // ⚠️ Le POI existe mais le numero resiste : on RETIRE le POI, sinon
         // l'adresse serait en double — pire que l'ecart de depart.
@@ -1803,7 +1850,55 @@
         echecs.push(hn.number + ' : numero non retirable, POI annule (' + (e.message || e) + ')');
       }
     }
-    return { faits, echecs, laisses };
+    return { faits, echecs, laisses, villes: [...villesUtilisees] };
+  }
+
+
+  /**
+   * Voie en limite communale : le segment porte DEUX communes, et sur une rue
+   * qui separe deux territoires les numeros ne sont pas tous du meme cote. On
+   * demande donc a l'editeur, en lui montrant ce que dit la geometrie — c'est
+   * la reponse la plus fine, mais elle reste une proposition.
+   */
+  function demanderCommune(f) {
+    return new Promise(resolve => {
+      const villes = f.rueCible.villesCandidates;
+      // Repartition reelle des numeros d'apres les contours INSEE.
+      const parVille = new Map();
+      for (const hn of (f.hns || [])) {
+        const p = hn.geometry && hn.geometry.coordinates;
+        const c = p && communeDuPoint(p[0], p[1]);
+        const nom = (c && c.nom) || '—';
+        if (!parVille.has(nom)) parVille.set(nom, []);
+        parVille.get(nom).push(hn.number);
+      }
+      const detail = [...parVille.entries()]
+        .map(([v, ns]) => `<div class="agn-d"><b>${esc(v)}</b> : ${esc(ns.slice(0, 10).join(', '))}${
+          ns.length > 10 ? '…' : ''} <span style="opacity:.7">(${ns.length})</span></div>`).join('');
+      const boite = el(`
+        <div id="agn-modale">
+          <div class="agn-modale-in">
+            <div class="agn-modale-t">Voie en limite communale</div>
+            <div class="agn-modale-c">
+              <b>${esc(f.rueCible.nom)}</b> porte deux communes.
+              A quelle commune rattacher ${f.hns.length > 1 ? 'ces <b>' + f.hns.length + '</b> numeros' : 'le numero <b>' + esc(f.hns[0].number) + '</b>'} ?
+              <div class="agn-modale-geo">D'apres les contours INSEE :${detail || '<div class="agn-d">indeterminable</div>'}</div>
+            </div>
+            <button class="agn-btn primary" data-c="geo">Suivre la position de chaque numero</button>
+            ${villes.map(v => `<button class="agn-btn" data-c="fixe" data-v="${esc(v)}">Tout rattacher a ${esc(v)}</button>`).join('')}
+            <button class="agn-btn" data-c="non">Annuler</button>
+          </div>
+        </div>`);
+      document.body.appendChild(boite);
+      boite.addEventListener('mousedown', e => e.stopPropagation());
+      boite.querySelectorAll('button').forEach(b => {
+        b.onclick = () => {
+          const c = b.dataset.c;
+          boite.remove();
+          resolve(c === 'non' ? null : c === 'geo' ? { mode: 'geo' } : { mode: 'fixe', ville: b.dataset.v });
+        };
+      });
+    });
   }
 
   async function appliquerCorrection(f) {
@@ -1817,8 +1912,15 @@
         return { ok: false, motif: 'numeros non charges par WME malgre le cadrage — ' +
           'reessaie apres avoir zoome sur la zone' };
       }
+      // Voie en LIMITE COMMUNALE : les deux communes sont sur le segment, on
+      // ne tranche pas a la place de l'editeur.
+      let choix = null;
+      if (f.rueCible.villesCandidates) {
+        choix = await demanderCommune(f);
+        if (!choix) return { ok: false, motif: 'conversion annulee' };
+      }
       try {
-        const r = convertirHnEnPoi(f);
+        const r = convertirHnEnPoi(f, choix);
         if (!r.faits) return { ok: false, motif: r.echecs[0] || 'aucun numero converti' };
         // Converti partiellement : la ligne reste a traiter, on ne la barre pas.
         return { ok: true, nb: r.faits, ops: r.faits, bloques: 0,
@@ -2027,6 +2129,14 @@
   .agn-empty{opacity:.6;font-style:italic;padding:8px 0;font-size:11px}
   .agn-sansagglo{display:flex;align-items:flex-start;gap:6px;margin-top:6px;
     font-style:normal;opacity:1;cursor:pointer;color:#a34a00}
+  #agn-modale{position:fixed;inset:0;z-index:9700;background:rgba(0,0,0,.35);
+    display:flex;align-items:center;justify-content:center;
+    font:12px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1f2933}
+  .agn-modale-in{background:#fff;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,.4);
+    padding:14px 16px;width:380px;max-width:92vw}
+  .agn-modale-t{font-weight:700;font-size:13px;margin-bottom:8px;color:#c62828}
+  .agn-modale-c{font-size:12px;margin-bottom:10px}
+  .agn-modale-geo{background:#eceff1;border-radius:4px;padding:6px 8px;margin-top:8px;font-size:11px}
   /* WCT reinsere son bouton en dernier dans le conteneur (il le surveille) :
      inutile de se battre dans le DOM, le conteneur est une grille, donc on se
      place apres lui par l'ordre CSS. */
@@ -2731,6 +2841,7 @@
    */
   async function corriger(liste, noeuds) {
     let ok = 0, segments = 0, bloques = 0;
+    crees = [];                 // on ne selectionne que les POI de CETTE serie
     // Une conversion d'adresses compte des NUMEROS, pas des segments.
     const unite = liste.every(f => f.adresse) ? 'numero' : 'segment';
     const echecs = [];
@@ -2746,6 +2857,14 @@
     }
     redrawEcarts(null);
     majBandeauCorrection(ok, segments, echecs, bloques, unite);
+    // Demande de l'auteur : apres une conversion, c'est le POI qui doit etre
+    // selectionne, pas le segment d'origine — on enchaine en general sur son
+    // point d'entree.
+    if (crees.length) {
+      try { sdk.Editing.setSelection({ selection: { ids: crees.slice(), objectType: 'venue' } }); }
+      catch (e) { log('selection des POI creees impossible', e); }
+      crees = [];
+    }
   }
 
   function majBandeauCorrection(ok, segments, echecs, bloques, unite) {
