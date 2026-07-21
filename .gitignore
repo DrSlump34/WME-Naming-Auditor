@@ -1,6 +1,6 @@
 # Variantes de test generees a la volee (scriptId different pour cohabiter
 # avec l'instance installee dans Tampermonkey)
-_t.user.js
+_t*.user.js
 _variante-test.user.js
 
 # Contours communaux telecharges : volumineux (~3 Mo/departement) et
