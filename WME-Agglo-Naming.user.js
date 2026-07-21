@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.75
+// @version      1.76
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.75';
+  const VERSION = '1.76';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
   // et durable, pas une boite de dialogue qu'on clique sans lire.
@@ -1402,7 +1402,15 @@
         // segments dans une vue de test — donc on tronconne. Cout : ~0,5 s par
         // lot de 250, soit une paire de secondes pour une commune entiere.
         const TAILLE_LOT = 250;
-        const tousIds = segs.map(s => s.id);
+        // ⚠️ Meme filtre que pour le nommage : une voie SANS VOCATION
+        // D'ADRESSAGE (voie privee, parking) ne doit pas remonter ici non plus.
+        // Bug vecu le 21/07 : le « 721 Chemin de la Begude » etait porte par une
+        // voie PRIVEE (type 17) — le script proposait donc de convertir un
+        // numero sur une voie qu'il est cense ignorer partout ailleurs.
+        const tousIds = segs
+          .filter(s => options.sansAdresse || !REF.typesSansAdresse.has(s.roadType))
+          .map(s => s.id);
+        stats.hnTypesIgnores = segs.length - tousIds.length;
         const hns = [];
         for (let i = 0; i < tousIds.length; i += TAILLE_LOT) {
           const lot = await sdk.DataModel.HouseNumbers.fetchHouseNumbers(
