@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.73
+// @version      1.74
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.73';
+  const VERSION = '1.74';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
   // et durable, pas une boite de dialogue qu'on clique sans lire.
@@ -1311,14 +1311,6 @@
     return hnsManipulables(f).length;
   }
 
-  /**
-   * Le nom de rue a donner au POI qu'on cree a la place d'un numero. Hors
-   * agglomeration, le segment porte le numero de route en principal et le nom
-   * de rue AVEC sa ville en alternatif : c'est ce dernier qui fait l'adresse
-   * postale (choix de l'auteur, 21/07).
-   * ⚠️ On ne devine RIEN : si aucun alternatif ne porte a la fois un nom de rue
-   * et une ville, on rend null et la correction ne sera pas proposee.
-   */
   /** La commune INSEE qui contient ce point, d'apres les contours charges. */
   function communeDuPoint(lon, lat) {
     for (const c of communes) {
@@ -1329,39 +1321,57 @@
   }
 
   /**
-   * Villes distinctes portees par le segment. Sur une voie qui SEPARE deux
-   * communes, les alternatifs portent le meme nom de rue avec deux villes
-   * differentes (cas verifie : « Chemin de la Planque » en Saint-Genies-de-
-   * Comolas ET Saint-Laurent-des-Arbres). Il faut alors trancher numero par
-   * numero, les pairs et les impairs n'etant pas du meme cote.
+   * L'adresse a donner au POI qu'on cree a la place d'un numero.
+   *
+   * Hors agglomeration, le segment porte le numero de route en principal et le
+   * nom de rue AVEC sa ville en alternatif : c'est ce dernier qui fait
+   * l'adresse postale (choix de l'auteur, 21/07).
+   *
+   * ⚠️ On n'INVENTE jamais un nom : seules les adresses REELLEMENT portees par
+   * le segment sont candidates, et un numero de route seul n'en est pas une
+   * (« 43 D981 » n'est pas une adresse).
+   *
+   * ⚠️ La VILLE, elle, ne se lit pas sur le segment quand il n'y a pas
+   * d'ambiguite : c'est la commune INSEE determinee par geometrie, comme le
+   * `vAlt` du logigramme hors agglo — reprendre celle du segment propagerait
+   * sa faute eventuelle (meme piege que l'etiquette de polygone, corrige en
+   * v1.10).
+   *
+   * ⚠️⚠️ AMBIGUITE ⇒ ON DEMANDE, ON NE REFUSE PAS (arbitrage de l'auteur, 21/07) :
+   *  - meme nom, deux villes  → voie en limite communale, on demande la ville ;
+   *  - plusieurs noms         → on demande le couple NOM + VILLE.
+   * Rendre `null` ne subsiste que s'il n'y a aucune adresse exploitable.
    */
-  function villesDuSegment(nam) {
-    const v = [nam.primary, ...nam.alts].map(e => (e.cityName || '').trim()).filter(Boolean);
-    return [...new Set(v)];
-  }
-
   function rueDuPoi(nam) {
     if (!nam) return null;
-    // Le NOM se lit sur le segment : c'est le seul endroit ou il existe. On ne
-    // retient qu'un vrai nom de rue — un numero de route seul (« 43 D981 ») ne
-    // fait pas une adresse, et on n'en invente pas.
-    const noms = [nam.primary, ...nam.alts]
-      .filter(e => e.name && !RE_ROUTE.test(e.name.trim()))
-      .map(e => e.name.trim());
-    const uniques = [...new Set(noms)];
-    if (uniques.length !== 1) return null;          // aucun, ou ambigu : on ne tranche pas
-    // ⚠️ La VILLE, elle, ne se lit PAS sur le segment : c'est la commune INSEE
-    // determinee par geometrie, exactement comme le `vAlt` du logigramme hors
-    // agglo. Reprendre la ville portee par le segment propagerait sa faute
-    // eventuelle sur tous les POI crees (meme piege que l'etiquette du
-    // polygone, corrige en v1.10).
-    const villes = villesDuSegment(nam);
-    const villeSeg = villes[0] || '';
-    return { nom: uniques[0], ville: communeActive.nom,
-             // Deux communes sur le segment = voie en limite : la conversion
-             // demandera a quelle commune rattacher chaque numero.
-             villesCandidates: villes.length > 1 ? villes.slice() : null,
-             villeSeg: villes.length === 1 && villeSeg !== communeActive.nom ? villeSeg : null };
+    // Adresses portees par le segment, groupees par nom de rue.
+    const parNom = new Map();
+    for (const e of [nam.primary, ...nam.alts]) {
+      const nom = (e.name || '').trim();
+      if (!nom || RE_ROUTE.test(nom)) continue;      // pas de nom, ou numero de route
+      if (!parNom.has(nom)) parNom.set(nom, new Set());
+      const v = (e.cityName || '').trim();
+      if (v) parNom.get(nom).add(v);
+    }
+    if (!parNom.size) return null;                   // aucune adresse exploitable
+
+    const candidats = [...parNom.entries()].map(([nom, villes]) => ({ nom, villes: [...villes] }));
+    const plusieursNoms = candidats.length > 1;
+    const plusieursVilles = candidats.some(c => c.villes.length > 1);
+
+    const seul = candidats[0];
+    const villeSeg = seul.villes[0] || '';
+    return {
+      // Proposition par defaut : le nom s'il est unique, la commune INSEE pour
+      // la ville. Elle ne sert que s'il n'y a rien a demander.
+      nom: plusieursNoms ? null : seul.nom,
+      ville: communeActive.nom,
+      candidats,
+      ambigu: plusieursNoms || plusieursVilles,
+      plusieursNoms,
+      villeSeg: !plusieursNoms && seul.villes.length === 1 && villeSeg !== communeActive.nom
+        ? villeSeg : null
+    };
   }
 
   /**
@@ -1426,15 +1436,21 @@
           ecarts: [{ champ: 'numeros hors agglo',
                      avant: nums.slice(0, 8).join(', ') + (nums.length > 8 ? '…' : '') +
                             ' porte' + (nums.length > 1 ? 's' : '') + ' par le segment',
-                     apres: rue ? 'a passer en POI residentiel — ' + rue.nom + ' / ' + rue.ville
-                                : 'a passer en POI residentiel' }],
+                     apres: !rue ? 'a passer en POI residentiel'
+                       : rue.ambigu ? 'a passer en POI residentiel — adresse a choisir a la conversion'
+                       : 'a passer en POI residentiel — ' + rue.nom + ' / ' + rue.ville }],
           doute: !rue
-            ? 'aucun nom de rue exploitable sur ce segment (absent, ou plusieurs) : ' +
-              'la rue du POI ne peut pas etre determinee'
-            : rue.villeSeg
-              ? 'le segment porte la ville « ' + rue.villeSeg + ' » alors que le contour donne « ' +
-                communeActive.nom + ' » : c\'est la commune INSEE qui est appliquee au POI'
-              : null
+            ? 'aucune adresse exploitable sur ce segment : la rue du POI ne peut pas etre determinee'
+            : rue.plusieursNoms
+              ? 'plusieurs noms de rue sur ce segment (' +
+                rue.candidats.map(c => c.nom).join(', ') + ') : le choix sera demande'
+              : rue.ambigu
+                ? 'voie en limite communale (' + rue.candidats[0].villes.join(', ') +
+                  ') : la commune de chaque numero sera demandee'
+                : rue.villeSeg
+                  ? 'le segment porte la ville « ' + rue.villeSeg + ' » alors que le contour donne « ' +
+                    communeActive.nom + ' » : c\'est la commune INSEE qui est appliquee au POI'
+                  : null
         });
       }
     }
@@ -1805,11 +1821,15 @@
 
   function convertirHnEnPoi(f, choix) {
     const DM = sdk.DataModel;
+    // Le NOM vient du choix de l'editeur quand il y avait ambiguite, sinon de
+    // l'unique adresse portee par le segment.
+    const nomRue = (choix && choix.nom) || f.rueCible.nom;
+    if (!nomRue) throw new Error('nom de rue indetermine');
     const rues = new Map();               // ville → Street, resolue une seule fois
     const rueDe = ville => {
       if (!rues.has(ville)) {
-        const r = resoudreStreet(f.rueCible.nom, ville);
-        if (!r) throw new Error('rue « ' + f.rueCible.nom + ' / ' + ville + ' » introuvable');
+        const r = resoudreStreet(nomRue, ville);
+        if (!r) throw new Error('rue « ' + nomRue + ' / ' + ville + ' » introuvable');
         rues.set(ville, r);
       }
       return rues.get(ville);
@@ -1855,14 +1875,19 @@
 
 
   /**
-   * Voie en limite communale : le segment porte DEUX communes, et sur une rue
-   * qui separe deux territoires les numeros ne sont pas tous du meme cote. On
-   * demande donc a l'editeur, en lui montrant ce que dit la geometrie — c'est
-   * la reponse la plus fine, mais elle reste une proposition.
+   * Adresse ambigue : on DEMANDE plutot que de choisir a la place de l'editeur.
+   * Deux situations, traitees par la meme boite :
+   *  - un seul nom, deux communes → voie en limite communale : sur une rue qui
+   *    SEPARE deux territoires, les numeros ne sont pas tous du meme cote, d'ou
+   *    l'option « suivre la position de chaque numero » ;
+   *  - plusieurs noms de rue → on demande le couple NOM + VILLE (l'auteur :
+   *    « il faudra demander le choix du nom+ville »). La geometrie ne peut rien
+   *    dire du NOM : elle n'est proposee que pour trancher la ville d'un nom
+   *    donne.
    */
-  function demanderCommune(f) {
+  function demanderAdresse(f) {
     return new Promise(resolve => {
-      const villes = f.rueCible.villesCandidates;
+      const r = f.rueCible;
       // Repartition reelle des numeros d'apres les contours INSEE.
       const parVille = new Map();
       for (const hn of (f.hns || [])) {
@@ -1875,27 +1900,42 @@
       const detail = [...parVille.entries()]
         .map(([v, ns]) => `<div class="agn-d"><b>${esc(v)}</b> : ${esc(ns.slice(0, 10).join(', '))}${
           ns.length > 10 ? '…' : ''} <span style="opacity:.7">(${ns.length})</span></div>`).join('');
+
+      // Une option par adresse reellement portee par le segment ; et, pour un
+      // nom present avec plusieurs villes, l'option « selon la position ».
+      const options = [];
+      for (const c of r.candidats) {
+        const villes = c.villes.length ? c.villes : [communeActive.nom];
+        if (c.villes.length > 1) {
+          options.push({ mode: 'geo', nom: c.nom,
+            libelle: esc(c.nom) + ' — <b>selon la position</b> de chaque numero', fort: true });
+        }
+        villes.forEach(v => options.push({ mode: 'fixe', nom: c.nom, ville: v,
+          libelle: esc(c.nom) + ' / ' + esc(v) }));
+      }
+
       const boite = el(`
         <div id="agn-modale">
           <div class="agn-modale-in">
-            <div class="agn-modale-t">Voie en limite communale</div>
+            <div class="agn-modale-t">${r.plusieursNoms
+              ? 'Plusieurs adresses sur ce segment' : 'Voie en limite communale'}</div>
             <div class="agn-modale-c">
-              <b>${esc(f.rueCible.nom)}</b> porte deux communes.
-              A quelle commune rattacher ${f.hns.length > 1 ? 'ces <b>' + f.hns.length + '</b> numeros' : 'le numero <b>' + esc(f.hns[0].number) + '</b>'} ?
-              <div class="agn-modale-geo">D'apres les contours INSEE :${detail || '<div class="agn-d">indeterminable</div>'}</div>
+              Quelle adresse donner ${f.hns.length > 1
+                ? 'aux <b>' + f.hns.length + '</b> numeros' : 'au numero <b>' + esc(f.hns[0].number) + '</b>'} ?
+              <div class="agn-modale-geo">D'apres les contours INSEE :${
+                detail || '<div class="agn-d">indeterminable</div>'}</div>
             </div>
-            <button class="agn-btn primary" data-c="geo">Suivre la position de chaque numero</button>
-            ${villes.map(v => `<button class="agn-btn" data-c="fixe" data-v="${esc(v)}">Tout rattacher a ${esc(v)}</button>`).join('')}
-            <button class="agn-btn" data-c="non">Annuler</button>
+            ${options.map((o, i) => `<button class="agn-btn ${o.fort ? 'primary' : ''}" data-i="${i}">${o.libelle}</button>`).join('')}
+            <button class="agn-btn" data-i="-1">Annuler</button>
           </div>
         </div>`);
       document.body.appendChild(boite);
       boite.addEventListener('mousedown', e => e.stopPropagation());
       boite.querySelectorAll('button').forEach(b => {
         b.onclick = () => {
-          const c = b.dataset.c;
+          const i = parseInt(b.dataset.i, 10);
           boite.remove();
-          resolve(c === 'non' ? null : c === 'geo' ? { mode: 'geo' } : { mode: 'fixe', ville: b.dataset.v });
+          resolve(i < 0 ? null : options[i]);
         };
       });
     });
@@ -1912,11 +1952,11 @@
         return { ok: false, motif: 'numeros non charges par WME malgre le cadrage — ' +
           'reessaie apres avoir zoome sur la zone' };
       }
-      // Voie en LIMITE COMMUNALE : les deux communes sont sur le segment, on
-      // ne tranche pas a la place de l'editeur.
+      // Adresse ambigue (limite communale, ou plusieurs noms de rue) : on
+      // demande, on ne choisit pas a la place de l'editeur.
       let choix = null;
-      if (f.rueCible.villesCandidates) {
-        choix = await demanderCommune(f);
+      if (f.rueCible.ambigu) {
+        choix = await demanderAdresse(f);
         if (!choix) return { ok: false, motif: 'conversion annulee' };
       }
       try {
