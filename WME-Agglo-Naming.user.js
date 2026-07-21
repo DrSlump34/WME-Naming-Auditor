@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.71
+// @version      1.72
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.71';
+  const VERSION = '1.72';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
   // et durable, pas une boite de dialogue qu'on clique sans lire.
@@ -1264,12 +1264,21 @@
   }
 
   /**
-   * CE numero precis est-il manipulable ? (cf. le piege du data model ci-dessus)
-   * ⚠️ Verifier que le depot est non vide NE SUFFIT PAS : le mode « numeros de
-   * rue » ne charge que ceux de la vue ouverte a ce moment-la. Teste en live :
-   * 349 numeros en depot, et pourtant celui qu'on visait n'y etait pas — le POI
-   * avait ete cree et le numero n'avait pas pu etre retire, soit exactement le
-   * doublon d'adresse qu'on veut interdire.
+   * CE numero precis est-il manipulable, c'est-a-dire present dans le modele
+   * d'edition ?
+   *
+   * ⚠️⚠️ CE N'EST PAS UN ETAT FIGE — c'est une question de ZOOM.
+   * Mesure en live (2026-07-21) : le depot `W.model.segmentHouseNumbers` est
+   * VIDE aux zooms 16 et 17, et contient d'un coup les 358 numeros de la zone
+   * **des le zoom 18**. Autrement dit : des que l'editeur voit les numeros a
+   * l'ecran, ils sont chargés et supprimables — l'auteur avait raison de
+   * contester le message « ces numeros ne sont pas charges ».
+   * (J'avais d'abord cru qu'il fallait ouvrir « Ajouter des numeros de rue » :
+   * faux, ce bouton zoomait sur le segment, et c'est le zoom qui chargeait.)
+   *
+   * Consequence de conception : on ne decide RIEN au moment d'afficher la
+   * liste — l'analyse tourne souvent au zoom 16/17, ou le depot est vide. On
+   * verifie au moment d'AGIR, apres avoir au besoin provoque le chargement.
    */
   function hnManipulable(id) {
     try {
@@ -1279,6 +1288,28 @@
   }
   /** Combien de numeros d'un report sont reellement manipulables. */
   const hnsManipulables = f => (f.hns || []).filter(h => hnManipulable(h.id));
+
+  /** Zoom a partir duquel WME charge les numeros dans le modele (mesure). */
+  const ZOOM_NUMEROS = 18;
+
+  /**
+   * Provoque le chargement des numeros d'un report : on cadre dessus a un zoom
+   * suffisant, puis on laisse a WME le temps de les recevoir. Rend le nombre de
+   * numeros devenus manipulables.
+   */
+  async function chargerNumeros(f) {
+    if (hnsManipulables(f).length === (f.hns || []).length) return f.hns.length;
+    try {
+      if (f.centre) sdk.Map.setMapCenter({ lonLat: f.centre });
+      const z = sdk.Map.getZoomLevel();
+      if (z < ZOOM_NUMEROS) sdk.Map.setZoomLevel({ zoomLevel: ZOOM_NUMEROS });
+    } catch (e) { log('cadrage sur les numeros impossible', e); }
+    for (let essai = 0; essai < 8; essai++) {
+      await new Promise(r => setTimeout(r, 500));
+      if (hnsManipulables(f).length) break;
+    }
+    return hnsManipulables(f).length;
+  }
 
   /**
    * Le nom de rue a donner au POI qu'on cree a la place d'un numero. Hors
@@ -1683,9 +1714,9 @@
       if (f.sousType !== 'hn') return null;          // un POI en ville se juge sur place
       if (!f.rueCible || !f.hns || !f.hns.length) return null;
       if (!segmentsEditables([f.segId]).length) return null;
-      const dispo = hnsManipulables(f);              // numeros absents du data model
-      if (!dispo.length) return null;
-      return [{ type: 'hn2poi', nb: dispo.length, sur: f.hns.length, rue: f.rueCible }];
+      // ⚠️ On ne regarde PAS ici si les numeros sont deja dans le modele : ca
+      // depend du zoom courant, pas du report. La correction les chargera.
+      return [{ type: 'hn2poi', nb: f.hns.length, rue: f.rueCible }];
     }
     if (!f.cible) return null;
     const ops = [];
@@ -1775,10 +1806,17 @@
     return { faits, echecs, laisses };
   }
 
-  function appliquerCorrection(f) {
+  async function appliquerCorrection(f) {
     const plan = planDeCorrection(f);
     if (!plan) return { ok: false, motif: 'rien d\'automatisable' };
     if (f.adresse) {
+      // Les numeros n'entrent dans le modele qu'a partir du zoom 18 : on les
+      // fait charger plutot que de renvoyer l'editeur a un reglage de carte.
+      const dispo = await chargerNumeros(f);
+      if (!dispo) {
+        return { ok: false, motif: 'numeros non charges par WME malgre le cadrage — ' +
+          'reessaie apres avoir zoome sur la zone' };
+      }
       try {
         const r = convertirHnEnPoi(f);
         if (!r.faits) return { ok: false, motif: r.echecs[0] || 'aucun numero converti' };
@@ -2691,20 +2729,21 @@
    * pas : le compteur rappelle combien de modifications attendent dans WME,
    * c'est l'editeur qui relit et enregistre.
    */
-  function corriger(liste, noeuds) {
+  async function corriger(liste, noeuds) {
     let ok = 0, segments = 0, bloques = 0;
     // Une conversion d'adresses compte des NUMEROS, pas des segments.
     const unite = liste.every(f => f.adresse) ? 'numero' : 'segment';
     const echecs = [];
-    liste.forEach((f, i) => {
-      const res = appliquerCorrection(f);
+    for (let i = 0; i < liste.length; i++) {
+      const f = liste[i];
+      const res = await appliquerCorrection(f);
       if (res.ok) {
         ok++; segments += res.nb; bloques += (res.bloques || 0);
         // Une conversion partielle laisse du travail : on ne barre pas la ligne.
         if (res.partiel) echecs.push(f.libelle + ' — ' + res.avertissement);
         else if (noeuds && noeuds[i]) marquerTraite(f, noeuds[i], true);
       } else echecs.push(f.libelle + ' — ' + res.motif);
-    });
+    }
     redrawEcarts(null);
     majBandeauCorrection(ok, segments, echecs, bloques, unite);
   }
@@ -2837,6 +2876,9 @@
       z = zoomPour(2 * e.rx, 2 * e.ry, e.centre.lat);
     }
 
+    // Un report d'ADRESSE se regarde de pres : sous le zoom 18, WME n'affiche
+    // meme pas les numeros dont on parle (et ne les charge pas non plus).
+    if (f.adresse) z = Math.max(z, ZOOM_NUMEROS);
     try {
       sdk.Map.setMapCenter({ lonLat: e.centre });
       if (options.zoomClic) sdk.Map.setZoomLevel({ zoomLevel: z });
@@ -2883,9 +2925,9 @@
             ', dont <b>' + s.adr.hnHorsAgglo + '</b> hors agglomeration.<br><b>' +
             s.adr.poiLus + '</b> POI residentiel(s), dont <b>' + s.adr.poiAgglo + '</b> en agglomeration.' +
             (s.adr.hnErreur ? '<br><span class="agn-alerte">Lecture des numeros : ' + esc(s.adr.hnErreur) + '</span>' : '') +
-            (s.adr.hnHorsAgglo && !findings.some(f => f.adresse && planDeCorrection(f))
-              ? '<br><b>Ouvre une fois « Ajouter des numeros de rue » sur un segment de la zone, ' +
-                'puis relance : la conversion s\'activera.</b>' : '')
+            (s.adr.hnHorsAgglo
+              ? '<br><span style="opacity:.8">La conversion cadre elle-meme sur les numeros : ' +
+                'WME ne les charge qu\'a partir du zoom ' + ZOOM_NUMEROS + '.</span>' : '')
           : 'Analyse non lancee.'}
       </div>`;
     }
@@ -2972,17 +3014,10 @@
               f.disperse ? ' · <span class="agn-note" title="Troncons eloignes : la carte se pose sur le plus long">eparpilles</span>' : ''}</div>
             ${f.ecarts.map(e => `<div class="agn-d"><b>${e.champ}</b> : ${esc(e.avant)} → ${esc(e.apres)}</div>`).join('')}
             ${f.doute ? `<div class="agn-warn">⚠ ${esc(f.doute)}</div>` : ''}
-            ${(() => {
-              if (!f.adresse || f.sousType !== 'hn' || !f.rueCible) return '';
-              const dispo = hnsManipulables(f).length;
-              if (dispo === f.hns.length) return '';
-              return '<div class="agn-warn">⚠ ' + (dispo
-                ? dispo + ' numero(s) sur ' + f.hns.length + ' seulement sont chargés dans WME : ' +
-                  'les autres seront laissés de côté. '
-                : 'Ces numéros ne sont pas chargés dans WME, la conversion est impossible. ') +
-                'Ouvre « Ajouter des numeros de rue » sur un segment de cette zone (WME charge alors ' +
-                'ceux de la vue), puis relance l\'analyse. Sans ça, créer le POI laisserait l\'adresse en double.</div>';
-            })()}
+            ${f.adresse && f.sousType === 'hn' && !f.rueCible
+              ? '<div class="agn-warn">⚠ Nom de rue introuvable ou ambigu sur ce segment : ' +
+                'la conversion ne peut pas etre proposee.</div>'
+              : ''}
           </div>`);
         node.onclick = () => allerA([...ui.results.querySelectorAll('.agn-item')].indexOf(node));
         node.querySelector('.agn-ok-btn').onclick = e => {
@@ -2990,7 +3025,13 @@
           marquerTraite(f, node);
         };
         const fix = node.querySelector('.agn-fix-btn');
-        if (fix) fix.onclick = e => { e.stopPropagation(); corriger([f], [node]); };
+        // La correction d'adresses est asynchrone (elle fait charger les
+        // numeros) : on desarme le bouton le temps qu'elle tourne.
+        if (fix) fix.onclick = async e => {
+          e.stopPropagation();
+          fix.disabled = true;
+          try { await corriger([f], [node]); } finally { fix.disabled = false; }
+        };
         corps.appendChild(node);
       });
       ui.results.appendChild(grp);
