@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.30
+// @version      1.31
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -18,7 +18,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.30';
+  const VERSION = '1.31';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   const STORE_UI = 'wmeAggloNaming.ui';
   const IDB_NAME = 'wmeAggloNaming';
@@ -41,9 +41,11 @@
     lim: { libelle: 'A couper — limite communale', defaut: '#1de9b6' },
     cartouche: { libelle: 'Cartouche seul (nommage bon)', defaut: '#7c4dff' },
     forme: { libelle: 'Redaction du nom seule', defaut: '#76ff03' },
-    special: { libelle: 'Bretelle / voie ferree / rocade', defaut: '#ff4081' }
+    special: { libelle: 'Bretelle / voie ferree / rocade', defaut: '#ff4081' },
+    giratoire: { libelle: 'Giratoires', defaut: '#00e676' }
   };
-  const familleDe = f => f.special ? 'special'
+  const familleDe = f => f.cas === 'GIR' ? 'giratoire'
+    : f.special ? 'special'
     : f.seulementCartouche ? 'cartouche' : f.seulementForme ? 'forme'
     : f.cas === 'EB10' ? 'eb10' : f.cas === 'LIM' ? 'lim'
     : (f.cas[0] === 'C' || f.cas[0] === 'R') ? 'agglo' : 'hors';
@@ -973,7 +975,7 @@
     afficherReglages(false);
     findings = [];
     const skipped = { horsRegle: 0, sansAdresse: 0, horsCommune: 0, sansGeom: 0 };
-    const zones = { agglo: 0, hors: 0, cheval: 0, limCom: 0, limitrophe: 0, cartouche: 0, special: 0 };
+    const zones = { agglo: 0, hors: 0, cheval: 0, limCom: 0, limitrophe: 0, cartouche: 0, special: 0, giratoire: 0 };
     const segs = sdk.DataModel.Segments.getAll();
 
     const c = options.controles;
@@ -1002,7 +1004,7 @@
         const villeG = enAggloG ? communeActive.nom : '';
         const ecartsG = verifierGiratoire(nam, villeG).concat(forme);
         if (!ecartsG.length) continue;
-        zones.special++;
+        zones.giratoire++;
         findings.push(Object.assign({}, base, {
           cas: 'GIR', ecarts: ecartsG, special: true, doute: null,
           cible: { primary: { name: '', cityName: villeG }, alts: [] }
@@ -1360,7 +1362,7 @@
   .agn-edit-barre button{display:inline-block;width:auto;margin-right:5px}
   .agn-forme{border-left-color:#00acc1}
   .agn-special{border-left-color:#546e7a}
-  .agn-gir{border-left-color:#546e7a}
+  .agn-giratoire{border-left-color:#00e676}
   /* Le libelle absorbe la largeur disponible et le badge a une largeur
      minimale : sans ca, la coche se decale selon la longueur du nom et la
      taille du code de cas, et les ✓ ne sont plus alignes d'une ligne a l'autre. */
@@ -1945,7 +1947,8 @@
         ${z.agglo} en agglo · ${z.hors} hors agglo · ${z.cheval} a couper (agglo) · ${z.limCom} a couper (commune)${
           z.limitrophe ? ' · ' + z.limitrophe + ' debordent legerement' : ''}${
           z.cartouche ? ' · ' + z.cartouche + ' cartouche(s) a poser' : ''}${
-          z.special ? ' · ' + z.special + ' voie(s) a regle propre' : ''}.<br>
+          z.special ? ' · ' + z.special + ' voie(s) a regle propre' : ''}${
+          z.giratoire ? ' · ' + z.giratoire + ' giratoire(s)' : ''}.<br>
         Ignores : ${s.skipped.horsCommune} hors commune, ${s.skipped.sansAdresse} sans adressage, ${s.skipped.horsRegle} regles propres.
       </div>`;
     }
