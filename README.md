@@ -22,9 +22,12 @@ Le script ne **crée** jamais un nom ni un numéro : il réorganise ce qui est d
 
 ## Mise en route
 
-1. Ouvrir `Recuperer-Communes.html` (double-clic), cocher un ou plusieurs départements, télécharger le GeoJSON.
-2. Installer `WME-Agglo-Naming.user.js` dans Tampermonkey.
-3. Dans WME, ouvrir la fenêtre par le bouton 🏙️ de la barre d'icônes, charger le GeoJSON, choisir une commune, tracer son agglomération, analyser.
+1. Installer `WME-Agglo-Naming.user.js` dans Tampermonkey (accepter l'autorisation d'accès à `geo.api.gouv.fr`).
+2. Dans WME, ouvrir la fenêtre par le bouton 🏙️ de la barre d'icônes.
+3. Cocher un ou plusieurs départements et cliquer sur **Télécharger et charger** : les contours arrivent directement, sans passer par un fichier.
+4. Choisir une commune, tracer son agglomération, analyser.
+
+Les contours peuvent aussi venir d'un **fichier GeoJSON** que vous fournissez — utile hors ligne, ou pour employer une autre source que celle proposée. L'outil `Recuperer-Communes.html` fabrique ce fichier depuis un navigateur, indépendamment du script.
 
 ## Ce qui est contrôlé
 

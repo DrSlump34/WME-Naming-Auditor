@@ -1,14 +1,16 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.31
+// @version      1.40
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
 // @match        https://www.waze.com/*/editor*
 // @match        https://beta.waze.com/editor*
 // @match        https://beta.waze.com/*/editor*
-// @grant        none
+// @grant        GM_xmlhttpRequest
+// @connect      geo.api.gouv.fr
+// @connect      api.wazefrance.com
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -16,9 +18,17 @@
 (function () {
   'use strict';
 
+  /**
+   * Fenetre de la PAGE. Des qu'un @grant est declare, Tampermonkey execute le
+   * script dans un contexte isole ou `window` n'est plus celui de WME : le SDK
+   * et le modele ne s'y trouvent pas. `unsafeWindow` rend la vraie fenetre ;
+   * le repli sur `window` sert quand le script est charge autrement (test).
+   */
+  const hote = (typeof unsafeWindow !== 'undefined' && unsafeWindow) ? unsafeWindow : window;
+
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.31';
+  const VERSION = '1.40';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   const STORE_UI = 'wmeAggloNaming.ui';
   const IDB_NAME = 'wmeAggloNaming';
@@ -285,6 +295,113 @@
       }
     };
     r.readAsText(f);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sources de contours
+  //
+  // ⚠️ La CSP de WME interdit tout appel reseau sortant depuis la page : seul
+  // GM_xmlhttpRequest passe, d'ou le @grant. Quand il est absent (script charge
+  // hors gestionnaire, pour tester), on retombe sur fetch — qui echouera dans
+  // WME, mais on le dit clairement plutot que d'echouer en silence.
+  // ---------------------------------------------------------------------------
+
+  function telecharger(url) {
+    const gm = (typeof GM_xmlhttpRequest !== 'undefined') ? GM_xmlhttpRequest
+             : (typeof GM !== 'undefined' && GM.xmlHttpRequest) ? GM.xmlHttpRequest : null;
+    if (gm) {
+      return new Promise((resolve, reject) => {
+        gm({ method: 'GET', url, timeout: 120000,
+          onload: r => (r.status >= 200 && r.status < 300)
+            ? resolve(r.responseText) : reject(new Error('HTTP ' + r.status)),
+          onerror: () => reject(new Error('appel refuse')),
+          ontimeout: () => reject(new Error('delai depasse')) });
+      });
+    }
+    return fetch(url).then(r => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.text();
+    }).catch(e => {
+      throw new Error(e.message + ' — appel direct bloque par WME ; ' +
+        'installe le script dans Tampermonkey pour utiliser cette source');
+    });
+  }
+
+  const SOURCES = {
+    fichier: { libelle: 'Fichier GeoJSON local' },
+    gouv: {
+      libelle: 'API Decoupage administratif (geo.api.gouv.fr)',
+      // Contours Admin Express (IGN) + Code Officiel Geographique (INSEE).
+      url: dep => 'https://geo.api.gouv.fr/departements/' + encodeURIComponent(dep) +
+        '/communes?fields=nom,code,contour&format=geojson&geometry=contour',
+      aide: 'Numero de departement (01 a 95, 2A, 2B, 971…). ~3 Mo et ~10 s par departement.'
+    },
+    wazefrance: {
+      libelle: 'api.wazefrance.com (a confirmer)',
+      indisponible: 'Cette source expose des statistiques BAN, mais aucun point ' +
+        'd\'entree documente pour les contours de communes. ' +
+        'A confirmer avec Sebiseba avant activation.'
+    }
+  };
+
+  // Les 101 departements, pour le selecteur integre a la fenetre.
+  const DEPARTEMENTS = [
+{"code":"01","nom":"Ain"},{"code":"02","nom":"Aisne"},{"code":"03","nom":"Allier"},{"code":"04","nom":"Alpes-de-Haute-Provence"},
+{"code":"05","nom":"Hautes-Alpes"},{"code":"06","nom":"Alpes-Maritimes"},{"code":"07","nom":"Ardèche"},{"code":"08","nom":"Ardennes"},
+{"code":"09","nom":"Ariège"},{"code":"10","nom":"Aube"},{"code":"11","nom":"Aude"},{"code":"12","nom":"Aveyron"},
+{"code":"13","nom":"Bouches-du-Rhône"},{"code":"14","nom":"Calvados"},{"code":"15","nom":"Cantal"},{"code":"16","nom":"Charente"},
+{"code":"17","nom":"Charente-Maritime"},{"code":"18","nom":"Cher"},{"code":"19","nom":"Corrèze"},{"code":"21","nom":"Côte-d'Or"},
+{"code":"22","nom":"Côtes-d'Armor"},{"code":"23","nom":"Creuse"},{"code":"24","nom":"Dordogne"},{"code":"25","nom":"Doubs"},
+{"code":"26","nom":"Drôme"},{"code":"27","nom":"Eure"},{"code":"28","nom":"Eure-et-Loir"},{"code":"29","nom":"Finistère"},
+{"code":"2A","nom":"Corse-du-Sud"},{"code":"2B","nom":"Haute-Corse"},{"code":"30","nom":"Gard"},{"code":"31","nom":"Haute-Garonne"},
+{"code":"32","nom":"Gers"},{"code":"33","nom":"Gironde"},{"code":"34","nom":"Hérault"},{"code":"35","nom":"Ille-et-Vilaine"},
+{"code":"36","nom":"Indre"},{"code":"37","nom":"Indre-et-Loire"},{"code":"38","nom":"Isère"},{"code":"39","nom":"Jura"},
+{"code":"40","nom":"Landes"},{"code":"41","nom":"Loir-et-Cher"},{"code":"42","nom":"Loire"},{"code":"43","nom":"Haute-Loire"},
+{"code":"44","nom":"Loire-Atlantique"},{"code":"45","nom":"Loiret"},{"code":"46","nom":"Lot"},{"code":"47","nom":"Lot-et-Garonne"},
+{"code":"48","nom":"Lozère"},{"code":"49","nom":"Maine-et-Loire"},{"code":"50","nom":"Manche"},{"code":"51","nom":"Marne"},
+{"code":"52","nom":"Haute-Marne"},{"code":"53","nom":"Mayenne"},{"code":"54","nom":"Meurthe-et-Moselle"},{"code":"55","nom":"Meuse"},
+{"code":"56","nom":"Morbihan"},{"code":"57","nom":"Moselle"},{"code":"58","nom":"Nièvre"},{"code":"59","nom":"Nord"},
+{"code":"60","nom":"Oise"},{"code":"61","nom":"Orne"},{"code":"62","nom":"Pas-de-Calais"},{"code":"63","nom":"Puy-de-Dôme"},
+{"code":"64","nom":"Pyrénées-Atlantiques"},{"code":"65","nom":"Hautes-Pyrénées"},{"code":"66","nom":"Pyrénées-Orientales"},
+{"code":"67","nom":"Bas-Rhin"},{"code":"68","nom":"Haut-Rhin"},{"code":"69","nom":"Rhône"},{"code":"70","nom":"Haute-Saône"},
+{"code":"71","nom":"Saône-et-Loire"},{"code":"72","nom":"Sarthe"},{"code":"73","nom":"Savoie"},{"code":"74","nom":"Haute-Savoie"},
+{"code":"75","nom":"Paris"},{"code":"76","nom":"Seine-Maritime"},{"code":"77","nom":"Seine-et-Marne"},{"code":"78","nom":"Yvelines"},
+{"code":"79","nom":"Deux-Sèvres"},{"code":"80","nom":"Somme"},{"code":"81","nom":"Tarn"},{"code":"82","nom":"Tarn-et-Garonne"},
+{"code":"83","nom":"Var"},{"code":"84","nom":"Vaucluse"},{"code":"85","nom":"Vendée"},{"code":"86","nom":"Vienne"},
+{"code":"87","nom":"Haute-Vienne"},{"code":"88","nom":"Vosges"},{"code":"89","nom":"Yonne"},{"code":"90","nom":"Territoire de Belfort"},
+{"code":"91","nom":"Essonne"},{"code":"92","nom":"Hauts-de-Seine"},{"code":"93","nom":"Seine-Saint-Denis"},{"code":"94","nom":"Val-de-Marne"},
+{"code":"95","nom":"Val-d'Oise"},{"code":"971","nom":"Guadeloupe"},{"code":"972","nom":"Martinique"},{"code":"973","nom":"Guyane"},
+{"code":"974","nom":"La Réunion"},{"code":"976","nom":"Mayotte"}
+];
+
+  const normSansAccent = t => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+  /**
+   * Telecharge un ou plusieurs departements et les fusionne en un seul jeu de
+   * contours — l'equivalent de l'outil Recuperer-Communes.html, mais sans
+   * passer par un fichier.
+   */
+  async function chargerDepuisGouv(codes, surAvancement) {
+    const liste = (Array.isArray(codes) ? codes : [codes]).map(c => String(c).trim().toUpperCase());
+    if (!liste.length) throw new Error('aucun departement selectionne');
+    const features = [];
+    const echecs = [];
+    for (let i = 0; i < liste.length; i++) {
+      const d = liste[i];
+      if (surAvancement) surAvancement(i + 1, liste.length, d);
+      try {
+        const fc = JSON.parse(await telecharger(SOURCES.gouv.url(d)));
+        const lot = (fc.features || []).filter(f => f && f.geometry);
+        if (!lot.length) throw new Error('aucun contour renvoye');
+        features.push(...lot);
+      } catch (e) { echecs.push(d + ' (' + e.message + ')'); }
+    }
+    if (!features.length) throw new Error('rien de recupere' + (echecs.length ? ' — ' + echecs[0] : ''));
+    const nomSource = 'geo.api.gouv.fr — dep. ' + liste.join(', ');
+    const res = chargerFeatureCollection({ type: 'FeatureCollection', features }, nomSource);
+    await idbSet('communes', communes); await idbSet('meta', metaContours);
+    rafraichirCommunesDeLaVue(); renderContours();
+    return { nb: res.nb, echecs };
   }
 
   function communesDeLaVue() {
@@ -1124,7 +1241,7 @@
     try { const u = sdk.State.getUserInfo() || {};
           if (typeof u.rank === 'number') v.push(u.rank); } catch (e) { /* */ }
     let g = false, t = false;
-    try { const a = window.W.loginManager.user.attributes;
+    try { const a = hote.W.loginManager.user.attributes;
           if (typeof a.rank === 'number') v.push(a.rank);
           g = !!a.globalEditor; t = !!a.isStaff; } catch (e) { /* */ }
     return { n: v.length ? Math.min(...v) : -1, g, t, src: v.length };
@@ -1276,7 +1393,7 @@
   }
 
   function nbModifsEnAttente() {
-    try { return window.W.model.actionManager.getActions().length; } catch (e) { return null; }
+    try { return hote.W.model.actionManager.getActions().length; } catch (e) { return null; }
   }
 
   // ---------------------------------------------------------------------------
@@ -1319,6 +1436,12 @@
   .agn-btn.primary:disabled{background:#9e9e9e;border-color:#9e9e9e}
   .agn-sel{width:100%;padding:5px;font-size:12px;margin:3px 0;border:1px solid #bbb;border-radius:4px;background:#fff}
   .agn-note{font-size:10.5px;color:#78909c;margin:2px 0}
+  .agn-deps{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:0 6px;
+    max-height:120px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:4px;margin:4px 0;background:#fafafa}
+  .agn-dep{display:flex;align-items:center;gap:4px;font-size:11px;padding:1px 2px;cursor:pointer;border-radius:3px}
+  .agn-dep:hover{background:#eceff1}
+  .agn-dep code{color:#78909c;font-size:10px;min-width:20px}
+  .agn-dep span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .agn-poly{border:1px solid #ddd;border-radius:4px;padding:6px;margin:5px 0;background:#fafafa}
   .agn-poly input[type=text]{width:100%;box-sizing:border-box;margin:2px 0;padding:3px 5px;font-size:12px}
   .agn-row{display:flex;gap:6px;align-items:center;margin-top:4px}
@@ -1451,7 +1574,23 @@
           <div id="agn-resume" title="Afficher ou masquer les reglages">▾ Reglages</div>
           <div id="agn-reglages">
             <h3>1. Contours communaux</h3>
-            <button class="agn-btn" id="agn-contours">Charger un GeoJSON de communes</button>
+            <select class="agn-sel" id="agn-source">
+              <option value="gouv">Telecharger (geo.api.gouv.fr)</option>
+              <option value="fichier">Charger un fichier GeoJSON</option>
+              <option value="wazefrance">api.wazefrance.com</option>
+            </select>
+            <div id="agn-src-gouv">
+              <div class="agn-row">
+                <input type="search" id="agn-dep-filtre" placeholder="Filtrer un departement…" style="flex:1">
+                <span class="agn-note" id="agn-dep-n">0</span>
+              </div>
+              <div class="agn-deps" id="agn-deps"></div>
+              <button class="agn-btn" id="agn-dep-go" disabled>Telecharger et charger</button>
+            </div>
+            <div id="agn-src-fichier" style="display:none">
+              <button class="agn-btn" id="agn-contours">Choisir un fichier GeoJSON</button>
+            </div>
+            <div id="agn-src-wazefrance" style="display:none"><div class="agn-empty"></div></div>
             <input type="file" id="agn-fichier" accept=".geojson,.json" style="display:none">
             <div id="agn-statut-contours"></div>
 
@@ -1499,6 +1638,7 @@
 
     o.querySelector('#agn-contours').onclick = () => ui.inputFichier.click();
     ui.inputFichier.onchange = surFichierContours;
+    brancherSources(o);
     ui.btnTracer.onclick = tracerAgglo;
     ui.btnScan.onclick = scan;
     ui.selCommune.onchange = () => {
@@ -1747,6 +1887,60 @@
   // ---------------------------------------------------------------------------
   // Rendus
   // ---------------------------------------------------------------------------
+
+  /** Selecteur de source + liste des departements, integres a la fenetre. */
+  function brancherSources(o) {
+    const sel = o.querySelector('#agn-source');
+    const zones = { gouv: o.querySelector('#agn-src-gouv'),
+                    fichier: o.querySelector('#agn-src-fichier'),
+                    wazefrance: o.querySelector('#agn-src-wazefrance') };
+    o.querySelector('#agn-src-wazefrance').firstElementChild.textContent = SOURCES.wazefrance.indisponible;
+    sel.onchange = () => {
+      Object.entries(zones).forEach(([k, z]) => { z.style.display = k === sel.value ? '' : 'none'; });
+      ecrire('wmeAggloNaming.source', sel.value);
+    };
+    sel.value = lire('wmeAggloNaming.source', 'gouv');
+    sel.onchange();
+
+    const grille = o.querySelector('#agn-deps');
+    const compte = o.querySelector('#agn-dep-n');
+    const go = o.querySelector('#agn-dep-go');
+    const choisis = new Set();
+    const majCompte = () => {
+      compte.textContent = choisis.size ? choisis.size + ' coche(s)' : '0';
+      go.disabled = choisis.size === 0;
+    };
+    DEPARTEMENTS.forEach(d => {
+      const l = el('<label class="agn-dep" data-cle="' + esc(normSansAccent(d.code + ' ' + d.nom)) +
+        '"><input type="checkbox"><code>' + esc(d.code) + '</code><span>' + esc(d.nom) + '</span></label>');
+      l.querySelector('input').onchange = e => {
+        if (e.target.checked) choisis.add(d.code); else choisis.delete(d.code);
+        majCompte();
+      };
+      grille.appendChild(l);
+    });
+    majCompte();
+    o.querySelector('#agn-dep-filtre').oninput = e => {
+      const q = normSansAccent(e.target.value.trim());
+      grille.querySelectorAll('.agn-dep').forEach(l => {
+        l.style.display = !q || l.dataset.cle.includes(q) ? '' : 'none';
+      });
+    };
+    go.onclick = async () => {
+      go.disabled = true;
+      const codes = [...choisis].sort();
+      try {
+        const r = await chargerDepuisGouv(codes, (i, n, d) => {
+          ui.statutContours.innerHTML = '<div class="agn-stat">Telechargement ' + i + ' / ' + n +
+            ' — departement ' + esc(d) + '…</div>';
+        });
+        if (r.echecs.length) ui.statutContours.innerHTML +=
+          '<div class="agn-stat agn-alerte">Echec : ' + esc(r.echecs.join(' ; ')) + '</div>';
+      } catch (e) {
+        ui.statutContours.innerHTML = '<div class="agn-stat agn-alerte">' + esc(e.message) + '</div>';
+      } finally { go.disabled = choisis.size === 0; }
+    };
+  }
 
   function renderContours() {
     if (!metaContours) {
@@ -2051,10 +2245,10 @@
   // ---------------------------------------------------------------------------
 
   function waitForSdk() {
-    if (window.SDK_INITIALIZED) return window.SDK_INITIALIZED;
+    if (hote.SDK_INITIALIZED) return hote.SDK_INITIALIZED;
     return new Promise(resolve => {
-      const done = () => { clearInterval(timer); resolve(window.SDK_INITIALIZED); };
-      const timer = setInterval(() => { if (window.SDK_INITIALIZED) done(); }, 300);
+      const done = () => { clearInterval(timer); resolve(hote.SDK_INITIALIZED); };
+      const timer = setInterval(() => { if (hote.SDK_INITIALIZED) done(); }, 300);
       document.addEventListener('wme-initialized', done, { once: true });
       document.addEventListener('wme-ready', done, { once: true });
     });
@@ -2062,8 +2256,8 @@
 
   async function init() {
     await waitForSdk();
-    await window.SDK_INITIALIZED;
-    sdk = window.getWmeSdk({ scriptId: SCRIPT_ID, scriptName: SCRIPT_NAME });
+    await hote.SDK_INITIALIZED;
+    sdk = hote.getWmeSdk({ scriptId: SCRIPT_ID, scriptName: SCRIPT_NAME });
     // /!\ Ne PAS appeler sdk.Events.waitForWmeReady() : la methode existe mais
     // son appel leve une TypeError et fait echouer tout le demarrage.
 
