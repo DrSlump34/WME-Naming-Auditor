@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.83
+// @version      1.84
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.83';
+  const VERSION = '1.84';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
   // et durable, pas une boite de dialogue qu'on clique sans lire.
@@ -164,6 +164,181 @@
     controles: {},          // rempli d'apres le referentiel au demarrage
     couleurs: Object.fromEntries(Object.entries(FAMILLES).map(([k, v]) => [k, v.defaut]))
   };
+
+  // ===========================================================================
+  // PROGRESSION — toute attente se voit, et s'interrompt
+  //
+  // Regle posee par l'auteur (22/07) : des que l'editeur est susceptible
+  // d'attendre, il doit voir une barre. Une seule mecanique sert partout —
+  // analyse, import de contours, lecture de fichier, series de corrections —
+  // et la barre s'affiche AU PLUS PRES du bouton clique.
+  //
+  // ⚠️⚠️ Une barre ne suffit pas : la boucle d'analyse est SYNCHRONE (~25 s sur
+  // 1607 segments). Tant qu'elle tourne, le navigateur ne repeint pas — la
+  // barre resterait figee a 0 % puis sauterait a 100 %. Il faut donc RENDRE LA
+  // MAIN periodiquement (`respirer()`), ce qui donne du meme coup le point
+  // d'entree de l'annulation.
+  // ===========================================================================
+
+  /** Levee par un point de controle quand l'editeur a clique « Annuler ». */
+  class AnnulationDemandee extends Error {
+    constructor() { super('interrompu par l\'editeur'); this.annulation = true; }
+  }
+
+  /**
+   * Rend la main au navigateur, le temps qu'il repeigne.
+   * ⚠️ PAS de `setTimeout` : Chrome le bride a 1 s dans un onglet en
+   * arriere-plan (piege deja paye sur le balayage) — une boucle qui respire
+   * toutes les 120 ms y durerait des minutes.
+   * ⚠️ PAS de `requestAnimationFrame` non plus : lui est carrement SUSPENDU en
+   * arriere-plan, l'analyse s'arreterait net jusqu'au retour de l'editeur.
+   * Un message de `MessageChannel` echappe aux deux.
+   */
+  function rendreLaMain() {
+    return new Promise(resolve => {
+      const c = new MessageChannel();
+      c.port1.onmessage = () => { c.port1.close(); resolve(); };
+      c.port2.postMessage(0);
+    });
+  }
+
+  /** Barre en cours, pour qu'une fonction profonde puisse afficher sa sous-etape. */
+  let progEnCours = null;
+
+  const duree = ms => ms < 1000 ? '< 1 s'
+    : ms < 60000 ? Math.round(ms / 1000) + ' s'
+    : Math.floor(ms / 60000) + ' min ' + String(Math.round((ms % 60000) / 1000)).padStart(2, '0');
+
+  /**
+   * Cree une barre dans `cible` (element ou fonction qui le rend).
+   * `opts` : { titre, annulable }. Rend un objet de pilotage :
+   *   etape(libelle, total) — total absent/0 ⇒ barre indeterminee (attente reseau)
+   *   avance(n) / fixer(n) / total(n) / sous(texte)
+   *   await respirer()      — point de controle : repeint, et leve si annule
+   *   surAnnulation(fn)     — ce qu'il faut couper (requete en vol)
+   *   fin(html)             — retire la barre, en laissant un message eventuel
+   */
+  function progression(cible, opts) {
+    const o = opts || {};
+    const zone = () => (typeof cible === 'function' ? cible() : cible);
+    const t0 = Date.now();
+    const etat = { libelle: o.titre || 'Travail en cours…', sous: '', info: '', n: 0, total: 0 };
+    const abandons = [];
+    let annulee = false, racine = null, dernierRendu = 0, dernierSouffle = Date.now(), timer = null;
+
+    function construire() {
+      const c = zone();
+      if (!c) return null;
+      if (!racine || racine.parentNode !== c) {
+        c.innerHTML = '';
+        racine = el(`<div class="agn-prog">
+            <div class="agn-prog-t"><span class="agn-prog-lib"></span><span class="agn-prog-pct"></span></div>
+            <div class="agn-prog-bar"><i></i></div>
+            <div class="agn-prog-b"><span class="agn-prog-d"></span>
+              <button class="agn-prog-x" style="display:none">Annuler</button></div>
+            <div class="agn-prog-info"></div>
+            <div class="agn-prog-note"></div>
+          </div>`);
+        c.appendChild(racine);
+        if (o.annulable) {
+          const x = racine.querySelector('.agn-prog-x');
+          x.style.display = '';
+          x.onclick = () => api.annuler();
+        }
+      }
+      return racine;
+    }
+
+    function rendre(force) {
+      const t = Date.now();
+      if (!force && t - dernierRendu < 100) return;   // 10 rafraichissements/s suffisent
+      dernierRendu = t;
+      const r = construire();
+      if (!r) return;
+      const indet = !etat.total;
+      const pct = indet ? 0 : Math.min(100, Math.round(etat.n / etat.total * 100));
+      r.querySelector('.agn-prog-lib').textContent = etat.libelle + (etat.sous ? ' — ' + etat.sous : '');
+      r.querySelector('.agn-prog-pct').textContent = indet ? '' : pct + ' %';
+      const bar = r.querySelector('.agn-prog-bar');
+      bar.classList.toggle('agn-indet', indet);
+      bar.firstElementChild.style.width = indet ? '' : pct + '%';
+      // Estimation du reste : seulement une fois le regime etabli, sinon elle
+      // danse dans tous les sens et ne vaut rien.
+      const ecoule = t - t0;
+      let reste = '';
+      if (!indet && etat.n > 0 && ecoule > 2000 && pct >= 5 && pct < 100) {
+        reste = ' · reste ~' + duree(ecoule / etat.n * (etat.total - etat.n));
+      }
+      r.querySelector('.agn-prog-d').textContent =
+        (indet ? '' : etat.n + ' / ' + etat.total + ' · ') + duree(ecoule) + reste;
+      // ⚠️ Ce qui explique l'attente va SOUS la barre, pas dans le libelle : la
+      // ligne de titre est etroite (fenetre de 400 px) et tronquait le nom de
+      // la commune (vu en live sur « Balayage de Saint-Laurent-des-Arbres — la
+      // carte se deplace, ... »).
+      r.querySelector('.agn-prog-info').textContent = etat.info;
+      // Onglet en arriere-plan : Chrome ralentit tout. Le dire, plutot que de
+      // laisser croire a un plantage.
+      r.querySelector('.agn-prog-note').textContent = document.hidden
+        ? 'Onglet en arriere-plan : le navigateur ralentit le travail. Reviens sur cet onglet.' : '';
+    }
+
+    const api = {
+      etape(libelle, total) {
+        etat.libelle = libelle; etat.sous = ''; etat.info = ''; etat.n = 0; etat.total = total || 0;
+        rendre(true); return api;
+      },
+      sous(texte) { etat.sous = texte || ''; rendre(); return api; },
+      info(texte) { etat.info = texte || ''; rendre(); return api; },
+      avance(k) { etat.n += (k == null ? 1 : k); rendre(); return api; },
+      fixer(n) { etat.n = n; rendre(); return api; },
+      total(n) { etat.total = n || 0; rendre(); return api; },
+      get annulee() { return annulee; },
+      verifier() { if (annulee) throw new AnnulationDemandee(); },
+      /** Point de controle : repeint si on tient la main depuis trop longtemps,
+       *  et interrompt si l'editeur a clique Annuler. */
+      async respirer(forcer) {
+        if (annulee) throw new AnnulationDemandee();
+        const t = Date.now();
+        if (!forcer && t - dernierSouffle < 120) return;
+        dernierSouffle = t;
+        rendre(true);
+        await rendreLaMain();
+        if (annulee) throw new AnnulationDemandee();
+      },
+      annuler() {
+        if (annulee) return;
+        annulee = true;
+        // L'arret n'est pas instantane (mesure : ~2 s, le temps d'atteindre le
+        // point de controle et de mettre en forme le partiel). On le DIT, et on
+        // ferme le bouton : sans ca l'editeur reclique en croyant l'avoir rate.
+        etat.sous = 'interruption en cours…';
+        rendre(true);
+        if (racine) {
+          const x = racine.querySelector('.agn-prog-x');
+          if (x) { x.disabled = true; x.textContent = 'Interruption…'; }
+        }
+        abandons.forEach(f => { try { f(); } catch (e) { /* */ } });
+      },
+      surAnnulation(f) {
+        abandons.push(f);
+        if (annulee) { try { f(); } catch (e) { /* */ } }
+      },
+      fin(html) {
+        clearInterval(timer);
+        if (progEnCours === api) progEnCours = null;
+        const c = zone();
+        if (c) c.innerHTML = html || '';
+        racine = null;
+      },
+      get ecoule() { return Date.now() - t0; }
+    };
+
+    // Chrono vivant meme quand rien n'avance (attente reseau, barre indeterminee).
+    timer = setInterval(() => rendre(true), 500);
+    progEnCours = api;
+    rendre(true);
+    return api;
+  }
 
   // ---------------------------------------------------------------------------
   // Stockage
@@ -301,16 +476,29 @@
     if (metaContours && metaContours.nb && !confirm(
       'Des contours sont deja charges : ' + metaContours.nb + ' commune(s) (' + metaContours.nom + ').\n\n' +
       'Charger ce fichier va les REMPLACER.\n\nContinuer ?')) { ui.inputFichier.value = ''; return; }
-    ui.statutContours.innerHTML = '<div class="agn-stat">Lecture de ' + esc(f.name) + '…</div>';
+    ui.statutContours.innerHTML = '';
+    // Un departement pese ~3 Mo : la lecture se voit, et le `JSON.parse` qui
+    // suit tient la main une bonne seconde — on affiche l'etape AVANT, en
+    // laissant le navigateur repeindre, sinon la barre n'apparaitrait jamais.
+    const prog = progression(ui.progContours, { titre: 'Lecture de ' + f.name });
     const r = new FileReader();
+    r.onprogress = e => { if (e.lengthComputable) { prog.total(e.total); prog.fixer(e.loaded); } };
+    r.onerror = () => prog.fin('<div class="agn-stat agn-alerte">Fichier illisible.</div>');
     r.onload = async () => {
       try {
-        const res = chargerFeatureCollection(JSON.parse(r.result), f.name);
+        prog.etape('Analyse du fichier', 0);
+        await prog.respirer(true);
+        const fc = JSON.parse(r.result);
+        prog.etape('Mise en base des contours', 0);
+        await prog.respirer(true);
+        const res = chargerFeatureCollection(fc, f.name);
         await idbSet('communes', communes); await idbSet('meta', metaContours);
+        prog.fin();
         rafraichirCommunesDeLaVue(); renderContours();
         replierSection('contours', false);     // etape faite : on rend la place
         log(res.nb + ' commune(s) chargee(s)');
       } catch (e) {
+        prog.fin();
         ui.statutContours.innerHTML = '<div class="agn-stat agn-alerte">Fichier illisible : ' + esc(e.message) + '</div>';
       }
     };
@@ -326,16 +514,25 @@
   // WME, mais on le dit clairement plutot que d'echouer en silence.
   // ---------------------------------------------------------------------------
 
-  function telecharger(url) {
+  function telecharger(url, prog) {
     const gm = (typeof GM_xmlhttpRequest !== 'undefined') ? GM_xmlhttpRequest
              : (typeof GM !== 'undefined' && GM.xmlHttpRequest) ? GM.xmlHttpRequest : null;
     if (gm) {
       return new Promise((resolve, reject) => {
-        gm({ method: 'GET', url, timeout: 120000,
+        const req = gm({ method: 'GET', url, timeout: 120000,
           onload: r => (r.status >= 200 && r.status < 300)
             ? resolve(r.responseText) : reject(new Error('HTTP ' + r.status)),
           onerror: () => reject(new Error('appel refuse')),
           ontimeout: () => reject(new Error('delai depasse')) });
+        // ⚠️ Sans `abort()`, « Annuler » pendant un departement de 3 Mo
+        // attendrait quand meme la fin du telechargement : l'editeur croirait
+        // le bouton mort. Le handle de GM_xmlhttpRequest le fournit.
+        if (prog && req && typeof req.abort === 'function') {
+          prog.surAnnulation(() => {
+            try { req.abort(); } catch (e) { /* */ }
+            reject(new AnnulationDemandee());
+          });
+        }
       });
     }
     return fetch(url).then(r => {
@@ -401,22 +598,30 @@
    * contours — l'equivalent de l'outil Recuperer-Communes.html, mais sans
    * passer par un fichier.
    */
-  async function chargerDepuisGouv(codes, surAvancement) {
+  async function chargerDepuisGouv(codes, prog) {
     const liste = (Array.isArray(codes) ? codes : [codes]).map(c => String(c).trim().toUpperCase());
     if (!liste.length) throw new Error('aucun departement selectionne');
     const features = [];
     const echecs = [];
+    // ~3 Mo et ~10 s par departement : l'attente est reelle, et proportionnelle
+    // au nombre de cases cochees.
+    if (prog) prog.etape('Telechargement des contours', liste.length);
     for (let i = 0; i < liste.length; i++) {
       const d = liste[i];
-      if (surAvancement) surAvancement(i + 1, liste.length, d);
+      if (prog) { prog.verifier(); prog.fixer(i).sous('departement ' + d); await prog.respirer(true); }
       try {
-        const fc = JSON.parse(await telecharger(SOURCES.gouv.url(d)));
+        const fc = JSON.parse(await telecharger(SOURCES.gouv.url(d), prog));
         const lot = (fc.features || []).filter(f => f && f.geometry);
         if (!lot.length) throw new Error('aucun contour renvoye');
         features.push(...lot);
-      } catch (e) { echecs.push(d + ' (' + e.message + ')'); }
+      } catch (e) {
+        if (e && e.annulation) throw e;
+        echecs.push(d + ' (' + e.message + ')');
+      }
+      if (prog) prog.fixer(i + 1);
     }
     if (!features.length) throw new Error('rien de recupere' + (echecs.length ? ' — ' + echecs[0] : ''));
+    if (prog) { prog.etape('Mise en base des contours', 0).sous(features.length + ' communes'); await prog.respirer(true); }
     const nomSource = 'geo.api.gouv.fr — dep. ' + liste.join(', ');
     const res = chargerFeatureCollection({ type: 'FeatureCollection', features }, nomSource);
     await idbSet('communes', communes); await idbSet('meta', metaContours);
@@ -1371,6 +1576,10 @@
    */
   async function chargerNumeros(f) {
     if (hnsManipulables(f).length === (f.hns || []).length) return f.hns.length;
+    // Jusqu'a 4 s d'attente ici : si une barre tourne deja (serie de
+    // corrections), elle dit ce qu'on attend plutot que de sembler bloquee.
+    const p = progEnCours;
+    if (p) p.sous('chargement des numeros de rue…');
     try {
       if (f.centre) sdk.Map.setMapCenter({ lonLat: f.centre });
       const z = sdk.Map.getZoomLevel();
@@ -1378,8 +1587,10 @@
     } catch (e) { log('cadrage sur les numeros impossible', e); }
     for (let essai = 0; essai < 8; essai++) {
       await new Promise(r => setTimeout(r, 500));
+      if (p) p.verifier();          // 4 s d'attente : « Annuler » doit la rompre
       if (hnsManipulables(f).length) break;
     }
+    if (p) p.sous(f.libelle || '');
     return hnsManipulables(f).length;
   }
 
@@ -1482,16 +1693,31 @@
     return actives;
   }
 
-  async function analyserAdresses(segs, listeAgglos, stats, phases, venuesFournis) {
+  async function analyserAdresses(segs, listeAgglos, stats, phases, venuesFournis, prog) {
     const c = options.controles;
     const faireHn = (!phases || phases.hn) && c.hnHorsAgglo;
     const fairePoi = (!phases || phases.poi) && c.poiAgglo;
     if (!faireHn && !fairePoi) return;
     // Avant toute chose : rendre visibles les objets qu'on va commenter.
     stats.calquesActives = activerCalquesNumerotation();
-    if (stats.calquesActives.length) await new Promise(r => setTimeout(r, 1200));
+    if (stats.calquesActives.length) {
+      if (prog) prog.etape('Activation des calques de numerotation', 0);
+      await new Promise(r => setTimeout(r, 1200));
+    }
+    if (prog) prog.verifier();
     const dansAgglo = (lon, lat) => listeAgglos.some(a => pointInRings(lon, lat, [a.ring]));
     const dansCommune = (lon, lat) => pointInGeom(lon, lat, communeActive.geom);
+    // ⚠️⚠️ BUG DE LA v1.83, prouve en live le 22/07 : les segments lus par
+    // l'API ne sont PAS dans le modele de WME tant que la carte n'est pas
+    // dessus. Aller les rechercher par `getById` rendait donc `null`, et TOUS
+    // les reports de numeros perdaient leur nom de rue (« segment 150189381 »
+    // au lieu de « Chemin de la Coste ») — donc plus aucune conversion
+    // possible : 51 reports, 0 bouton ⚡. Le nommage est deja dans l'objet
+    // fourni (`_nam`, resolu par `adapterReponseApi`) : on s'en sert d'abord,
+    // et le modele ne sert plus que de repli (mode balayage).
+    const parId = new Map((segs || []).map(s => [String(s.id), s]));
+    const segmentDe = id => parId.get(String(id)) ||
+      (() => { try { return sdk.DataModel.Segments.getById({ segmentId: id }); } catch (e) { return null; } })();
 
     // --- 1. Numeros de rue hors agglomeration -------------------------------
     if (faireHn) {
@@ -1511,7 +1737,10 @@
         // pas la detection — voir `planDeCorrection`.
         const tousIds = segs.map(s => s.id);
         const hns = [];
+        const nbLots = Math.ceil(tousIds.length / TAILLE_LOT);
+        if (prog && nbLots > 1) prog.etape('Lecture des numeros de rue', nbLots);
         for (let i = 0; i < tousIds.length; i += TAILLE_LOT) {
+          if (prog) { prog.verifier(); if (nbLots > 1) prog.fixer(i / TAILLE_LOT + 1); }
           const lot = await sdk.DataModel.HouseNumbers.fetchHouseNumbers(
             { segmentIds: tousIds.slice(i, i + TAILLE_LOT) });
           hns.push(...lot);
@@ -1530,6 +1759,7 @@
           parSegment.get(hn.segmentId).push(hn);
         }
       } catch (e) {
+        if (e && e.annulation) throw e;      // une interruption n'est pas une panne
         log('lecture des numeros de rue impossible', e);
         stats.hnErreur = e.message || String(e);
       }
@@ -1540,7 +1770,7 @@
       // ensemble, et il devenait impossible d'en editer UN SEUL — or on
       // enchaine justement sur le point d'entree, POI par POI.
       for (const [segId, liste] of parSegment) {
-        const seg = sdk.DataModel.Segments.getById({ segmentId: segId });
+        const seg = segmentDe(segId);
         const nam = seg ? readNaming(seg) : null;
         const rue = rueDuPoi(nam);
         const nomVoie = nam ? fmt(nam.primary) : 'segment ' + segId;
@@ -1796,7 +2026,7 @@
    * la stabilisation du nombre de segments plutot qu'un delai fixe, qui serait
    * soit trop court sur une zone dense, soit du temps perdu ailleurs.
    */
-  async function attendreChargement() {
+  async function attendreChargement(prog) {
     // ⚠️ Plafond en TEMPS REEL, jamais en nombre d'iterations : Chrome BRIDE
     // les minuteries d'un onglet en arriere-plan (mesure : un `setTimeout(300)`
     // rend la main apres 965 ms, et ca se degrade au-dela de 5 min). Compter
@@ -1806,25 +2036,16 @@
     let precedent = -1, stable = 0;
     while (Date.now() < limite) {
       await new Promise(r => setTimeout(r, 300));
+      // ⚠️ MESURE : sans ce controle ici, « Annuler » mettait jusqu'a 9 s a
+      // prendre effet (7 s mesurees en live) — l'editeur croit son clic perdu
+      // et reclique. Une attente longue doit se rompre, pas seulement se
+      // signaler.
+      if (prog) prog.verifier();
       const n = sdk.DataModel.Segments.getAll().length;
       if (n === precedent) { stable++; if (stable >= 3 && n > 0) return n; }
       else { stable = 0; precedent = n; }
     }
     return precedent;
-  }
-
-  function majProgression(n, total, phase) {
-    if (!ui.stats) return;
-    const pct = Math.round(n / total * 100);
-    const titre = phase ? ' — ' + esc(phase) : '';
-    // Onglet en arriere-plan = minuteries bridees par Chrome, donc balayage au
-    // ralenti : autant le dire plutot que de laisser croire a un plantage.
-    const cache = document.hidden
-      ? '<br><b>Onglet en arriere-plan : le navigateur ralentit l\'analyse. ' +
-        'Reviens sur cet onglet pour qu\'elle avance normalement.</b>' : '';
-    ui.stats.innerHTML = `<div class="agn-stat">Balayage de ${esc(communeActive.nom)}${titre} —
-      secteur <b>${n}</b> / ${total} <span style="opacity:.7">(${pct} %)</span><br>
-      <span style="opacity:.7">La carte se deplace le temps de l'analyse, puis revient.</span>${cache}</div>`;
   }
 
   async function scan() {
@@ -1864,8 +2085,13 @@
      * balayage : les objets ne sont exploitables que TANT QU'ILS SONT CHARGES,
      * d'ou une analyse au fil de l'eau plutot qu'une collecte puis un calcul.
      */
-    function analyserSegments(segs) {
+    async function analyserSegments(segs, prog) {
     for (const seg of segs) {
+      // ⚠️ Point de controle OBLIGATOIRE : sans lui cette boucle tient la main
+      // ~25 s d'affilee (1607 segments), la barre reste figee et le bouton
+      // Annuler ne repond pas. `respirer()` ne rend la main que toutes les
+      // 120 ms — le surcout est negligeable devant le calcul.
+      if (prog) { await prog.respirer(); prog.avance(); }
       if (dejaVus.has(seg.id)) continue;
       dejaVus.add(seg.id);
       if (!options.sansAdresse && REF.typesSansAdresse.has(seg.roadType)) { skipped.sansAdresse++; continue; }
@@ -1983,6 +2209,12 @@
     const statsAdr = { hnLus: 0, hnHorsAgglo: 0, hnHorsCommune: 0, poiLus: 0,
                        poiAgglo: 0, hnErreur: null, calquesActives: [], hnVus: new Set(), poiVus: new Set() };
 
+    // Une analyse dure de quelques secondes (lecture directe) a plus d'une
+    // minute (balayage) : elle se montre, et elle s'interrompt.
+    const prog = progression(ui.prog, { annulable: true, titre: 'Analyse en cours…' });
+    let vueARendre = null;      // vue a restaurer si le balayage a deplace la carte
+    try {
+
     // ------------------------------------------------------------------
     // BALAYAGE DE LA COMMUNE
     // Le perimetre d'analyse, c'est le CONTOUR de la commune — pas la vue.
@@ -1997,44 +2229,61 @@
     sourceDonnees = { mode: null, raison: null };
     let donneesApi = null;
     try {
-      majProgression(0, 1, 'lecture directe');
+      prog.etape('Lecture de ' + communeActive.nom, 0);      // duree inconnue : barre glissante
       donneesApi = await chargerParApi(communeActive.bbox);
       sourceDonnees = { mode: 'api', raison: null };
     } catch (e) {
+      if (e && e.annulation) throw e;
       sourceDonnees = { mode: 'balayage', raison: e.message || String(e) };
       log('lecture directe indisponible, repli sur le balayage : ' + sourceDonnees.raison);
     }
+    prog.verifier();
 
     if (donneesApi) {
-      analyserSegments(donneesApi.segments);
+      prog.etape('Analyse des segments', donneesApi.segments.length);
+      await analyserSegments(donneesApi.segments, prog);
       // Les numeros ne sont pas dans cette reponse, mais `hasHNs` dit lesquels
       // en portent : on n'interroge que ceux-la.
       const porteurs = donneesApi.segments.filter(s => s.hasHNs);
       try {
         await analyserAdresses(porteurs.length ? porteurs : donneesApi.segments,
-                               listeAgglos, statsAdr, { hn: true, poi: false });
-      } catch (e) { log('analyse des numeros impossible', e); statsAdr.hnErreur = e.message || String(e); }
+                               listeAgglos, statsAdr, { hn: true, poi: false }, null, prog);
+      } catch (e) {
+        if (e && e.annulation) throw e;
+        log('analyse des numeros impossible', e); statsAdr.hnErreur = e.message || String(e);
+      }
       try {
-        await analyserAdresses([], listeAgglos, statsAdr, { hn: false, poi: true }, donneesApi.venues);
-      } catch (e) { log('analyse des POI impossible', e); }
+        await analyserAdresses([], listeAgglos, statsAdr, { hn: false, poi: true }, donneesApi.venues, prog);
+      } catch (e) { if (e && e.annulation) throw e; log('analyse des POI impossible', e); }
       statsAdr.segmentsLus = donneesApi.segments.length;
     } else {
     // --- REPLI : balayage de la commune, cellule par cellule ---------------
     const vueInitiale = { centre: sdk.Map.getMapCenter(), zoom: sdk.Map.getZoomLevel() };
+    // ⚠️ Le balayage DEPLACE la carte : quoi qu'il arrive — fin normale, echec
+    // ou annulation — l'editeur doit retrouver sa vue. D'ou le `finally`.
+    vueARendre = vueInitiale;
+    prog.etape('Preparation du balayage', 0);
     const cellules = await preparerBalayage();
+    prog.etape('Balayage de ' + communeActive.nom, cellules.length);
+    prog.info('La carte se deplace le temps du balayage, puis revient a sa vue.');
     let n = 0;
     for (const cel of cellules) {
       n++;
-      majProgression(n, cellules.length);
+      prog.fixer(n);
+      await prog.respirer(true);
       try { sdk.Map.setMapCenter({ lonLat: cel, zoomLevel: ZOOM_BALAYAGE }); }
       catch (e) { log('cadrage de cellule impossible', e); }
-      await attendreChargement();
+      await attendreChargement(prog);
+      prog.verifier();
       const segsCellule = sdk.DataModel.Segments.getAll();
-      analyserSegments(segsCellule);
+      await analyserSegments(segsCellule, null);   // une cellule est courte : pas de sous-barre
       // Phase 1 : segments et NUMEROS. Les numeros se lisent par appel serveur,
       // donc le zoom 16 suffit.
-      try { await analyserAdresses(segsCellule, listeAgglos, statsAdr, { hn: true, poi: false }); }
-      catch (e) { log('analyse des adresses impossible', e); statsAdr.hnErreur = e.message || String(e); }
+      try { await analyserAdresses(segsCellule, listeAgglos, statsAdr, { hn: true, poi: false }, null, prog); }
+      catch (e) {
+        if (e && e.annulation) throw e;
+        log('analyse des adresses impossible', e); statsAdr.hnErreur = e.message || String(e);
+      }
     }
 
     // ------------------------------------------------------------------
@@ -2047,31 +2296,53 @@
     // ------------------------------------------------------------------
     if (options.controles.poiAgglo && listeAgglos.length) {
       const cellulesPoi = cellulesPourAgglos(listeAgglos);
+      prog.etape('POI residentiels', cellulesPoi.length);
       let m = 0;
       for (const cel of cellulesPoi) {
         m++;
-        majProgression(m, cellulesPoi.length, 'POI residentiels');
+        prog.fixer(m);
+        await prog.respirer(true);
         try { sdk.Map.setMapCenter({ lonLat: cel, zoomLevel: ZOOM_POI }); } catch (e) { /* */ }
-        await attendreChargement();
-        try { await analyserAdresses([], listeAgglos, statsAdr, { hn: false, poi: true }); }
-        catch (e) { log('analyse des POI impossible', e); }
+        await attendreChargement(prog);
+        prog.verifier();
+        try { await analyserAdresses([], listeAgglos, statsAdr, { hn: false, poi: true }, null, prog); }
+        catch (e) { if (e && e.annulation) throw e; log('analyse des POI impossible', e); }
       }
       statsAdr.cellulesPoi = cellulesPoi.length;
     }
-    // On rend sa vue a l'editeur : le balayage est un moyen, pas une balade.
-    try {
-      sdk.Map.setMapCenter({ lonLat: vueInitiale.centre, zoomLevel: vueInitiale.zoom });
-    } catch (e) { /* */ }
     statsAdr.cellules = cellules.length;
     }   // fin du repli par balayage
 
+    prog.etape('Mise en forme des resultats', 0);
+    await prog.respirer(true);
     const nbSegmentsEnEcart = findings.length;
     findings = regrouperFindings(findings);
     lastScan = { analyses: zones.agglo + zones.hors + zones.cheval + zones.limCom, skipped, zones,
                  ecarts: nbSegmentsEnEcart, lignes: findings.length, nbAgglos: listeAgglos.length,
-                 adr: statsAdr };
+                 adr: statsAdr, interrompu: false };
     renderResults();
     redrawEcarts(null);
+    } catch (e) {
+      // ⚠️ Une annulation n'est pas une panne : on GARDE ce qui a ete trouve
+      // avant l'arret, en le disant clairement. Jeter le travail deja fait
+      // serait la pire reponse a un clic sur « Annuler ».
+      if (!(e && e.annulation)) throw e;
+      const nbSegmentsEnEcart = findings.length;
+      findings = regrouperFindings(findings);
+      lastScan = { analyses: zones.agglo + zones.hors + zones.cheval + zones.limCom, skipped, zones,
+                   ecarts: nbSegmentsEnEcart, lignes: findings.length, nbAgglos: listeAgglos.length,
+                   adr: statsAdr, interrompu: true };
+      renderResults();
+      redrawEcarts(null);
+    } finally {
+      // Le balayage a pu deplacer la carte : elle revient chez l'editeur quoi
+      // qu'il arrive — fin normale, echec ou annulation.
+      if (vueARendre) {
+        try { sdk.Map.setMapCenter({ lonLat: vueARendre.centre, zoomLevel: vueARendre.zoom }); }
+        catch (e) { /* */ }
+      }
+      prog.fin();
+    }
   }
 
   // ===========================================================================
@@ -2595,6 +2866,32 @@
   .agn-mini{border:none;background:none;cursor:pointer;font-size:12px;padding:2px 4px;opacity:.7}
   .agn-mini:hover{opacity:1}
   .agn-stat{background:#eceff1;border-radius:4px;padding:6px 8px;margin:6px 0;font-size:11px}
+  /* Progression. Bleu franc : c'est du travail en cours, ni une alerte (orange)
+     ni un resultat (vert). Les chiffres en chasse fixe pour qu'ils ne dansent
+     pas d'un rafraichissement a l'autre. */
+  .agn-prog{background:#e3f2fd;border:1px solid #90caf9;border-radius:4px;padding:6px 8px;
+    margin:6px 0;font-size:11px;color:#0d47a1}
+  .agn-prog-t{display:flex;align-items:center;gap:6px}
+  .agn-prog-lib{flex:1 1 auto;min-width:0;font-weight:600;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  .agn-prog-pct{flex:0 0 auto;font-variant-numeric:tabular-nums}
+  .agn-prog-bar{height:6px;background:#bbdefb;border-radius:3px;overflow:hidden;margin:4px 0 3px}
+  .agn-prog-bar > i{display:block;height:100%;width:0;background:#1e88e5;border-radius:3px;
+    transition:width .15s linear}
+  /* Attente de duree inconnue (appel reseau, lecture de fichier) : la barre
+     glisse au lieu d'afficher un pourcentage invente. */
+  .agn-prog-bar.agn-indet > i{width:35%;animation:agn-glisse 1.1s ease-in-out infinite}
+  @keyframes agn-glisse{0%{margin-left:-35%}100%{margin-left:100%}}
+  .agn-prog-b{display:flex;align-items:center;gap:6px}
+  .agn-prog-d{flex:1 1 auto;opacity:.8;font-variant-numeric:tabular-nums}
+  .agn-prog-x{flex:0 0 auto;border:1px solid #ef9a9a;background:#fff;color:#c62828;border-radius:3px;
+    cursor:pointer;font-size:10.5px;padding:1px 7px}
+  .agn-prog-x:hover:not(:disabled){background:#ffebee}
+  .agn-prog-x:disabled{opacity:.6;cursor:default}
+  .agn-prog-info{opacity:.75;margin-top:2px}
+  .agn-prog-info:empty{display:none}
+  .agn-prog-note{color:#a34a00;font-weight:600;margin-top:3px}
+  .agn-prog-note:empty{display:none}
   .agn-alerte{background:#fff3e0;border:1px solid #ffb74d;color:#a34a00}
   .agn-ok{background:#e8f5e9;border:1px solid #a5d6a7;color:#2e7d32}
   .agn-item{border:1px solid #e0e0e0;border-left-width:4px;border-radius:3px;padding:5px 7px;margin:4px 0;
@@ -2742,6 +3039,9 @@
         </div>
         <div id="agn-corps">
           <button class="agn-btn primary" id="agn-scan" disabled>Analyser la commune</button>
+          <!-- Conteneur PROPRE a la progression : agn-stats est reecrit par
+               renderResults(), une barre qui y vivrait serait effacee. -->
+          <div id="agn-prog"></div>
           <div id="agn-stats"></div>
           <div id="agn-fix"></div>
           <div id="agn-results"></div>
@@ -2771,6 +3071,7 @@
               </div>
               <div id="agn-src-wazefrance" style="display:none"><div class="agn-empty"></div></div>
               <input type="file" id="agn-fichier" accept=".geojson,.json" style="display:none">
+              <div id="agn-prog-contours"></div>
               <div id="agn-statut-contours"></div>
             </div>
           </div>
@@ -2798,6 +3099,8 @@
 
     ui.overlay = o;
     ui.statutContours = o.querySelector('#agn-statut-contours');
+    ui.progContours = o.querySelector('#agn-prog-contours');
+    ui.prog = o.querySelector('#agn-prog');
     ui.inputFichier = o.querySelector('#agn-fichier');
     ui.selCommune = o.querySelector('#agn-commune');
     ui.nbCommunes = o.querySelector('#agn-nb-communes');
@@ -3273,15 +3576,18 @@
     go.onclick = async () => {
       go.disabled = true;
       const codes = [...choisis].sort();
+      const prog = progression(ui.progContours, { annulable: true, titre: 'Telechargement…' });
       try {
-        const r = await chargerDepuisGouv(codes, (i, n, d) => {
-          ui.statutContours.innerHTML = '<div class="agn-stat">Telechargement ' + i + ' / ' + n +
-            ' — departement ' + esc(d) + '…</div>';
-        });
+        const r = await chargerDepuisGouv(codes, prog);
+        prog.fin();
         if (r.echecs.length) ui.statutContours.innerHTML +=
           '<div class="agn-stat agn-alerte">Echec : ' + esc(r.echecs.join(' ; ')) + '</div>';
       } catch (e) {
-        ui.statutContours.innerHTML = '<div class="agn-stat agn-alerte">' + esc(e.message) + '</div>';
+        prog.fin();
+        // Une interruption voulue n'est pas un echec : on ne la peint pas en orange.
+        ui.statutContours.innerHTML = e && e.annulation
+          ? '<div class="agn-stat">Telechargement interrompu — rien n\'a ete modifie.</div>'
+          : '<div class="agn-stat agn-alerte">' + esc(e.message) + '</div>';
       } finally { go.disabled = choisis.size === 0; }
     };
   }
@@ -3392,18 +3698,37 @@
     // Une conversion d'adresses compte des NUMEROS, pas des segments.
     const unite = liste.every(f => f.adresse) ? 'numero' : 'segment';
     const echecs = [];
-    for (let i = 0; i < liste.length; i++) {
-      const f = liste[i];
-      const res = await appliquerCorrection(f);
-      if (res.ok) {
-        ok++; segments += res.nb; bloques += (res.bloques || 0);
-        // Une conversion partielle laisse du travail : on ne barre pas la ligne.
-        if (res.partiel) echecs.push(f.libelle + ' — ' + res.avertissement);
-        else if (noeuds && noeuds[i]) marquerTraite(f, noeuds[i], true);
-      } else echecs.push(f.libelle + ' — ' + res.motif);
+    // Une conversion HN→POI cadre la carte et attend le chargement des numeros :
+    // compter ~1 a 2 s par numero. Sur un groupe, l'editeur attend pour de bon.
+    const prog = progression(ui.prog, { annulable: liste.length > 1, titre: 'Correction en cours…' });
+    let interrompu = false, traites = 0;
+    try {
+      prog.etape('Correction', liste.length);
+      for (let i = 0; i < liste.length; i++) {
+        const f = liste[i];
+        prog.fixer(i).sous(f.libelle);
+        await prog.respirer(true);
+        const res = await appliquerCorrection(f);
+        if (res.ok) {
+          ok++; segments += res.nb; bloques += (res.bloques || 0);
+          // Une conversion partielle laisse du travail : on ne barre pas la ligne.
+          if (res.partiel) echecs.push(f.libelle + ' — ' + res.avertissement);
+          else if (noeuds && noeuds[i]) marquerTraite(f, noeuds[i], true);
+        } else echecs.push(f.libelle + ' — ' + res.motif);
+        traites++;
+        prog.fixer(i + 1);
+      }
+    } catch (e) {
+      // ⚠️ Ce qui a deja ete applique RESTE applique : on s'arrete entre deux
+      // corrections, jamais au milieu de l'une d'elles (la regle « tout ou
+      // rien » d'une conversion tient a l'interieur d'`appliquerCorrection`).
+      if (!(e && e.annulation)) { prog.fin(); throw e; }
+      interrompu = true;
+      echecs.push('serie interrompue : ' + (liste.length - traites) + ' report(s) non traite(s)');
     }
+    prog.fin();
     redrawEcarts(null);
-    majBandeauCorrection(ok, segments, echecs, bloques, unite);
+    majBandeauCorrection(ok, segments, echecs, bloques, unite, interrompu);
     // Demande de l'auteur : apres une conversion, c'est le POI qui doit etre
     // selectionne, pas le segment d'origine — on enchaine en general sur son
     // point d'entree.
@@ -3414,12 +3739,13 @@
     }
   }
 
-  function majBandeauCorrection(ok, segments, echecs, bloques, unite) {
+  function majBandeauCorrection(ok, segments, echecs, bloques, unite, interrompu) {
     if (!ui.bandeauFix) return;
     const enAttente = nbModifsEnAttente();
     if (!ok && (!echecs || !echecs.length)) { ui.bandeauFix.innerHTML = ''; return; }
     ui.bandeauFix.innerHTML =
       `<div class="agn-stat ${echecs.length ? 'agn-alerte' : 'agn-ok'}">
+        ${interrompu ? '<b>⚠ Serie interrompue.</b> ' : ''}
         <b>${ok}</b> correction(s) appliquee(s) sur <b>${segments}</b> ${(unite || 'segment')}(s).
         ${bloques ? '<b>' + bloques + '</b> segment(s) ignore(s), verrouille(s) au-dessus de ton niveau. ' : ''}
         ${enAttente != null ? '<b>' + enAttente + '</b> modification(s) en attente dans WME — ' : ''}
@@ -3573,6 +3899,18 @@
    * tombee, il FAUT que ca se voie : le repli marche, mais il est bien plus
    * lent et il deplace la carte (demande de l'auteur, 22/07).
    */
+  /**
+   * Une analyse interrompue rend quand meme ses trouvailles — mais il faut dire
+   * qu'elles sont PARTIELLES, sinon « aucun ecart plus loin » se lit comme
+   * « plus rien a corriger ».
+   */
+  function bandeauInterrompu() {
+    if (!lastScan || !lastScan.interrompu) return '';
+    return `<div class="agn-stat agn-alerte">
+      <b>⚠ Analyse interrompue.</b> Les reports ci-dessous sont ceux trouves
+      avant l'arret : la commune n'a pas ete parcourue en entier.</div>`;
+  }
+
   function bandeauSource() {
     if (!sourceDonnees || sourceDonnees.mode !== 'balayage') return '';
     return `<div class="agn-stat agn-alerte">
@@ -3602,7 +3940,7 @@
           z.special ? ' · ' + z.special + ' voie(s) a regle propre' : ''}${
           z.giratoire ? ' · ' + z.giratoire + ' giratoire(s)' : ''}.<br>
         Ignores : ${s.skipped.horsCommune} hors commune, ${s.skipped.sansAdresse} sans adressage, ${s.skipped.horsRegle} regles propres.
-      </div>${bandeauSource()}`
+      </div>${bandeauInterrompu()}${bandeauSource()}`
         : `<div class="agn-stat">
         ${s.adr ? '<b>' + s.adr.hnLus + '</b> numero(s) lu(s) a ' + esc(communeActive.nom) +
             ', dont <b>' + s.adr.hnHorsAgglo + '</b> hors agglomeration.<br><b>' +
@@ -3612,7 +3950,7 @@
               ? '<br><span style="opacity:.8">La conversion cadre elle-meme sur les numeros : ' +
                 'WME ne les charge qu\'a partir du zoom ' + ZOOM_NUMEROS + '.</span>' : '')
           : 'Analyse non lancee.'}
-      </div>${bandeauSource()}`;
+      </div>${bandeauInterrompu()}${bandeauSource()}`;
     }
     ui.results.innerHTML = '';
     indexCourant = -1;
