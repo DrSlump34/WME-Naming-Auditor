@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.91
+// @version      1.92
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.91';
+  const VERSION = '1.92';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
   // et durable, pas une boite de dialogue qu'on clique sans lire.
@@ -1249,7 +1249,11 @@
       signText: (street && street.signText) ? street.signText : '',
       signType: (street && street.signType != null) ? street.signType : null
     });
-    return { primary: one(addr.street, addr.city), alts: (addr.altStreets || []).map(a => one(a.street, a.city)) };
+    return { primary: one(addr.street, addr.city),
+             // ⚠️ Id de la Street PRINCIPALE : le cartouche vit dessus, et
+             // c'est par lui qu'on regroupe les segments d'une meme voie.
+             primaryId: (addr.street && addr.street.id != null) ? addr.street.id : null,
+             alts: (addr.altStreets || []).map(a => one(a.street, a.city)) };
   }
 
   const isRoute = e => !!e.name && (RE_ROUTE.test(e.name.trim()) || (!!e.signText && e.signText.trim() === e.name.trim()));
@@ -1369,11 +1373,13 @@
           apres: 'poser le cartouche ' + a.name + ' sur ce nom alternatif' });
       }
     }
-    const numAlt = nam.alts.find(estNumero);
-    if (numAlt && nam.primary.name && !estNumero(nam.primary) && sansCartouche(nam.primary)) {
-      ecarts.push({ champ: 'cartouche (principal)', avant: nam.primary.name + ' sans cartouche',
-        apres: 'porte peut-etre le cartouche ' + numAlt.name + ' — a verifier sur le terrain' });
-    }
+    // ⚠️ LE CARTOUCHE SUR LE NOM PRINCIPAL N'EST PLUS JUGE ICI, segment par
+    // segment (v1.92). Il vit sur la Street, PARTAGEE par toute la voie : le
+    // poser depuis un seul segment le colle a tous. Il ne peut donc etre un
+    // ecart que si TOUTE la voie est concernee — regle de l'auteur, 23/07 :
+    // « une avenue peut n'avoir qu'une partie qui soit une Dxx ; si un seul de
+    // ses segments n'a pas le Dxx-cartouche en alt, on n'ajoute rien ». Ce
+    // jugement de GROUPE se fait dans `cartouchesPrincipal()`, apres l'analyse.
     return ecarts;
   }
 
@@ -2138,6 +2144,7 @@
       // ferme se refait de toute facon a l'ecriture, sur l'objet charge.
       editable: rang < 0 ? true : (s.lockRank || 0) <= rang,
       _nam: { primary: entree(s.primaryStreetID),
+              primaryId: s.primaryStreetID != null ? s.primaryStreetID : null,
               alts: (s.streetIDs || []).filter(x => x).map(entree) }
     }));
     const venues = (j.venues && j.venues.objects || []).map(v => ({
@@ -2286,6 +2293,10 @@
     const zones = { agglo: 0, hors: 0, cheval: 0, limCom: 0, limitrophe: 0, cartouche: 0, special: 0, giratoire: 0 };
     const c = options.controles;
     const dejaVus = new Set();     // un segment vu dans deux cellules ne compte qu'une fois
+    // Cartouche sur le nom principal : jugement de VOIE, pas de segment. On
+    // recense chaque voie (par id de Street principale) et l'etat de tous ses
+    // segments, puis on tranche apres l'analyse (voir cartouchesPrincipal).
+    const cartInfo = new Map();
 
     /**
      * Analyse les segments d'une cellule. Appelee une fois par cellule du
@@ -2368,6 +2379,11 @@
         continue;
       }
 
+      // Recensement pour le cartouche-sur-principal : tout segment de voie
+      // ordinaire (ni giratoire, ni rail/bretelle/rocade) dont le principal est
+      // un vrai nom de rue. On note quels cartouches de route il porte en alt.
+      collecterCartouche(seg, nam, base);
+
       // Zone grise sur la limite COMMUNALE : il faut couper avant de nommer,
       // le bon nommage depend de l'endroit de la coupe.
       if (loc.partCommune < haut) {
@@ -2427,6 +2443,68 @@
         doute: notes.length ? notes.join(' ; ') : null }));
     }
     }   // fin analyserSegments
+
+    /**
+     * Recense un segment de voie ordinaire pour le jugement cartouche-principal.
+     * On retient, PAR VOIE (id de Street principale) : son nom, sa ville, si le
+     * principal porte deja un cartouche, et — pour chaque segment — les
+     * cartouches de route qu'il porte en alternatif (Dxx/Nxx/Cxx AVEC cartouche,
+     * JAMAIS les autoroutes : « ca vaut pour tout sauf les Axxx », auteur 23/07).
+     */
+    function collecterCartouche(seg, nam, base) {
+      const p = nam.primary;
+      if (!p.name || estNumero(p) || nam.primaryId == null) return;   // principal = vrai nom de rue
+      const sid = nam.primaryId;
+      let g = cartInfo.get(sid);
+      if (!g) { g = { streetId: sid, name: p.name, city: p.cityName,
+                      dejaCartouche: !sansCartouche(p), segs: [] }; cartInfo.set(sid, g); }
+      const shields = nam.alts
+        .filter(a => estNumero(a) && !RE_AUTOROUTE.test((a.name || '').trim()) && !sansCartouche(a))
+        .map(a => ({ key: a.signText + '|' + a.signType, signText: a.signText,
+                     signType: a.signType, name: a.name }));
+      g.segs.push({ segId: seg.id, geom: seg.geometry, centre: base.centre,
+                    editable: base.editable, roadType: seg.roadType, shields });
+    }
+
+    /**
+     * Apres l'analyse : pour chaque voie recensee, le cartouche du numero de
+     * route peut passer sur le nom principal SEULEMENT si TOUS ses segments
+     * portent le MEME Dxx-cartouche en alternatif. Si un seul ne l'a pas, la
+     * voie n'est que partiellement cette route : on n'ajoute rien (sinon le
+     * cartouche, pose sur la Street partagee, deborderait sur les segments qui
+     * ne sont pas la route). Rend des reports deja groupes (un par voie).
+     */
+    function cartouchesPrincipal() {
+      const out = [];
+      for (const g of cartInfo.values()) {
+        if (g.dejaCartouche || !g.segs.length) continue;
+        // Regle de l'auteur : au moins un segment sans Dxx-cartouche ⇒ rien.
+        if (g.segs.some(s => !s.shields.length)) continue;
+        // Cartouche commun a TOUS les segments (intersection), et unique.
+        let inter = g.segs[0].shields.map(x => x.key);
+        for (const s of g.segs.slice(1)) inter = inter.filter(k => s.shields.some(x => x.key === k));
+        if (new Set(inter).size !== 1) continue;      // aucun commun, ou plusieurs ⇒ on s'abstient
+        const sh = g.segs[0].shields.find(x => x.key === inter[0]);
+        const editables = g.segs.map(s => s.editable);
+        out.push({
+          cas: 'CART', seulementCartouche: true, roadType: g.segs[0].roadType,
+          libelle: fmt({ name: g.name, cityName: g.city }),
+          segId: g.segs[0].segId, segIds: g.segs.map(s => s.segId),
+          geoms: g.segs.map(s => s.geom), geom: g.segs[0].geom,
+          centres: g.segs.map(s => s.centre), centre: g.segs[0].centre,
+          editables, editable: editables.some(Boolean),
+          nb: g.segs.length, disperse: false,
+          verrouilles: editables.filter(x => x === false).length,
+          cartouche: { streetId: g.streetId, signText: sh.signText, signType: sh.signType },
+          ecarts: [{ champ: 'cartouche (principal)',
+                     avant: g.name + ' sans cartouche',
+                     apres: 'poser le cartouche ' + sh.signText + ' sur le nom principal' }],
+          doute: 's\'applique a toute la voie « ' + g.name + ' » (' + g.segs.length +
+                 ' segment' + (g.segs.length > 1 ? 's' : '') + ') : le cartouche est porte par la rue, pas par un segment'
+        });
+      }
+      return out;
+    }
 
     // Les adresses sont analysees a part : lecture serveur, et objets ponctuels.
     const statsAdr = { hnLus: 0, hnHorsAgglo: 0, hnHorsCommune: 0, poiLus: 0,
@@ -2540,6 +2618,12 @@
     await prog.respirer(true);
     const nbSegmentsEnEcart = findings.length;
     findings = regrouperFindings(findings);
+    // Les reports cartouche-principal sont DEJA groupes par voie : on les ajoute
+    // apres `regrouperFindings`, qui ne sait fusionner que des reports d'un
+    // seul segment.
+    const cartFindings = cartouchesPrincipal();
+    zones.cartouche += cartFindings.length;
+    findings = findings.concat(cartFindings);
     lastScan = { analyses: zones.agglo + zones.hors + zones.cheval + zones.limCom, skipped, zones,
                  ecarts: nbSegmentsEnEcart, lignes: findings.length, nbAgglos: listeAgglos.length,
                  adr: statsAdr, interrompu: false };
@@ -2552,6 +2636,9 @@
       if (!(e && e.annulation)) throw e;
       const nbSegmentsEnEcart = findings.length;
       findings = regrouperFindings(findings);
+      // Interrompue : le recensement cartouche est forcement partiel (tous les
+      // segments d'une voie n'ont pas ete vus), donc on ne conclut PAS dessus —
+      // une voie jugee « eligible » sur un echantillon serait un faux positif.
       lastScan = { analyses: zones.agglo + zones.hors + zones.cheval + zones.limCom, skipped, zones,
                    ecarts: nbSegmentsEnEcart, lignes: findings.length, nbAgglos: listeAgglos.length,
                    adr: statsAdr, interrompu: true };
@@ -2688,6 +2775,28 @@
   }
 
   /**
+   * Ecrit un cartouche (signText + signType) sur une Street.
+   * ⚠️ Le SDK ne sait PAS le faire : `Streets.updateStreet({signText})` repond
+   * OK sans rien ecrire (meme piege silencieux que `updateAddress` avec un
+   * attribut inconnu — verifie le 23/07). On passe donc par l'action INTERNE
+   * `UpdateObject`, la meme couche que celle ou le script lit deja (`hote.W`).
+   * L'action est annulable ; `save()` reste, comme toujours, a la main de
+   * l'editeur. La Street etant PARTAGEE, l'ecriture vaut pour toute la voie —
+   * c'est justement l'effet voulu, et pourquoi l'eligibilite est jugee sur la
+   * voie entiere en amont.
+   */
+  function ecrireCartouche(streetId, signText, signType) {
+    try {
+      const UpdateObject = hote.require && hote.require('Waze/Action/UpdateObject');
+      if (!UpdateObject) throw new Error('action UpdateObject indisponible');
+      const st = hote.W.model.streets.getObjectById(streetId);
+      if (!st) return false;                    // rue pas encore chargee
+      hote.W.model.actionManager.add(new UpdateObject(st, { signText: signText, signType: signType }));
+      return true;
+    } catch (e) { log('ecriture du cartouche impossible', e); return false; }
+  }
+
+  /**
    * Ce qu'on sait appliquer d'un report. Rend null si rien n'est automatisable :
    * le bouton n'apparait alors pas, plutot que de promettre une correction
    * qu'on ne saurait pas faire.
@@ -2710,6 +2819,12 @@
       // ⚠️ On ne regarde PAS ici si les numeros sont deja dans le modele : ca
       // depend du zoom courant, pas du report. La correction les chargera.
       return [{ type: 'hn2poi', nb: f.hns.length, rue: f.rueCible }];
+    }
+    // --- Cartouche sur le nom principal (voie entiere, deja jugee eligible) ---
+    if (f.cartouche) {
+      if (f.verrouilles === f.nb) return null;   // toute la voie hors de portee
+      return [{ type: 'cartouchePrincipal', streetId: f.cartouche.streetId,
+                signText: f.cartouche.signText, signType: f.cartouche.signType }];
     }
     if (!f.cible) return null;
     const ops = [];
@@ -3072,7 +3187,13 @@
     const bloques = tous.length - ids.length;
     try {
       for (const op of plan) {
-        if (op.type === 'principal') {
+        if (op.type === 'cartouchePrincipal') {
+          // Cartouche pose sur la Street principale (voie entiere). Ecriture par
+          // l'action interne : le SDK ne sait pas le faire.
+          if (!ecrireCartouche(op.streetId, op.signText, op.signType)) {
+            throw new Error('cartouche : la rue n\'est pas encore chargee — reessaie');
+          }
+        } else if (op.type === 'principal') {
           // Nom principal : ecriture BRUTE (SDK v2.359). Plus besoin de resoudre
           // ni de creer City/Street — et « sans nom » / « sans ville » s'ecrivent
           // avec une chaine vide, au lieu de retrouver les objets vides.
