@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.80
+// @version      1.81
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.80';
+  const VERSION = '1.81';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
   // et durable, pas une boite de dialogue qu'on clique sans lire.
@@ -687,6 +687,9 @@
     bulle.style.top = Math.max(4, y) + 'px';
   }
 
+  /** Identifiant stable d'un report d'adressage : le numero, ou le POI. */
+  const cleAdresse = f => f.hnId || f.venueId || f.segId;
+
   /** Repeint les ecarts, en mettant en avant celui qui est courant. Les ecarts
    *  de nommage sont des lignes, ceux d'adressage des points : deux calques. */
   function redrawEcarts(idActif) {
@@ -698,23 +701,31 @@
     // On ne peint que l'onglet courant : sinon la carte montre des ecarts que
     // la liste n'affiche pas, et les deux ne se lisent plus ensemble.
     const vivants = findingsVisibles().filter(f => f.geom && !f.traite);  // un ecart traite ne se surligne plus
+    // ⚠️ `idActif` est l'INDEX du report (c'est ce que passe `allerA`), pas un
+    // identifiant de segment : le comparer a `f.segId` ne matchait jamais, donc
+    // l'element courant n'etait jamais mis en avant. Meme faute que l'ancienne
+    // infobulle. On resout l'objet une fois, et on compare par reference.
+    const actif = (typeof idActif === 'number' && idActif >= 0) ? findings[idActif] : null;
     try {
       const lignes = vivants.filter(f => !f.adresse).map(f => ({
         id: 'ec-' + f.segId, type: 'Feature', geometry: f.geom,
         properties: {
           couleur: options.couleurs[familleDe(f)] || '#888888',
-          epaisseur: f.segId === idActif ? 22 : 14
+          epaisseur: f === actif ? 22 : 14
         }
       }));
       if (lignes.length) sdk.Map.addFeaturesToLayer({ layerName: LAYER_ECARTS, features: lignes });
     } catch (e) { log('surlignage impossible', e); }
     try {
+      // ⚠️ Cle = hnId (ou l'id du POI) : plusieurs numeros partagent un meme
+      // segId, un id de feature base sur le segment les ferait se recouvrir.
       const points = vivants.filter(f => f.adresse).map(f => ({
-        id: 'ad-' + f.segId, type: 'Feature', geometry: f.geom,
+        id: 'ad-' + cleAdresse(f), type: 'Feature', geometry: f.geom,
         properties: {
           couleur: options.couleurs.adresse || '#00e5ff',
-          rayon: f.segId === idActif ? 11 : 7,
-          label: f.nbPoints > 1 ? String(f.nbPoints) : ''
+          rayon: f === actif ? 11 : 7,
+          // Un report = un numero : on affiche le numero lui-meme sur la carte.
+          label: (f.hns && f.hns.length === 1) ? String(f.hns[0].number) : ''
         }
       }));
       if (points.length) sdk.Map.addFeaturesToLayer({ layerName: LAYER_ADRESSES, features: points });
@@ -1442,9 +1453,36 @@
    * asynchrone (un aller-retour serveur) et ne concerne pas la geometrie des
    * voies mais des points.
    */
+  /**
+   * Calques necessaires a un travail sur la numerotation : sans eux l'editeur
+   * ne VOIT ni les numeros ni les POI residentiels dont on lui parle (demande
+   * de l'auteur, 22/07 — « la premiere chose a faire »).
+   * ⚠️ On CLIQUE la case plutot que de forcer la propriete : dans WME seul le
+   * clic sur l'item du selecteur de calques declenche le chargement des
+   * donnees (deja vu sur les fermetures, cf. [[wct-closures-toolkit]]).
+   * ⚠️ Le groupe « Lieux Waze » doit etre coche AUSSI : s'il ne l'est pas, les
+   * POI residentiels restent invisibles meme si leur propre case est cochee.
+   */
+  function activerCalquesNumerotation() {
+    const aCocher = ['layer-switcher-group_places',        // Lieux Waze (parent)
+                     'layer-switcher-item_residential_places',
+                     'layer-switcher-item_house_numbers'];
+    const actives = [];
+    for (const id of aCocher) {
+      const e = document.getElementById(id);
+      if (!e) continue;
+      if (e.checked === false) { try { e.click(); actives.push(id); } catch (err) { /* */ } }
+    }
+    if (actives.length) log('calques actives pour la numerotation : ' + actives.join(', '));
+    return actives;
+  }
+
   async function analyserAdresses(segs, listeAgglos, stats) {
     const c = options.controles;
     if (!c.hnHorsAgglo && !c.poiAgglo) return;
+    // Avant toute chose : rendre visibles les objets qu'on va commenter.
+    stats.calquesActives = activerCalquesNumerotation();
+    if (stats.calquesActives.length) await new Promise(r => setTimeout(r, 1200));
     const dansAgglo = (lon, lat) => listeAgglos.some(a => pointInRings(lon, lat, [a.ring]));
     const dansCommune = (lon, lat) => pointInGeom(lon, lat, communeActive.geom);
 
@@ -1485,29 +1523,37 @@
         stats.hnErreur = e.message || String(e);
       }
 
-      // Un report par segment porteur : ce sont les memes rue et zone.
+      // ⚠️⚠️ UN REPORT PAR NUMERO, jamais par segment (demande de l'auteur,
+      // 22/07). Grouper les numeros d'un meme segment faisait convertir
+      // plusieurs POI d'un coup : ils se retrouvaient tous selectionnes
+      // ensemble, et il devenait impossible d'en editer UN SEUL — or on
+      // enchaine justement sur le point d'entree, POI par POI.
       for (const [segId, liste] of parSegment) {
         const seg = sdk.DataModel.Segments.getById({ segmentId: segId });
         const nam = seg ? readNaming(seg) : null;
         const rue = rueDuPoi(nam);
-        const nums = liste.map(h => h.number);
+        const nomVoie = nam ? fmt(nam.primary) : 'segment ' + segId;
+        const sansAdressage = seg ? REF.typesSansAdresse.has(seg.roadType) : false;
         stats.hnHorsAgglo += liste.length;
+        for (const h of liste) {
         findings.push({
           adresse: true, sousType: 'hn', cas: 'HN-H', segId,
-          libelle: (nam ? fmt(nam.primary) : 'segment ' + segId) +
-                   ' — ' + liste.length + ' numero' + (liste.length > 1 ? 's' : ''),
+          // Cle unique du report : deux numeros d'un meme segment partagent le
+          // segId, il faut autre chose pour les distinguer (feature de carte,
+          // infobulle, ligne de liste).
+          hnId: h.id,
+          libelle: nomVoie + ' — n° ' + h.number,
           roadType: seg ? seg.roadType : null,
           // Voie privee, parking… : l'ecart se signale, mais la conversion
           // automatique reste fermee (arbitrage de l'auteur).
-          typeSansAdressage: seg ? REF.typesSansAdresse.has(seg.roadType) : false,
-          nbPoints: liste.length,
-          hns: liste.map(h => ({ id: h.id, number: h.number, geometry: h.geometry })),
-          geom: liste[0].geometry,
-          centre: (p => ({ lon: p[0], lat: p[1] }))(centreGeom(liste[0].geometry)),
+          typeSansAdressage: sansAdressage,
+          nbPoints: 1,
+          hns: [{ id: h.id, number: h.number, geometry: h.geometry }],
+          geom: h.geometry,
+          centre: (p => ({ lon: p[0], lat: p[1] }))(centreGeom(h.geometry)),
           rueCible: rue,
-          ecarts: [{ champ: 'numeros hors agglo',
-                     avant: nums.slice(0, 8).join(', ') + (nums.length > 8 ? '…' : '') +
-                            ' porte' + (nums.length > 1 ? 's' : '') + ' par le segment',
+          ecarts: [{ champ: 'numero hors agglo',
+                     avant: 'n° ' + h.number + ' porte par le segment',
                      apres: !rue ? 'a passer en POI residentiel'
                        : rue.saisieRequise ? 'a passer en POI residentiel — adresse a saisir a la conversion'
                        : rue.ambigu ? 'a passer en POI residentiel — adresse a choisir a la conversion'
@@ -1527,6 +1573,7 @@
                     communeActive.nom + ' » : c\'est la commune INSEE qui est appliquee au POI'
                   : null
         });
+        }
       }
     }
 
@@ -1700,7 +1747,7 @@
 
     // Les adresses sont analysees a part : lecture serveur, et objets ponctuels.
     const statsAdr = { hnLus: 0, hnHorsAgglo: 0, hnHorsCommune: 0, poiLus: 0,
-                       poiAgglo: 0, hnErreur: null };
+                       poiAgglo: 0, hnErreur: null, calquesActives: [] };
     try { await analyserAdresses(segs, listeAgglos, statsAdr); }
     catch (e) { log('analyse des adresses impossible', e); statsAdr.hnErreur = e.message || String(e); }
 
