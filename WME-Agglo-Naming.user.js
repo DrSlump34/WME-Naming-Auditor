@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.89
+// @version      1.90
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.89';
+  const VERSION = '1.90';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
   // et durable, pas une boite de dialogue qu'on clique sans lire.
@@ -2317,9 +2317,16 @@
       // ⚠️ L'editabilite se releve MAINTENANT, pendant que le segment est
       // charge : apres le balayage la carte sera revenue ailleurs et
       // `hasPermissions` ne repondrait plus.
+      // ⚠️⚠️ NE PAS INTERROGER LE MODELE SUR UN OBJET VENU DE L'API : il n'y
+      // est pas, `hasPermissions` leve `DataModelNotFoundError`, le catch
+      // rendait `false` et le script annoncait « verrouille au-dessus de ton
+      // niveau » sur un segment L1 a un editeur L6 (signale par l'auteur sur
+      // le 332839183). Pire : le bouton de correction disparaissait avec.
+      // L'objet de l'API porte deja son editabilite (lockRank vs rang) ;
+      // `hasPermissions` ne sert que pour le balayage, ou l'objet EST charge.
       const base = { segId: seg.id, roadType: seg.roadType, libelle: fmt(nam.primary),
                      centre: centreDe(coords), geom: seg.geometry,
-                     editable: (() => { try {
+                     editable: seg.editable !== undefined ? seg.editable : (() => { try {
                        return sdk.DataModel.Segments.hasPermissions({ segmentId: seg.id });
                      } catch (e) { return false; } })() };
       const forme = REF.verifierForme(nam);
@@ -2709,7 +2716,14 @@
     const cur = f.ecarts || [];
     // Nom principal : on ne touche que si la cible porte un nom (renommer vers
     // « sans nom » demande un objet Street vide, cas rare et delicat).
-    if (cur.some(e => e.champ === 'principal') && f.cible.primary && f.cible.primary.name) {
+    // ⚠️ Cible SANS NOM : on l'applique quand le segment n'en a pas non plus
+    // (cas C3/R3 « sans nom + ville » en agglomeration, H5 hors agglo) — on ne
+    // detruit alors aucun nom, on ne fait que poser ou retirer la ville.
+    // Depuis la v1.80 c'est ecrivable directement (`streetName: ''`), il n'y a
+    // plus besoin de retrouver un objet Street vide.
+    const segSansNom = /^‹sans nom›/.test(f.libelle || '');
+    if (cur.some(e => e.champ === 'principal') && f.cible.primary &&
+        (f.cible.primary.name || segSansNom)) {
       // `candidats` : plusieurs noms pouvaient prendre la place de principal.
       // La correction les proposera au lieu d'en elire un d'office.
       ops.push({ type: 'principal', nom: f.cible.primary.name, ville: f.cible.primary.cityName,
@@ -2751,10 +2765,20 @@
   }
 
   /** Parmi ces segments, ceux que le rang de l'editeur autorise a modifier. */
-  function segmentsEditables(ids) {
+  /**
+   * ⚠️ « Absent du modele » n'est PAS « verrouille ». `hasPermissions` leve
+   * `DataModelNotFoundError` sur un segment que WME n'a pas charge — le
+   * traiter comme un refus faisait disparaitre des corrections legitimes.
+   * On distingue donc les deux : `abs` recueille les segments a charger, que
+   * l'appelant fera venir en cadrant dessus.
+   */
+  function segmentsEditables(ids, abs) {
     return ids.filter(id => {
       try { return sdk.DataModel.Segments.hasPermissions({ segmentId: id }); }
-      catch (e) { return false; }
+      catch (e) {
+        if (e && e.name === 'DataModelNotFoundError' && abs) abs.push(id);
+        return false;
+      }
     });
   }
 
@@ -3022,8 +3046,29 @@
       }
     }
     const tous = f.segIds || [f.segId];
-    const ids = segmentsEditables(tous);
-    if (!ids.length) return { ok: false, motif: 'segment(s) verrouille(s) au-dessus de ton niveau' };
+    let absents = [];
+    let ids = segmentsEditables(tous, absents);
+    // ⚠️ Meme regle que pour les numeros (v1.85) : l'eclair CADRE d'abord.
+    // Sans ca, cliquer la correction sans avoir clique la ligne travaillait sur
+    // des segments que WME n'avait pas charges — et le script les declarait
+    // « verrouilles », ce qui etait faux.
+    if (absents.length) {
+      const p = progEnCours;
+      if (p) p.sous('chargement du segment…');
+      cadrerSur(f, true);
+      for (let essai = 0; essai < 8 && absents.length; essai++) {
+        await new Promise(r => setTimeout(r, 500));
+        if (p) p.verifier();
+        absents = [];
+        ids = segmentsEditables(tous, absents);
+      }
+      if (p) p.sous(f.libelle || '');
+    }
+    if (!ids.length) {
+      return { ok: false, motif: absents.length
+        ? 'segment(s) non charge(s) par WME malgre le cadrage — reessaie'
+        : 'segment(s) verrouille(s) au-dessus de ton niveau' };
+    }
     const bloques = tous.length - ids.length;
     try {
       for (const op of plan) {
