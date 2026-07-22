@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.82
+// @version      1.83
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.82';
+  const VERSION = '1.83';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
   // et durable, pas une boite de dialogue qu'on clique sans lire.
@@ -900,6 +900,8 @@
   // ---------------------------------------------------------------------------
 
   function readNaming(seg) {
+    // Donnees venues de l'API : le nommage est deja resolu, pas d'aller-retour.
+    if (seg && seg._nam) return seg._nam;
     const addr = sdk.DataModel.Segments.getAddress({ segmentId: seg.id });
     if (!addr) return null;
     const one = (street, city) => ({
@@ -1480,7 +1482,7 @@
     return actives;
   }
 
-  async function analyserAdresses(segs, listeAgglos, stats, phases) {
+  async function analyserAdresses(segs, listeAgglos, stats, phases, venuesFournis) {
     const c = options.controles;
     const faireHn = (!phases || phases.hn) && c.hnHorsAgglo;
     const fairePoi = (!phases || phases.poi) && c.poiAgglo;
@@ -1588,9 +1590,14 @@
 
     // --- 2. POI residentiels en agglomeration -------------------------------
     if (fairePoi) {
+      // Voie rapide : les POI arrivent avec les donnees (`venuesFournis`).
+      // Sinon on retombe sur ce que le modele a bien voulu charger.
       let venues = [];
-      try { venues = sdk.DataModel.Venues.getAll().filter(v => v.isResidential); }
-      catch (e) { log('lecture des POI impossible', e); }
+      if (venuesFournis) venues = venuesFournis.filter(v => v.isResidential);
+      else {
+        try { venues = sdk.DataModel.Venues.getAll().filter(v => v.isResidential); }
+        catch (e) { log('lecture des POI impossible', e); }
+      }
       stats.poiLus += venues.length;
       for (const v of venues) {
         if (stats.poiVus && stats.poiVus.has(v.id)) continue;   // cellules qui se recouvrent
@@ -1600,8 +1607,9 @@
         if (!dansCommune(p[0], p[1])) continue;
         if (!dansAgglo(p[0], p[1])) continue;                  // a sa place
         let num = '';
-        try { const a = sdk.DataModel.Venues.getAddress({ venueId: String(v.id) });
-              num = (a && a.houseNumber) || ''; } catch (e) { /* */ }
+        if (v._adr) num = v._adr.houseNumber || '';
+        else { try { const a = sdk.DataModel.Venues.getAddress({ venueId: String(v.id) });
+                     num = (a && a.houseNumber) || ''; } catch (e) { /* */ } }
         stats.poiAgglo++;
         findings.push({
           adresse: true, sousType: 'poi', cas: 'POI-C', segId: 'v' + v.id,
@@ -1628,6 +1636,83 @@
   // 208), donc justement pas les rues residentielles qui portent les numeros.
   // Un balayage plus large serait plus rapide, et faux.
   // ===========================================================================
+  // ===========================================================================
+  // LECTURE DIRECTE — la voie rapide
+  //
+  // WME peuple sa carte via `app/Features?bbox=...`. Cet appel prend une bbox
+  // ARBITRAIRE et ne depend pas du zoom : une seule requete rend toute la
+  // commune. Mesure sur la commune de test (2026-07-22) :
+  //   API      : 1 appel de 314 ms → 1607 segments, 32 POI residentiels
+  //   balayage : 15 deplacements de carte, 88 s, et AUCUN POI residentiel
+  //              (le zoom 16 ne les descend pas)
+  // Soit ~55x plus rapide, complet, et sans bouger la carte de l'editeur.
+  //
+  // ⚠️ C'est une API INTERNE, pas le SDK : elle peut changer sans preavis. D'ou
+  // le repli automatique sur le balayage, et un message explicite pour que
+  // l'auteur sache que la voie rapide est tombee (demande du 22/07).
+  // ⚠️ Le prefixe d'environnement n'est PAS en dur : `W.Config.paths.features`
+  // le donne (`/row-Descartes/app/Features` ici, autre chose sur NA).
+  // ===========================================================================
+
+  /** Etat de la derniere collecte : sert au bandeau et aux statistiques. */
+  let sourceDonnees = { mode: null, raison: null };
+
+  async function chargerParApi(bbox) {
+    const chemin = hote.W && hote.W.Config && hote.W.Config.paths && hote.W.Config.paths.features;
+    if (!chemin) throw new Error('chemin de l\'API introuvable (W.Config.paths.features)');
+    const p = new URLSearchParams({
+      bbox: bbox.join(','), language: 'fr', v: '2', apiV2: 'true',
+      roadTypes: '1,2,3,4,5,6,7,8,9,10,15,16,17,18,19,20,22',
+      venueLevel: '4', venueFilter: '1,1,1,0', zoomLevel: '18'
+    });
+    const res = await fetch(chemin + '?' + p.toString(), { credentials: 'same-origin' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const j = await res.json();
+    if (!j || !j.segments || !j.segments.objects) throw new Error('reponse inattendue');
+    return adapterReponseApi(j);
+  }
+
+  /**
+   * Transforme la reponse brute en objets de la meme forme que ceux du SDK,
+   * pour que le moteur d'analyse n'ait pas a savoir d'ou viennent les donnees.
+   * Les noms se resolvent par les dictionnaires `streets` / `cities` livres
+   * dans la meme reponse — pas d'appel supplementaire.
+   */
+  function adapterReponseApi(j) {
+    const rues = {}; (j.streets && j.streets.objects || []).forEach(r => { rues[r.id] = r; });
+    const villes = {}; (j.cities && j.cities.objects || []).forEach(v => { villes[v.id] = v; });
+    const entree = id => {
+      const r = rues[id];
+      if (!r) return { name: '', cityName: '', signText: '', signType: null };
+      const v = villes[r.cityID];
+      return { name: (r.isEmpty || !r.name) ? '' : r.name,
+               cityName: (!v || v.isEmpty || !v.name) ? '' : v.name,
+               signText: r.signText || '', signType: r.signType != null ? r.signType : null };
+    };
+    // Rang de l'editeur : sert a deduire l'editabilite sans `hasPermissions`,
+    // indisponible sur un objet qui n'est pas dans le modele.
+    const rang = (() => { try { return _fp().n; } catch (e) { return -1; } })();
+    const segments = (j.segments.objects || []).map(s => ({
+      id: s.id, roadType: s.roadType, geometry: s.geometry,
+      junctionId: s.junctionID != null ? s.junctionID : null,
+      lockRank: s.lockRank || 0,
+      hasHNs: !!s.hasHNs,
+      // ⚠️ Approximation assumee : le verrou se compare au rang. La verification
+      // ferme se refait de toute facon a l'ecriture, sur l'objet charge.
+      editable: rang < 0 ? true : (s.lockRank || 0) <= rang,
+      _nam: { primary: entree(s.primaryStreetID),
+              alts: (s.streetIDs || []).filter(x => x).map(entree) }
+    }));
+    const venues = (j.venues && j.venues.objects || []).map(v => ({
+      id: v.id, isResidential: !!v.residential, geometry: v.geometry,
+      _adr: { houseNumber: v.houseNumber || '',
+              street: rues[v.streetID] ? { name: rues[v.streetID].name } : null,
+              city: (rues[v.streetID] && villes[rues[v.streetID].cityID])
+                ? { name: villes[rues[v.streetID].cityID].name } : null }
+    }));
+    return { segments, venues };
+  }
+
   const ZOOM_BALAYAGE = 16;
   // ⚠️ Les POI residentiels ne descendent qu'a partir du zoom 17 (WME les sert
   // en `venueLevel=4`) : au zoom 16 on n'en voit aucun. Mesure en live.
@@ -1908,6 +1993,33 @@
     // sur 208 — seuls les axes principaux descendent. Balayer plus large
     // raterait donc exactement les rues qui portent les numeros.
     // ------------------------------------------------------------------
+    // --- VOIE RAPIDE : tout la commune en un appel -------------------------
+    sourceDonnees = { mode: null, raison: null };
+    let donneesApi = null;
+    try {
+      majProgression(0, 1, 'lecture directe');
+      donneesApi = await chargerParApi(communeActive.bbox);
+      sourceDonnees = { mode: 'api', raison: null };
+    } catch (e) {
+      sourceDonnees = { mode: 'balayage', raison: e.message || String(e) };
+      log('lecture directe indisponible, repli sur le balayage : ' + sourceDonnees.raison);
+    }
+
+    if (donneesApi) {
+      analyserSegments(donneesApi.segments);
+      // Les numeros ne sont pas dans cette reponse, mais `hasHNs` dit lesquels
+      // en portent : on n'interroge que ceux-la.
+      const porteurs = donneesApi.segments.filter(s => s.hasHNs);
+      try {
+        await analyserAdresses(porteurs.length ? porteurs : donneesApi.segments,
+                               listeAgglos, statsAdr, { hn: true, poi: false });
+      } catch (e) { log('analyse des numeros impossible', e); statsAdr.hnErreur = e.message || String(e); }
+      try {
+        await analyserAdresses([], listeAgglos, statsAdr, { hn: false, poi: true }, donneesApi.venues);
+      } catch (e) { log('analyse des POI impossible', e); }
+      statsAdr.segmentsLus = donneesApi.segments.length;
+    } else {
+    // --- REPLI : balayage de la commune, cellule par cellule ---------------
     const vueInitiale = { centre: sdk.Map.getMapCenter(), zoom: sdk.Map.getZoomLevel() };
     const cellules = await preparerBalayage();
     let n = 0;
@@ -1951,6 +2063,7 @@
       sdk.Map.setMapCenter({ lonLat: vueInitiale.centre, zoomLevel: vueInitiale.zoom });
     } catch (e) { /* */ }
     statsAdr.cellules = cellules.length;
+    }   // fin du repli par balayage
 
     const nbSegmentsEnEcart = findings.length;
     findings = regrouperFindings(findings);
@@ -3454,6 +3567,23 @@
     return Math.max(ZOOM_PLANCHER, Math.min(options.zoomNiveau, Math.round(Math.min(zLon, zLat))));
   }
 
+  /**
+   * D'ou viennent les donnees de la derniere analyse. En temps normal on ne dit
+   * rien — c'est le fonctionnement attendu. Mais si la lecture directe est
+   * tombee, il FAUT que ca se voie : le repli marche, mais il est bien plus
+   * lent et il deplace la carte (demande de l'auteur, 22/07).
+   */
+  function bandeauSource() {
+    if (!sourceDonnees || sourceDonnees.mode !== 'balayage') return '';
+    return `<div class="agn-stat agn-alerte">
+      <b>⚠ Lecture directe indisponible — analyse en mode degrade.</b><br>
+      La commune a ete parcourue en deplacant la carte, ce qui est beaucoup plus
+      lent et peut manquer des objets en bordure.<br>
+      <span style="opacity:.85">Motif : ${esc(sourceDonnees.raison || 'inconnu')}</span><br>
+      Si ca se reproduit, l'API interne de WME a probablement change : c'est a
+      signaler, le script doit etre adapte.</div>`;
+  }
+
   function renderResults() {
     const s = lastScan;
     // Chaque onglet ne montre QUE ses propres reports, et son propre bilan :
@@ -3472,7 +3602,7 @@
           z.special ? ' · ' + z.special + ' voie(s) a regle propre' : ''}${
           z.giratoire ? ' · ' + z.giratoire + ' giratoire(s)' : ''}.<br>
         Ignores : ${s.skipped.horsCommune} hors commune, ${s.skipped.sansAdresse} sans adressage, ${s.skipped.horsRegle} regles propres.
-      </div>`
+      </div>${bandeauSource()}`
         : `<div class="agn-stat">
         ${s.adr ? '<b>' + s.adr.hnLus + '</b> numero(s) lu(s) a ' + esc(communeActive.nom) +
             ', dont <b>' + s.adr.hnHorsAgglo + '</b> hors agglomeration.<br><b>' +
@@ -3482,7 +3612,7 @@
               ? '<br><span style="opacity:.8">La conversion cadre elle-meme sur les numeros : ' +
                 'WME ne les charge qu\'a partir du zoom ' + ZOOM_NUMEROS + '.</span>' : '')
           : 'Analyse non lancee.'}
-      </div>`;
+      </div>${bandeauSource()}`;
     }
     ui.results.innerHTML = '';
     indexCourant = -1;
