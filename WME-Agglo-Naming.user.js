@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.88
+// @version      1.89
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.88';
+  const VERSION = '1.89';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
   // et durable, pas une boite de dialogue qu'on clique sans lire.
@@ -1267,6 +1267,40 @@
 
     const P = (name, city) => ({ name: name || '', cityName: city || '' });
 
+    /**
+     * ⚠️⚠️ QUAND PLUSIEURS CANDIDATS SE PRESENTENT, ON NE CHOISIT PAS A LA
+     * PLACE DE L'EDITEUR (remarque de l'auteur, 22/07 : « la correction
+     * automatique prend le premier. Pas bon »).
+     * Cas typique : un segment en agglomeration nomme au format hors agglo
+     * (numero de route en principal, nom de rue en alternatif). La correction
+     * bascule le nom de rue en principal — mais s'il y a DEUX alternatifs
+     * (nom d'usage, ancien nom, lotissement…), `noms[0]` est un tirage au
+     * sort. On expose donc la liste, et `appliquerCorrection` demande.
+     * Meme regle pour les numeros de route quand c'est l'un d'eux qui doit
+     * passer en principal (H6, H9, C4).
+     */
+    const fin = res => {
+      const p = ((res.primary && res.primary.name) || '').trim();
+      if (!p) return res;
+      const ville = res.primary.cityName;
+      const source = (noms.length > 1 && noms.some(n => (n.name || '').trim() === p)) ? noms
+                   : (routes.length > 1 && routes.some(n => (n.name || '').trim() === p)) ? routes
+                   : null;
+      if (!source) return res;
+      // ⚠️ DEDUPLIQUER PAR NOM. Un meme libelle apparait souvent deux fois —
+      // en principal et en alternatif, ou avec deux villes differentes. Sans
+      // ca on proposait « D26 ou D26 » (vu en live), question absurde qui use
+      // la confiance dans le reste des questions.
+      const vus = new Set(), uniq = [];
+      source.forEach(n => {
+        const k = (n.name || '').trim();
+        if (!k || vus.has(k)) return;
+        vus.add(k); uniq.push({ nom: n.name, ville });
+      });
+      if (uniq.length > 1) res.candidatsPrincipal = uniq;
+      return res;
+    };
+
     // Autoroute : aucune ville nulle part, agglo ou pas. On garde les noms
     // alternatifs existants (E15, second numero...) mais debarrasses de leur
     // ville, et on force le signalement des alternatifs qui en portent une.
@@ -1297,18 +1331,18 @@
           'village rattache : aucune ville sur le segment, impossible d\'en deduire le nom du village';
       }
       const s = agglo.rattache ? 'R' : 'C';
-      if (nomRue && route) return { cas: s + '1', primary: P(nomRue.name, v), alts: [P(route.name, v)], doute };
-      if (nomRue)          return { cas: s + '2', primary: P(nomRue.name, v), alts: [], doute };
-      if (route)           return { cas: s + '4', primary: P(route.name, v), alts: [], doute };
+      if (nomRue && route) return fin({ cas: s + '1', primary: P(nomRue.name, v), alts: [P(route.name, v)], doute });
+      if (nomRue)          return fin({ cas: s + '2', primary: P(nomRue.name, v), alts: [], doute });
+      if (route)           return fin({ cas: s + '4', primary: P(route.name, v), alts: [], doute });
       return { cas: s + '3', primary: P('', v), alts: [], doute };
     }
     const vAlt = nomCommune;
     if (!nomRue && !route) return { cas: 'H5', primary: P('', ''), alts: [], doute };
-    if (!nomRue && route)  return { cas: 'H6', primary: P(route.name, ''), alts: [P(route.name, vAlt)], doute };
-    if (nomRue && !route)  return { cas: 'H7', primary: P(nomRue.name, ''), alts: [P(nomRue.name, vAlt)], doute };
-    if (route && isCommunale(route)) return { cas: 'H8', primary: P(nomRue.name, ''),
-      alts: [P(route.name, vAlt), P(nomRue.name, vAlt)], doute };
-    return { cas: 'H9', primary: P(route.name, ''), alts: [P(nomRue.name, vAlt)], doute };
+    if (!nomRue && route)  return fin({ cas: 'H6', primary: P(route.name, ''), alts: [P(route.name, vAlt)], doute });
+    if (nomRue && !route)  return fin({ cas: 'H7', primary: P(nomRue.name, ''), alts: [P(nomRue.name, vAlt)], doute });
+    if (route && isCommunale(route)) return fin({ cas: 'H8', primary: P(nomRue.name, ''),
+      alts: [P(route.name, vAlt), P(nomRue.name, vAlt)], doute });
+    return fin({ cas: 'H9', primary: P(route.name, ''), alts: [P(nomRue.name, vAlt)], doute });
   }
 
   /**
@@ -2364,6 +2398,15 @@
       // rattachement. On le dit, on ne bloque pas.
       const notes = [];
       if (exp.doute) notes.push(exp.doute);
+      // Dit AVANT le clic qu'une question viendra : l'editeur choisit d'y
+      // aller en connaissance de cause, au lieu d'etre surpris par une modale.
+      // ⚠️ Ce texte entre dans la cle de regroupement : deux segments dont les
+      // candidats different ne seront donc pas fondus dans le meme report.
+      if (exp.candidatsPrincipal && exp.candidatsPrincipal.length > 1) {
+        notes.push('plusieurs noms possibles en principal (' +
+          exp.candidatsPrincipal.map(c => c.nom).join(', ') +
+          ') : le choix sera demande a la correction');
+      }
       if (loc.partCommune < 1) notes.push('deborde de ' + pourcent(1 - loc.partCommune) + ' sur la commune voisine');
       if (enAgglo && loc.partAgglo < 1) notes.push('deborde de ' + pourcent(1 - loc.partAgglo) + ' hors de l\'agglomeration');
       if (!enAgglo && loc.partAgglo > 0) notes.push('mord de ' + pourcent(loc.partAgglo) + ' sur l\'agglomeration');
@@ -2667,7 +2710,11 @@
     // Nom principal : on ne touche que si la cible porte un nom (renommer vers
     // « sans nom » demande un objet Street vide, cas rare et delicat).
     if (cur.some(e => e.champ === 'principal') && f.cible.primary && f.cible.primary.name) {
-      ops.push({ type: 'principal', nom: f.cible.primary.name, ville: f.cible.primary.cityName });
+      // `candidats` : plusieurs noms pouvaient prendre la place de principal.
+      // La correction les proposera au lieu d'en elire un d'office.
+      ops.push({ type: 'principal', nom: f.cible.primary.name, ville: f.cible.primary.cityName,
+                 candidats: (f.cible.candidatsPrincipal && f.cible.candidatsPrincipal.length > 1)
+                   ? f.cible.candidatsPrincipal : null });
     }
     // Giratoire : la cible est justement « sans nom », donc on l'applique meme
     // si le nom vise est vide.
@@ -2875,9 +2922,77 @@
     });
   }
 
+  /**
+   * Quel nom doit devenir le nom PRINCIPAL, quand plusieurs le pouvaient.
+   * Rend { nom, ville } ou null si l'editeur renonce.
+   * ⚠️ Meme doctrine que pour les adresses : le script ne propose que ce que le
+   * segment porte DEJA — il n'invente aucun nom. La saisie libre existe, mais
+   * c'est alors l'editeur qui ecrit, pas nous.
+   */
+  function demanderNomPrincipal(f, op) {
+    return new Promise(resolve => {
+      const cands = op.candidats;
+      const boite = el(`
+        <div id="agn-modale">
+          <div class="agn-modale-in">
+            <div class="agn-modale-t">Plusieurs noms possibles</div>
+            <div class="agn-modale-c">
+              Ce segment porte <b>${cands.length}</b> noms. Lequel doit devenir le
+              <b>nom principal</b> ?
+              <div class="agn-modale-geo">
+                <div class="agn-d"><b>${esc(f.libelle)}</b></div>
+                <div class="agn-d" style="opacity:.8">${f.nb > 1
+                  ? 'Le choix s\'applique aux <b>' + f.nb + '</b> segments de ce report.'
+                  : 'Les autres noms restent en alternatif.'}</div>
+              </div>
+            </div>
+            ${cands.map((c, i) => `<button class="agn-btn${i === 0 ? ' primary' : ''}" data-i="${i}">${
+              esc(c.nom)}${c.ville ? ' / ' + esc(c.ville) : ''}</button>`).join('')}
+            <div class="agn-modale-saisie">
+              <div class="agn-note">Ou saisir un autre nom</div>
+              <input type="text" id="agn-np-nom" placeholder="Nom de la rue…" autocomplete="off">
+              <button class="agn-btn" id="agn-np-ok" disabled>Utiliser ce nom</button>
+            </div>
+            <button class="agn-btn" data-i="-1">Annuler</button>
+          </div>
+        </div>`);
+      document.body.appendChild(boite);
+      boite.addEventListener('mousedown', e => e.stopPropagation());
+      // ⚠️ Sans ca, les frappes partent dans les raccourcis clavier de WME.
+      ['keydown', 'keypress', 'keyup'].forEach(ev =>
+        boite.addEventListener(ev, e => e.stopPropagation()));
+      const champ = boite.querySelector('#agn-np-nom');
+      const ok = boite.querySelector('#agn-np-ok');
+      champ.oninput = () => { ok.disabled = !champ.value.trim(); };
+      champ.onkeydown = e => { if (e.key === 'Enter' && champ.value.trim()) ok.click(); };
+      ok.onclick = () => {
+        const nom = champ.value.trim();
+        if (!nom) return;
+        boite.remove();
+        resolve({ nom, ville: op.ville });
+      };
+      boite.querySelectorAll('button[data-i]').forEach(b => {
+        b.onclick = () => {
+          const i = parseInt(b.dataset.i, 10);
+          boite.remove();
+          resolve(i < 0 ? null : cands[i]);
+        };
+      });
+    });
+  }
+
   async function appliquerCorrection(f) {
     const plan = planDeCorrection(f);
     if (!plan) return { ok: false, motif: 'rien d\'automatisable' };
+    // ⚠️ On demande AVANT d'ecrire quoi que ce soit : une correction ne doit
+    // jamais commencer par une ecriture puis s'interrompre sur une question.
+    for (const op of plan) {
+      if (op.type !== 'principal' || !op.candidats) continue;
+      const choix = await demanderNomPrincipal(f, op);
+      if (!choix) return { ok: false, motif: 'choix du nom principal annule' };
+      op.nom = choix.nom;
+      if (choix.ville != null) op.ville = choix.ville;
+    }
     if (f.adresse) {
       // Les numeros n'entrent dans le modele qu'a partir du zoom 18 : on les
       // fait charger plutot que de renvoyer l'editeur a un reglage de carte.
