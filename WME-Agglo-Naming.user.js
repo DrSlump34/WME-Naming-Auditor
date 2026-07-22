@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.90
+// @version      1.91
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.90';
+  const VERSION = '1.91';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
   // et durable, pas une boite de dialogue qu'on clique sans lire.
@@ -3248,6 +3248,8 @@
     font-size:11px;padding:0;line-height:15px;flex:0 0 auto;width:20px;text-align:center}
   .agn-ok-btn:hover{background:#e8f5e9}
   .agn-item.agn-traite .agn-ok-btn{background:#2e7d32;color:#fff;border-color:#2e7d32}
+  /* Ligne traitee : plus d'eclair non plus — il ne ferait rien. */
+  .agn-item.agn-traite .agn-fix-btn{display:none}
   .agn-traites{color:#2e7d32;font-weight:600}
   .agn-nb{color:#1565c0;font-weight:700}
   .agn-lock{color:#c62828;font-weight:700}
@@ -4104,6 +4106,24 @@
     node.classList.toggle('agn-traite', !!f.traite);
     redrawEcarts(null);
     majCompteurTraites();
+    majBoutonsGroupes();
+  }
+
+  /**
+   * Le « ⚡ corriger » d'un groupe n'a plus de sens quand tout y est coche :
+   * `planDeCorrection` rend null sur une ligne traitee, le bouton ne ferait
+   * donc rien — et un bouton qui ne fait rien se lit comme un bug (pinaillage
+   * de l'auteur, 22/07, et il a raison).
+   */
+  function majBoutonsGroupes() {
+    if (!ui.results) return;
+    ui.results.querySelectorAll('.agn-grp').forEach(grp => {
+      const b = grp.querySelector('.agn-fix-grp');
+      if (!b) return;
+      const membres = [...grp.querySelectorAll('.agn-item')]
+        .map(n => findings[parseInt(n.dataset.idx, 10)]).filter(Boolean);
+      b.style.display = membres.some(planDeCorrection) ? '' : 'none';
+    });
   }
 
   /**
@@ -4147,6 +4167,7 @@
     }
     prog.fin();
     redrawEcarts(null);
+    majBoutonsGroupes();      // une serie corrigee vide souvent tout un groupe
     majBandeauCorrection(ok, segments, echecs, bloques, unite, interrompu);
     // Demande de l'auteur : apres une conversion, c'est le POI qui doit etre
     // selectionne, pas le segment d'origine — on enchaine en general sur son
