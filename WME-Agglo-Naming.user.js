@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.79
+// @version      1.80
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.79';
+  const VERSION = '1.80';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
   // et durable, pas une boite de dialogue qu'on clique sans lire.
@@ -1797,7 +1797,25 @@
     catch (e) { return null; }
   }
 
-  /** Resout — en la creant au besoin — la Street correspondant a (nom, ville). */
+  /**
+   * Contexte administratif d'un segment, exige par les mises a jour d'adresse
+   * « brutes » (SDK v2.359).
+   * ⚠️ `stateId` est OBLIGATOIRE bien que la doc le donne optionnel : sans lui,
+   * `ValidationError: stateId is required for raw address updates` (verifie en
+   * live le 22/07). On prend aussi `countryId`, par prudence et parce qu'il est
+   * gratuit — les deux se lisent sur l'adresse actuelle du segment.
+   */
+  function contexteAdresse(segmentId) {
+    const a = sdk.DataModel.Segments.getAddress({ segmentId });
+    return { stateId: a && a.state && a.state.id, countryId: a && a.country && a.country.id };
+  }
+
+  /**
+   * Resout — en la creant au besoin — la Street correspondant a (nom, ville).
+   * ⚠️ Ne sert plus QUE pour `addAlternateStreet`, qui reclame un identifiant de
+   * rue. Le nom PRINCIPAL, lui, s'ecrit desormais en clair (voir
+   * `contexteAdresse`), sans passer par la creation d'objets City/Street.
+   */
   function resoudreStreet(nom, nomVille) {
     const DM = sdk.DataModel;
     let city = null;
@@ -1905,15 +1923,9 @@
     // l'unique adresse portee par le segment.
     const nomRue = (choix && choix.nom) || f.rueCible.nom;
     if (!nomRue) throw new Error('nom de rue indetermine');
-    const rues = new Map();               // ville → Street, resolue une seule fois
-    const rueDe = ville => {
-      if (!rues.has(ville)) {
-        const r = resoudreStreet(nomRue, ville);
-        if (!r) throw new Error('rue « ' + nomRue + ' / ' + ville + ' » introuvable');
-        rues.set(ville, r);
-      }
-      return rues.get(ville);
-    };
+    // Contexte administratif du segment porteur : le POI est cree a cote, donc
+    // il partage son Etat et son pays.
+    const ctx = contexteAdresse(f.segId);
     // Ville a retenir pour CE numero : soit celle imposee par l'editeur, soit
     // celle de la commune INSEE qui contient reellement le point.
     const villePour = hn => {
@@ -1930,11 +1942,11 @@
       let venueId = null;
       const ville = villePour(hn);
       try {
-        const rue = rueDe(ville);
         // /!\ addVenue rend un NOMBRE, les autres methodes veulent une CHAINE.
         venueId = String(DM.Venues.addVenue({
           category: REF.adressage.categoriePoi, geometry: hn.geometry }));
-        DM.Venues.updateAddress({ venueId, houseNumber: String(hn.number), streetId: rue.id });
+        DM.Venues.updateAddress({ venueId, addressData: Object.assign(
+          { houseNumber: String(hn.number), streetName: nomRue, cityName: ville }, ctx) });
       } catch (e) {
         echecs.push(hn.number + ' : ' + (e.message || e));
         continue;                       // POI rate ⇒ on garde le numero
@@ -2095,12 +2107,21 @@
     const bloques = tous.length - ids.length;
     try {
       for (const op of plan) {
-        const rue = resoudreStreet(op.nom, op.ville);
-        if (!rue) throw new Error('rue « ' + op.nom + ' » introuvable');
         if (op.type === 'principal') {
-          ids.forEach(id => sdk.DataModel.Segments.updateAddress(
-            { segmentId: id, primaryStreetId: rue.id }));
+          // Nom principal : ecriture BRUTE (SDK v2.359). Plus besoin de resoudre
+          // ni de creer City/Street — et « sans nom » / « sans ville » s'ecrivent
+          // avec une chaine vide, au lieu de retrouver les objets vides.
+          ids.forEach(id => sdk.DataModel.Segments.updateAddress({
+            segmentId: id,
+            addressData: Object.assign({ streetName: op.nom || '', cityName: op.ville || '' },
+                                       contexteAdresse(id))
+          }));
         } else {
+          // Alternatif : `addAlternateStreet` veut un ID, donc on resout encore.
+          // On n'utilise PAS `alternateStreetIds` de `addressData` : il REMPLACE
+          // la liste, ce qui effacerait des alternatifs legitimes.
+          const rue = resoudreStreet(op.nom, op.ville);
+          if (!rue) throw new Error('rue « ' + op.nom + ' » introuvable');
           sdk.DataModel.Segments.addAlternateStreet({ segmentIds: ids, streetId: rue.id });
         }
       }
