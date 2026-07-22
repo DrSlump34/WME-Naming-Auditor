@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.81
+// @version      1.82
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.81';
+  const VERSION = '1.82';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
   // et durable, pas une boite de dialogue qu'on clique sans lire.
@@ -1269,7 +1269,7 @@
       segIds: [f.segId], geoms: [f.geom], centres: [f.centre],
       nb: f.nbPoints || 1, disperse: false,
       verrouilles: f.sousType === 'hn'
-        ? (segmentsEditables([f.segId]).length ? 0 : 1) : 0
+        ? (f.editable === false ? 1 : 0) : 0
     }));
     for (const f of liste.filter(x => !x.adresse)) {
       const cle = JSON.stringify([
@@ -1278,9 +1278,10 @@
         (f.doute || '').replace(/\d+(?:[.,]\d+)?\s?%/g, 'N %')
       ]);
       const g = carte.get(cle);
-      if (g) { g.segIds.push(f.segId); g.geoms.push(f.geom); g.centres.push(f.centre); }
+      if (g) { g.segIds.push(f.segId); g.geoms.push(f.geom); g.centres.push(f.centre);
+               g.editables.push(f.editable); }
       else carte.set(cle, Object.assign({}, f,
-        { segIds: [f.segId], geoms: [f.geom], centres: [f.centre] }));
+        { segIds: [f.segId], geoms: [f.geom], centres: [f.centre], editables: [f.editable] }));
     }
     return [...carte.values()].map(g => Object.assign(g, {
       nb: g.segIds.length,
@@ -1294,7 +1295,9 @@
       })(),
       // Un segment verrouille au-dessus de notre niveau ne peut pas etre edite :
       // l'ecriture passerait a l'ecran puis serait refusee a l'enregistrement.
-      verrouilles: g.segIds.length - segmentsEditables(g.segIds).length
+      // ⚠️ Releve au balayage (`editable`), pas redemande ici : apres le
+      // balayage la carte est ailleurs et `hasPermissions` ne repondrait plus.
+      verrouilles: g.editables ? g.editables.filter(x => x === false).length : 0
     })).concat(adresses);
   }
 
@@ -1477,9 +1480,11 @@
     return actives;
   }
 
-  async function analyserAdresses(segs, listeAgglos, stats) {
+  async function analyserAdresses(segs, listeAgglos, stats, phases) {
     const c = options.controles;
-    if (!c.hnHorsAgglo && !c.poiAgglo) return;
+    const faireHn = (!phases || phases.hn) && c.hnHorsAgglo;
+    const fairePoi = (!phases || phases.poi) && c.poiAgglo;
+    if (!faireHn && !fairePoi) return;
     // Avant toute chose : rendre visibles les objets qu'on va commenter.
     stats.calquesActives = activerCalquesNumerotation();
     if (stats.calquesActives.length) await new Promise(r => setTimeout(r, 1200));
@@ -1487,7 +1492,7 @@
     const dansCommune = (lon, lat) => pointInGeom(lon, lat, communeActive.geom);
 
     // --- 1. Numeros de rue hors agglomeration -------------------------------
-    if (c.hnHorsAgglo) {
+    if (faireHn) {
       const parSegment = new Map();
       try {
         // ⚠️ `fetchHouseNumbers` a une LIMITE DE LOT non documentee : mesuree en
@@ -1509,8 +1514,12 @@
             { segmentIds: tousIds.slice(i, i + TAILLE_LOT) });
           hns.push(...lot);
         }
-        stats.hnLus = hns.length;
+        stats.hnLus += hns.length;
         for (const hn of hns) {
+          // Les cellules du balayage se chevauchent : un meme numero peut
+          // remonter deux fois.
+          if (stats.hnVus && stats.hnVus.has(hn.id)) continue;
+          if (stats.hnVus) stats.hnVus.add(hn.id);
           const p = hn.geometry && hn.geometry.coordinates;
           if (!p) continue;
           if (!dansCommune(p[0], p[1])) { stats.hnHorsCommune++; continue; }
@@ -1578,12 +1587,14 @@
     }
 
     // --- 2. POI residentiels en agglomeration -------------------------------
-    if (c.poiAgglo) {
+    if (fairePoi) {
       let venues = [];
       try { venues = sdk.DataModel.Venues.getAll().filter(v => v.isResidential); }
       catch (e) { log('lecture des POI impossible', e); }
-      stats.poiLus = venues.length;
+      stats.poiLus += venues.length;
       for (const v of venues) {
+        if (stats.poiVus && stats.poiVus.has(v.id)) continue;   // cellules qui se recouvrent
+        if (stats.poiVus) stats.poiVus.add(v.id);
         const p = centreGeom(v.geometry);
         if (!p) continue;
         if (!dansCommune(p[0], p[1])) continue;
@@ -1605,6 +1616,130 @@
         });
       }
     }
+  }
+
+  // ===========================================================================
+  // BALAYAGE — parcourir la commune en damier plutot que de se contenter de la
+  // vue courante.
+  //
+  // ⚠️⚠️ LE ZOOM 16 EST IMPOSE, mesure en live le 2026-07-22 : c'est le premier
+  // auquel WME charge TOUT. Aux zooms inferieurs il ne descend que les axes
+  // principaux (zoom 15 : 47 segments manquants sur 76 ; zoom 14 : 165 sur
+  // 208), donc justement pas les rues residentielles qui portent les numeros.
+  // Un balayage plus large serait plus rapide, et faux.
+  // ===========================================================================
+  const ZOOM_BALAYAGE = 16;
+  // ⚠️ Les POI residentiels ne descendent qu'a partir du zoom 17 (WME les sert
+  // en `venueLevel=4`) : au zoom 16 on n'en voit aucun. Mesure en live.
+  const ZOOM_POI = 17;
+  const RECOUVREMENT = 0.85;     // les cellules se chevauchent : pas de couture manquee
+
+  /** Cellules couvrant les polygones d'agglomeration, pour la passe POI. */
+  function cellulesPourAgglos(listeAgglos) {
+    const v = sdk.Map.getMapExtent();
+    // A zoom egal la vue depend de la fenetre : on deduit la taille d'une
+    // cellule de zoom 17 a partir de la vue courante, puis on l'ajuste.
+    const facteur = Math.pow(2, sdk.Map.getZoomLevel() - ZOOM_POI);
+    const largeur = (v[2] - v[0]) * facteur * RECOUVREMENT;
+    const hauteur = (v[3] - v[1]) * facteur * RECOUVREMENT;
+    const cellules = [];
+    for (const a of listeAgglos) {
+      const xs = a.ring.map(p => p[0]), ys = a.ring.map(p => p[1]);
+      const x1 = Math.min(...xs), x2 = Math.max(...xs);
+      const y1 = Math.min(...ys), y2 = Math.max(...ys);
+      const cols = Math.max(1, Math.ceil((x2 - x1) / largeur));
+      const lignes = Math.max(1, Math.ceil((y2 - y1) / hauteur));
+      for (let i = 0; i < cols; i++) {
+        for (let j = 0; j < lignes; j++) {
+          cellules.push({ lon: x1 + (i + 0.5) * ((x2 - x1) / cols),
+                          lat: y1 + (j + 0.5) * ((y2 - y1) / lignes) });
+        }
+      }
+    }
+    return cellules;
+  }
+
+  /** Decoupe la commune en cellules, en ne gardant que celles qui la touchent. */
+  async function preparerBalayage() {
+    // La taille d'une cellule depend de la fenetre : on la MESURE au lieu de la
+    // supposer (un ecran large couvre plus de terrain a zoom egal).
+    const centreCommune = centreDe(bboxCentreCoords(communeActive.bbox));
+    sdk.Map.setMapCenter({ lonLat: centreCommune, zoomLevel: ZOOM_BALAYAGE });
+    await new Promise(r => setTimeout(r, 1500));
+    const v = sdk.Map.getMapExtent();
+    const largeur = (v[2] - v[0]) * RECOUVREMENT;
+    const hauteur = (v[3] - v[1]) * RECOUVREMENT;
+    const [x1, y1, x2, y2] = communeActive.bbox;
+    const cols = Math.max(1, Math.ceil((x2 - x1) / largeur));
+    const lignes = Math.max(1, Math.ceil((y2 - y1) / hauteur));
+    const cellules = [];
+    for (let i = 0; i < cols; i++) {
+      for (let j = 0; j < lignes; j++) {
+        const cx = x1 + (i + 0.5) * ((x2 - x1) / cols);
+        const cy = y1 + (j + 0.5) * ((y2 - y1) / lignes);
+        // Une commune n'est pas un rectangle : on saute les cellules qui
+        // tombent entierement hors du contour, ca economise des passes.
+        if (celluleTouche(cx, cy, (x2 - x1) / cols, (y2 - y1) / lignes)) {
+          cellules.push({ lon: cx, lat: cy });
+        }
+      }
+    }
+    return cellules;
+  }
+
+  const bboxCentreCoords = b => [[(b[0] + b[2]) / 2, (b[1] + b[3]) / 2]];
+
+  /** La cellule recoupe-t-elle le contour communal ? */
+  function celluleTouche(cx, cy, dx, dy) {
+    const pts = [[cx, cy], [cx - dx / 2, cy - dy / 2], [cx + dx / 2, cy - dy / 2],
+                 [cx - dx / 2, cy + dy / 2], [cx + dx / 2, cy + dy / 2]];
+    if (pts.some(p => pointInGeom(p[0], p[1], communeActive.geom))) return true;
+    // Contour tres decoupe : un sommet de la commune peut tomber dans la
+    // cellule sans qu'aucun coin de celle-ci ne soit dans la commune.
+    const dedans = (x, y) => x >= cx - dx / 2 && x <= cx + dx / 2 && y >= cy - dy / 2 && y <= cy + dy / 2;
+    let touche = false;
+    (function creuser(co) {
+      if (touche || !Array.isArray(co)) return;
+      if (typeof co[0] === 'number') { if (dedans(co[0], co[1])) touche = true; return; }
+      co.forEach(creuser);
+    })(communeActive.geom.coordinates);
+    return touche;
+  }
+
+  /**
+   * Attend que WME ait fini de descendre les objets de la cellule : on guette
+   * la stabilisation du nombre de segments plutot qu'un delai fixe, qui serait
+   * soit trop court sur une zone dense, soit du temps perdu ailleurs.
+   */
+  async function attendreChargement() {
+    // ⚠️ Plafond en TEMPS REEL, jamais en nombre d'iterations : Chrome BRIDE
+    // les minuteries d'un onglet en arriere-plan (mesure : un `setTimeout(300)`
+    // rend la main apres 965 ms, et ca se degrade au-dela de 5 min). Compter
+    // les tours faisait donc durer une cellule 30 s au lieu de 9 des que
+    // l'editeur changeait d'onglet — et le balayage n'en finissait plus.
+    const limite = Date.now() + 9000;
+    let precedent = -1, stable = 0;
+    while (Date.now() < limite) {
+      await new Promise(r => setTimeout(r, 300));
+      const n = sdk.DataModel.Segments.getAll().length;
+      if (n === precedent) { stable++; if (stable >= 3 && n > 0) return n; }
+      else { stable = 0; precedent = n; }
+    }
+    return precedent;
+  }
+
+  function majProgression(n, total, phase) {
+    if (!ui.stats) return;
+    const pct = Math.round(n / total * 100);
+    const titre = phase ? ' — ' + esc(phase) : '';
+    // Onglet en arriere-plan = minuteries bridees par Chrome, donc balayage au
+    // ralenti : autant le dire plutot que de laisser croire a un plantage.
+    const cache = document.hidden
+      ? '<br><b>Onglet en arriere-plan : le navigateur ralentit l\'analyse. ' +
+        'Reviens sur cet onglet pour qu\'elle avance normalement.</b>' : '';
+    ui.stats.innerHTML = `<div class="agn-stat">Balayage de ${esc(communeActive.nom)}${titre} —
+      secteur <b>${n}</b> / ${total} <span style="opacity:.7">(${pct} %)</span><br>
+      <span style="opacity:.7">La carte se deplace le temps de l'analyse, puis revient.</span>${cache}</div>`;
   }
 
   async function scan() {
@@ -1636,11 +1771,18 @@
     findings = [];
     const skipped = { horsRegle: 0, sansAdresse: 0, horsCommune: 0, sansGeom: 0 };
     const zones = { agglo: 0, hors: 0, cheval: 0, limCom: 0, limitrophe: 0, cartouche: 0, special: 0, giratoire: 0 };
-    const segs = sdk.DataModel.Segments.getAll();
-
     const c = options.controles;
+    const dejaVus = new Set();     // un segment vu dans deux cellules ne compte qu'une fois
 
+    /**
+     * Analyse les segments d'une cellule. Appelee une fois par cellule du
+     * balayage : les objets ne sont exploitables que TANT QU'ILS SONT CHARGES,
+     * d'ou une analyse au fil de l'eau plutot qu'une collecte puis un calcul.
+     */
+    function analyserSegments(segs) {
     for (const seg of segs) {
+      if (dejaVus.has(seg.id)) continue;
+      dejaVus.add(seg.id);
       if (!options.sansAdresse && REF.typesSansAdresse.has(seg.roadType)) { skipped.sansAdresse++; continue; }
       const coords = seg.geometry && seg.geometry.coordinates;
       if (!coords || !coords.length) { skipped.sansGeom++; continue; }
@@ -1654,8 +1796,14 @@
       if (loc.partCommune < bas) { skipped.horsCommune++; continue; }
 
       const nomsBruts = [nam.primary.name, ...nam.alts.map(a => a.name)].join(' ');
+      // ⚠️ L'editabilite se releve MAINTENANT, pendant que le segment est
+      // charge : apres le balayage la carte sera revenue ailleurs et
+      // `hasPermissions` ne repondrait plus.
       const base = { segId: seg.id, roadType: seg.roadType, libelle: fmt(nam.primary),
-                     centre: centreDe(coords), geom: seg.geometry };
+                     centre: centreDe(coords), geom: seg.geometry,
+                     editable: (() => { try {
+                       return sdk.DataModel.Segments.hasPermissions({ segmentId: seg.id });
+                     } catch (e) { return false; } })() };
       const forme = REF.verifierForme(nam);
 
       // --- Giratoire : reconnu par son junctionId, quelle que soit la zone ---
@@ -1744,12 +1892,65 @@
         seulementForme: forme.length > 0 && !ecartsNom.length && !ecartsCart.length,
         doute: notes.length ? notes.join(' ; ') : null }));
     }
+    }   // fin analyserSegments
 
     // Les adresses sont analysees a part : lecture serveur, et objets ponctuels.
     const statsAdr = { hnLus: 0, hnHorsAgglo: 0, hnHorsCommune: 0, poiLus: 0,
-                       poiAgglo: 0, hnErreur: null, calquesActives: [] };
-    try { await analyserAdresses(segs, listeAgglos, statsAdr); }
-    catch (e) { log('analyse des adresses impossible', e); statsAdr.hnErreur = e.message || String(e); }
+                       poiAgglo: 0, hnErreur: null, calquesActives: [], hnVus: new Set(), poiVus: new Set() };
+
+    // ------------------------------------------------------------------
+    // BALAYAGE DE LA COMMUNE
+    // Le perimetre d'analyse, c'est le CONTOUR de la commune — pas la vue.
+    // Faire tracer un polygone puis n'analyser que l'ecran n'aurait aucun sens
+    // (remarque de l'auteur, 22/07).
+    // ⚠️ Le pas est impose par WME : mesure en live, le zoom 16 est le PREMIER
+    // qui charge tout. A 15 il manque 47 segments sur 76, a 14 il en manque 165
+    // sur 208 — seuls les axes principaux descendent. Balayer plus large
+    // raterait donc exactement les rues qui portent les numeros.
+    // ------------------------------------------------------------------
+    const vueInitiale = { centre: sdk.Map.getMapCenter(), zoom: sdk.Map.getZoomLevel() };
+    const cellules = await preparerBalayage();
+    let n = 0;
+    for (const cel of cellules) {
+      n++;
+      majProgression(n, cellules.length);
+      try { sdk.Map.setMapCenter({ lonLat: cel, zoomLevel: ZOOM_BALAYAGE }); }
+      catch (e) { log('cadrage de cellule impossible', e); }
+      await attendreChargement();
+      const segsCellule = sdk.DataModel.Segments.getAll();
+      analyserSegments(segsCellule);
+      // Phase 1 : segments et NUMEROS. Les numeros se lisent par appel serveur,
+      // donc le zoom 16 suffit.
+      try { await analyserAdresses(segsCellule, listeAgglos, statsAdr, { hn: true, poi: false }); }
+      catch (e) { log('analyse des adresses impossible', e); statsAdr.hnErreur = e.message || String(e); }
+    }
+
+    // ------------------------------------------------------------------
+    // Phase 2 : POI RESIDENTIELS, seulement si le controle est actif.
+    // ⚠️ Mesure en live : au zoom 16 WME ne descend AUCUN POI residentiel (il
+    // les sert en `venueLevel=4`, a partir du zoom 17 seulement) — la phase 1
+    // en aurait donc rate la totalite. Mais ce controle ne cherche que les POI
+    // DANS l'agglomeration : inutile de repasser toute la commune au zoom 17,
+    // il suffit de couvrir les polygones, bien plus petits.
+    // ------------------------------------------------------------------
+    if (options.controles.poiAgglo && listeAgglos.length) {
+      const cellulesPoi = cellulesPourAgglos(listeAgglos);
+      let m = 0;
+      for (const cel of cellulesPoi) {
+        m++;
+        majProgression(m, cellulesPoi.length, 'POI residentiels');
+        try { sdk.Map.setMapCenter({ lonLat: cel, zoomLevel: ZOOM_POI }); } catch (e) { /* */ }
+        await attendreChargement();
+        try { await analyserAdresses([], listeAgglos, statsAdr, { hn: false, poi: true }); }
+        catch (e) { log('analyse des POI impossible', e); }
+      }
+      statsAdr.cellulesPoi = cellulesPoi.length;
+    }
+    // On rend sa vue a l'editeur : le balayage est un moyen, pas une balade.
+    try {
+      sdk.Map.setMapCenter({ lonLat: vueInitiale.centre, zoomLevel: vueInitiale.zoom });
+    } catch (e) { /* */ }
+    statsAdr.cellules = cellules.length;
 
     const nbSegmentsEnEcart = findings.length;
     findings = regrouperFindings(findings);
@@ -1898,7 +2099,7 @@
       // refus vient d'une donnee residuelle cote serveur Waze sur UN numero
       // precis, sans rapport avec le type de voie — voir [[wme-sdk-pieges]].)
       if (!f.rueCible || !f.hns || !f.hns.length) return null;
-      if (!segmentsEditables([f.segId]).length) return null;
+      if (f.editable === false) return null;
       // ⚠️ On ne regarde PAS ici si les numeros sont deja dans le modele : ca
       // depend du zoom courant, pas du report. La correction les chargera.
       return [{ type: 'hn2poi', nb: f.hns.length, rue: f.rueCible }];
