@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.84
+// @version      1.85
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.84';
+  const VERSION = '1.85';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
   // et durable, pas une boite de dialogue qu'on clique sans lire.
@@ -1575,16 +1575,23 @@
    * numeros devenus manipulables.
    */
   async function chargerNumeros(f) {
-    if (hnsManipulables(f).length === (f.hns || []).length) return f.hns.length;
     // Jusqu'a 4 s d'attente ici : si une barre tourne deja (serie de
     // corrections), elle dit ce qu'on attend plutot que de sembler bloquee.
     const p = progEnCours;
+    // ⚠️⚠️ ON CADRE TOUJOURS, meme si les numeros paraissent deja charges
+    // (demande de l'auteur, 22/07 : « si on n'a pas clique sur l'ecart, ca ne
+    // positionne pas »). Cliquer l'eclair sans avoir clique la ligne doit
+    // amener la carte sur l'endroit, pas convertir a l'aveugle : l'editeur
+    // enchaine ensuite sur le point d'entree du POI, il faut qu'il le voie.
+    // Le cadrage est celui du clic sur la ligne — meme centre, meme zoom —
+    // mais le zoom est IMPOSE ici : sous le 18, WME ne charge pas les numeros,
+    // donc le reglage « zoomer au clic » ne peut pas s'y opposer.
+    if (p) p.sous('cadrage sur l\'ecart…');
+    cadrerSur(f, true);
+    await new Promise(r => setTimeout(r, 700));      // la carte doit avoir bouge
+    if (p) p.verifier();
+    if (hnsManipulables(f).length === (f.hns || []).length) return f.hns.length;
     if (p) p.sous('chargement des numeros de rue…');
-    try {
-      if (f.centre) sdk.Map.setMapCenter({ lonLat: f.centre });
-      const z = sdk.Map.getZoomLevel();
-      if (z < ZOOM_NUMEROS) sdk.Map.setZoomLevel({ zoomLevel: ZOOM_NUMEROS });
-    } catch (e) { log('cadrage sur les numeros impossible', e); }
     for (let essai = 0; essai < 8; essai++) {
       await new Promise(r => setTimeout(r, 500));
       if (p) p.verifier();          // 4 s d'attente : « Annuler » doit la rompre
@@ -3842,7 +3849,12 @@
    * de travail, et sinon on se pose sur le troncon le plus long — les autres
    * restent surlignes sur la carte pour qu'on sache ou ils sont.
    */
-  function cadrerSur(f) {
+  /**
+   * Amene la carte sur un report. `forcerZoom` passe outre le reglage
+   * « zoomer au clic » : une conversion de numero EXIGE le zoom 18 pour que WME
+   * descende les numeros — ce n'est plus un confort de lecture, c'est technique.
+   */
+  function cadrerSur(f, forcerZoom) {
     const geoms = (f.geoms || [f.geom]).filter(g => g && g.coordinates && g.coordinates.length);
     if (!geoms.length) {
       if (f.centre) { try { sdk.Map.setMapCenter({ lonLat: f.centre }); } catch (e) { /* */ } }
@@ -3873,7 +3885,7 @@
     if (f.adresse) z = Math.max(z, ZOOM_NUMEROS);
     try {
       sdk.Map.setMapCenter({ lonLat: e.centre });
-      if (options.zoomClic) sdk.Map.setZoomLevel({ zoomLevel: z });
+      if (options.zoomClic || forcerZoom) sdk.Map.setZoomLevel({ zoomLevel: z });
     } catch (err) { log('cadrage impossible', err); }
   }
 
@@ -3977,6 +3989,12 @@
       grps.forEach(g => ouvrirGroupe(g, !toutOuvert));
     };
 
+    // ⚠️⚠️ PAS DE CORRECTION EN MASSE SUR LES ADRESSES (arbitrage de l'auteur,
+    // 22/07) : la famille `adresse` n'a pas de bouton « ⚡ corriger » de groupe.
+    // Convertir un numero en POI residentiel deplace la carte, cree un objet et
+    // s'enchaine en general sur son point d'entree — ca se fait un par un, en
+    // regardant. Le nommage des segments, lui, garde son bouton de groupe.
+    //
     // Regroupement par thematique : une famille = une couleur sur la carte,
     // donc la liste et la carte se lisent avec la meme cle. Replie par defaut :
     // sur plusieurs centaines d'ecarts, la liste a plat est illisible.
@@ -3997,7 +4015,7 @@
             <span class="agn-chev">▸</span>
             <span class="agn-pastille" style="background:${options.couleurs[cle] || fam.defaut}"></span>
             <b>${esc(fam.libelle)}</b>
-            ${_ft() && _fv() && membres.some(planDeCorrection)
+            ${_ft() && _fv() && cle !== 'adresse' && membres.some(planDeCorrection)
               ? '<button class="agn-fix-grp" title="Appliquer toutes les corrections automatisables de ce groupe">⚡ corriger</button>' : ''}
             <span class="agn-grp-n">${membres.length}</span>
           </div>
