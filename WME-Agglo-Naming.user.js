@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.85
+// @version      1.86
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.85';
+  const VERSION = '1.86';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
   // et durable, pas une boite de dialogue qu'on clique sans lire.
@@ -1843,10 +1843,15 @@
         if (!p) continue;
         if (!dansCommune(p[0], p[1])) continue;
         if (!dansAgglo(p[0], p[1])) continue;                  // a sa place
-        let num = '';
-        if (v._adr) num = v._adr.houseNumber || '';
-        else { try { const a = sdk.DataModel.Venues.getAddress({ venueId: String(v.id) });
-                     num = (a && a.houseNumber) || ''; } catch (e) { /* */ } }
+        let num = '', rueNom = '';
+        if (v._adr) {
+          num = v._adr.houseNumber || '';
+          rueNom = (v._adr.street && v._adr.street.name) || '';
+        } else {
+          try { const a = sdk.DataModel.Venues.getAddress({ venueId: String(v.id) });
+                num = (a && a.houseNumber) || '';
+                rueNom = (a && a.street && a.street.name) || ''; } catch (e) { /* */ }
+        }
         stats.poiAgglo++;
         findings.push({
           adresse: true, sousType: 'poi', cas: 'POI-C', segId: 'v' + v.id,
@@ -1854,10 +1859,37 @@
           roadType: null, nbPoints: 1,
           geom: { type: 'Point', coordinates: p },
           centre: { lon: p[0], lat: p[1] }, venueId: String(v.id),
+          // On n'annonce PAS une correction a appliquer — on pose la question :
+          // en agglomeration le numero va sur le segment, sauf si l'entree
+          // donne sur une autre voie. Ecrire « a passer sur le segment »
+          // ferait corriger a tort les cas ou le POI a justement raison.
           ecarts: [{ champ: 'POI residentiel en agglo',
-                     avant: num ? 'n° ' + num : 'sans numero',
-                     apres: 'en ville, le numero se porte sur le segment (a verifier)' }],
-          doute: 'un POI residentiel en ville peut etre legitime (residence, lotissement ferme) : a juger sur place'
+                     avant: num ? 'n° ' + num + ' porte par un POI residentiel' : 'POI residentiel sans numero',
+                     apres: 'a trancher : numero sur le segment, ou entree sur une autre voie' }],
+          // ⚠️⚠️ CE REPORT N'EST PAS UN DEFAUT A CORRIGER : c'est une question a
+          // trancher sur place, et les deux reponses sont bonnes.
+          // ⚠️ LA raison qui justifie de garder le POI (precisee par l'auteur le
+          // 22/07) : **l'adresse postale est sur une rue, mais l'entree — la
+          // boite aux lettres — donne sur une AUTRE voie.** Un numero porte par
+          // un segment ne sait exprimer qu'une adresse sur SA voie ; le POI
+          // residentiel est alors le seul moyen de dire la verite du terrain.
+          // ⚠️ Le sens POI → numero n'est pas automatise, et ce n'est pas une
+          // limite du SDK (`addHouseNumber` et `deleteVenue` existent) : le
+          // script ne sait dire ni sur QUEL segment ni a QUEL endroit poser le
+          // numero, et supprimer le POI emporterait son nom, son point d'entree
+          // et ses photos. On guide donc l'editeur au lieu de decider pour lui.
+          aideTitre: 'Deux issues possibles — c\'est le terrain qui tranche',
+          aide: [
+            'Si l\'entree (la boite aux lettres) donne bien sur ' +
+              (rueNom ? '« ' + rueNom + ' »' : 'la rue de l\'adresse') +
+              ' : le numero doit passer sur le segment. Selectionne la voie, ouvre ' +
+              '« Ajouter des numeros de rue », pose' + (num ? ' le n° ' + num : ' le numero') +
+              ' du bon cote, verifie qu\'il tombe devant l\'entree, puis supprime ce POI.',
+            'Si l\'entree donne sur une AUTRE voie que l\'adresse postale : laisse le POI en place. ' +
+              'C\'est precisement ce qu\'il sert a dire, et un numero sur segment ne saurait pas ' +
+              'l\'exprimer. Marque la ligne comme traitee (✓) pour ne pas la revoir.'
+          ],
+          doute: null
         });
       }
     }
@@ -2945,6 +2977,14 @@
     white-space:nowrap;flex:0 0 auto;min-width:38px;text-align:center}
   .agn-item .agn-d{font-size:11px;margin-top:3px;opacity:.85}
   .agn-item .agn-warn{color:#c62828;font-size:11px;margin-top:3px}
+  /* Marche a suivre manuelle : ce n'est ni une alerte (rouge) ni un ecart —
+     c'est une consigne. Bleu discret, pour qu'elle se lise sans crier. */
+  .agn-item .agn-aide{color:#0d47a1;background:#e8f2fd;border-left:3px solid #90caf9;
+    border-radius:0 3px 3px 0;font-size:11px;margin-top:4px;padding:4px 6px;line-height:1.45}
+  /* Une issue par ligne, entree par une puce : les deux options doivent se
+     distinguer d'un coup d'oeil, l'editeur choisit, il ne lit pas un pave. */
+  .agn-item .agn-aide-l{position:relative;padding-left:11px;margin-top:3px}
+  .agn-item .agn-aide-l::before{content:'▸';position:absolute;left:0;opacity:.65}
   .agn-c1,.agn-c2,.agn-c3,.agn-c4,.agn-r1,.agn-r2,.agn-r3,.agn-r4{border-left-color:#1e88e5}
   .agn-h5,.agn-h6,.agn-h7,.agn-h8,.agn-h9{border-left-color:#8e24aa}
   .agn-eb10{border-left-color:#f57c00}
@@ -4052,6 +4092,9 @@
                 f.verrouilles + '</b>' : ''}${
               f.disperse ? ' · <span class="agn-note" title="Troncons eloignes : la carte se pose sur le plus long">eparpilles</span>' : ''}</div>
             ${f.ecarts.map(e => `<div class="agn-d"><b>${e.champ}</b> : ${esc(e.avant)} → ${esc(e.apres)}</div>`).join('')}
+            ${f.aide && f.aide.length ? `<div class="agn-aide">${
+              f.aideTitre ? '<b>🛠 ' + esc(f.aideTitre) + '</b>' : ''}${
+              f.aide.map(t => '<div class="agn-aide-l">' + esc(t) + '</div>').join('')}</div>` : ''}
             ${f.doute ? `<div class="agn-warn">⚠ ${esc(f.doute)}</div>` : ''}
             ${f.adresse && f.sousType === 'hn' && !f.rueCible
               ? '<div class="agn-warn">⚠ Nom de rue introuvable ou ambigu sur ce segment : ' +
