@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.86
+// @version      1.88
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,7 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.86';
+  const VERSION = '1.88';
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
   // et durable, pas une boite de dialogue qu'on clique sans lire.
@@ -161,6 +161,9 @@
   let options = {
     sansAdresse: false, altEnTrop: false, seuil: 0.8,
     zoomClic: true, zoomNiveau: 17, surligner: true,
+    // Charger tout seul les contours du departement survole. Coche par defaut :
+    // c'est une corvee sans valeur ajoutee, et elle se refait a chaque fois.
+    autoDep: true,
     controles: {},          // rempli d'apres le referentiel au demarrage
     couleurs: Object.fromEntries(Object.entries(FAMILLES).map(([k, v]) => [k, v.defaut]))
   };
@@ -391,7 +394,9 @@
       w: o.offsetWidth,
       h: replie ? (ui.hAvantRepli || memo.h || 560) : o.offsetHeight,
       ouvert: o.style.display !== 'none', options,
-      vue: vueCourante, uiV: 2
+      // uiV 3 : depuis la v1.87 la hauteur est bornee au pied de page de WME.
+      // Une hauteur enregistree avant depassait dessus — on ne la reprend pas.
+      vue: vueCourante, uiV: 3
     });
   }
 
@@ -445,6 +450,25 @@
     return null;
   }
 
+  /**
+   * Departement d'un code INSEE. ⚠️ Trois cas, pas un : outre-mer sur 3
+   * chiffres (97x, 98x), Corse sur 2A/2B, metropole sur 2 chiffres.
+   */
+  const depDuCode = c => {
+    const s = String(c || '');
+    return /^9[78]/.test(s) ? s.slice(0, 3) : s.slice(0, 2).toUpperCase();
+  };
+
+  /** Les departements presents en base, dans l'ordre. */
+  const depsCharges = () => [...new Set(communes.map(c => depDuCode(c.code)))].sort();
+
+  /**
+   * ⚠️⚠️ LES CONTOURS SE CUMULENT, ILS NE SE REMPLACENT PLUS (demande de
+   * l'auteur, 22/07 : « surtout, de le refaire a chaque fois alors que ca a
+   * deja peut-etre ete fait »). Avant, charger l'Aude effacait le Gard — vecu
+   * le jour meme. On remplace donc uniquement les departements presents dans
+   * le nouveau jeu (rechargement = mise a jour), et on garde les autres.
+   */
   function chargerFeatureCollection(fc, nomFichier) {
     const feats = fc.type === 'FeatureCollection' ? fc.features : [fc];
     const out = []; let sansNom = 0;
@@ -456,9 +480,23 @@
       out.push({ code: code || nom, nom, geom: f.geometry, bbox: bboxOf(f.geometry) });
     }
     if (!out.length) throw new Error('aucune commune exploitable (nom introuvable dans les proprietes)');
-    communes = out;
-    metaContours = { nom: nomFichier, nb: out.length, date: new Date().toISOString().slice(0, 10), sansNom };
-    return { nb: out.length, sansNom };
+    const depsNouveaux = new Set(out.map(c => depDuCode(c.code)));
+    const gardees = communes.filter(c => !depsNouveaux.has(depDuCode(c.code)));
+    communes = gardees.concat(out);
+    const deps = depsCharges();
+    metaContours = { nom: nomFichier, nb: communes.length, deps,
+                     date: new Date().toISOString().slice(0, 10), sansNom };
+    return { nb: out.length, total: communes.length, sansNom, deps };
+  }
+
+  /** Repart de zero : l'editeur doit pouvoir vider ce qu'il a accumule. */
+  async function viderContours() {
+    communes = []; metaContours = null; communeActive = null;
+    depsTentes.clear();
+    try { await idbSet('communes', []); await idbSet('meta', null); }
+    catch (e) { log('purge des contours impossible', e); }
+    rafraichirCommunesDeLaVue(); renderContours(); renderAgglos();
+    redrawCommune(); redrawAgglos();
   }
 
   async function restaurerContours() {
@@ -471,11 +509,9 @@
 
   function surFichierContours() {
     const f = ui.inputFichier.files[0]; if (!f) return;
-    // Un chargement REMPLACE les contours en base. Sans ce garde-fou, on perd
-    // silencieusement le fichier precedent (vecu).
-    if (metaContours && metaContours.nb && !confirm(
-      'Des contours sont deja charges : ' + metaContours.nb + ' commune(s) (' + metaContours.nom + ').\n\n' +
-      'Charger ce fichier va les REMPLACER.\n\nContinuer ?')) { ui.inputFichier.value = ''; return; }
+    // Plus de confirmation destructive : depuis la v1.88 un chargement CUMULE
+    // (seuls les departements du fichier sont remis a jour), il n'y a donc
+    // plus rien a perdre.
     ui.statutContours.innerHTML = '';
     // Un departement pese ~3 Mo : la lecture se voit, et le `JSON.parse` qui
     // suit tient la main une bonne seconde — on affiche l'etape AVANT, en
@@ -628,6 +664,104 @@
     rafraichirCommunesDeLaVue(); renderContours();
     replierSection('contours', false);         // etape faite : on rend la place
     return { nb: res.nb, echecs };
+  }
+
+  // ===========================================================================
+  // CHARGEMENT AUTOMATIQUE DU DEPARTEMENT VISIBLE
+  //
+  // Demande de l'auteur (22/07) : « plus avoir a faire cette action de
+  // chargement sans valeur ajoutee ». L'editeur survole Gruissan, il doit
+  // pouvoir choisir Narbonne ou Fleury dans la liste — sans avoir su qu'il
+  // fallait d'abord cocher « 11 Aude » quelque part.
+  //
+  // ⚠️ On ne DEVINE pas le departement depuis WME : la carte donne des noms de
+  // ville, jamais un code INSEE. On le demande a la meme API que les contours
+  // (`geo.api.gouv.fr/communes?lat&lon`), qui rend la commune d'un point — une
+  // reponse de quelques centaines d'octets, sans rapport avec les 3 Mo d'un
+  // departement.
+  // ⚠️ On interroge le CENTRE ET LES QUATRE COINS : une vue large chevauche
+  // souvent deux departements (a Gruissan, l'Aude et l'Herault).
+  // ===========================================================================
+
+  /** Departements deja tentes dans cette session (succes OU echec) : on ne
+   *  relance pas indefiniment un telechargement qui ne passe pas. */
+  const depsTentes = new Set();
+  let autoEnCours = false;
+
+  async function depsDeLaVue() {
+    let ext; try { ext = sdk.Map.getMapExtent(); } catch (e) { return []; }
+    if (!ext || ext.length !== 4) return [];
+    const [x1, y1, x2, y2] = ext;
+    const points = [[(x1 + x2) / 2, (y1 + y2) / 2], [x1, y1], [x2, y1], [x1, y2], [x2, y2]];
+    const deps = new Set();
+    // ⚠️ Un coin EN MER rend une liste vide avec un HTTP 200 — ce n'est pas une
+    // panne (verifie : lat 43.10 / lon 3.40 → `[]`). Mais si TOUS les appels
+    // echouent, c'est le reseau : il faut le dire, sinon l'editeur voit une
+    // liste de communes vide sans savoir pourquoi.
+    let echecs = 0, derniere = null;
+    for (const [lon, lat] of points) {
+      try {
+        const t = await telecharger('https://geo.api.gouv.fr/communes?lat=' + lat.toFixed(5) +
+          '&lon=' + lon.toFixed(5) + '&fields=code&format=json');
+        const j = JSON.parse(t);
+        (Array.isArray(j) ? j : []).forEach(c => { if (c && c.code) deps.add(depDuCode(c.code)); });
+      } catch (e) { echecs++; derniere = e; }
+    }
+    if (echecs === points.length && derniere) throw derniere;
+    return [...deps];
+  }
+
+  /**
+   * Regarde ou on est, et charge ce qui manque. Ne fait rien si l'option est
+   * decochee, si la fenetre est fermee, ou si un chargement tourne deja.
+   */
+  async function autoChargerDepartement() {
+    if (!options.autoDep || autoEnCours) return;
+    if (!ui.overlay || ui.overlay.style.display === 'none') return;
+    // ⚠️ GARDE-FOU : si le centre de la vue tombe deja dans une commune en
+    // base, il n'y a rien a aller chercher — et AUCUNE requete ne part. Sans
+    // ca, cinq appels seraient lances a chaque deplacement de carte, y compris
+    // en plein travail dans un departement deja charge.
+    try {
+      const ext = sdk.Map.getMapExtent();
+      if (ext && ext.length === 4 && communeDuPoint((ext[0] + ext[2]) / 2, (ext[1] + ext[3]) / 2)) return;
+    } catch (e) { /* pas d'extent : on tente la detection */ }
+    autoEnCours = true;
+    try {
+      const deps = (await depsDeLaVue()).filter(d => d && !depsTentes.has(d));
+      const dejaLa = new Set(depsCharges());
+      const manquants = deps.filter(d => !dejaLa.has(d));
+      manquants.forEach(d => depsTentes.add(d));      // une seule tentative
+      if (!manquants.length) return;
+      const noms = manquants.map(d => (DEPARTEMENTS.find(x => x.code === d) || {}).nom || d);
+      const prog = progression(ui.progContours, { annulable: true,
+        titre: 'Contours manquants — ' + noms.join(', ') });
+      try {
+        const r = await chargerDepuisGouv(manquants, prog);
+        prog.fin();
+        ui.statutContours.innerHTML = '<div class="agn-stat agn-ok">Contours de ' +
+          esc(noms.join(', ')) + ' charges automatiquement — <b>' + r.nb + '</b> commune(s).</div>';
+        renderContours();
+      } catch (e) {
+        prog.fin();
+        // ⚠️ On le DIT : un chargement silencieux qui echoue laisse une liste
+        // de communes vide sans que l'editeur comprenne pourquoi.
+        ui.statutContours.innerHTML = '<div class="agn-stat agn-alerte">Chargement automatique de ' +
+          esc(noms.join(', ')) + ' impossible : ' + esc(e && e.annulation ? 'interrompu' : (e.message || String(e))) +
+          '. Tu peux le relancer a la main ci-dessus.</div>';
+      }
+    } catch (e) {
+      // Le reseau ne repond pas du tout. On ne le repete pas a chaque
+      // deplacement de carte — une fois suffit a comprendre.
+      log('detection du departement impossible', e);
+      if (!ui.autoDepPrevenu) {
+        ui.autoDepPrevenu = true;
+        ui.statutContours.innerHTML = '<div class="agn-stat agn-alerte">' +
+          '<b>Chargement automatique indisponible.</b> ' + esc(e.message || String(e)) +
+          '<br>Charge les contours a la main (selecteur de departements ci-dessus), ' +
+          'ou decoche l\'option dans les reglages.</div>';
+      }
+    } finally { autoEnCours = false; }
   }
 
   function communesDeLaVue() {
@@ -2817,8 +2951,10 @@
      la liste et deborde par le bas de l'ecran au lieu de faire defiler. */
   /* La fenetre descend desormais bas dans l'ecran : la liste des ecarts est
      longue, et chaque pixel gagne en hauteur est un coup d'ascenseur en moins. */
+  /* ⚠️ Hauteur fixee en JS d'apres les bornes MESUREES de la carte : un
+     calc(100vh - …) ignore le pied de page de WME (« Conditions | Mentions
+     legales | … », 20 px) et la fenetre passait dessus. */
   #agn-overlay{position:fixed;z-index:9000;width:400px;min-width:300px;min-height:200px;
-    height:calc(100vh - 130px);max-height:calc(100vh - 70px);
     background:#fff;border:1px solid #b0bec5;border-radius:8px;
     box-shadow:0 6px 26px rgba(0,0,0,.28);display:flex;flex-direction:column;
     font:12px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1f2933;
@@ -2897,6 +3033,8 @@
   .agn-dep{display:flex;align-items:center;gap:4px;font-size:11px;padding:1px 2px;cursor:pointer;border-radius:3px}
   .agn-dep:hover{background:#eceff1}
   .agn-dep code{color:#78909c;font-size:10px;min-width:20px}
+  .agn-dep-chip{display:inline-block;background:#2e7d32;color:#fff;border-radius:9px;
+    padding:0 6px;margin:1px 2px 0 0;font-size:10px;font-weight:700}
   .agn-dep span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .agn-poly{border:1px solid #ddd;border-radius:4px;padding:6px;margin:5px 0;background:#fafafa}
   .agn-poly input[type=text]{width:100%;box-sizing:border-box;margin:2px 0;padding:3px 5px;font-size:12px}
@@ -3059,6 +3197,66 @@
   `;
 
   function el(html) { const d = document.createElement('div'); d.innerHTML = html.trim(); return d.firstChild; }
+
+  /**
+   * Ou la fenetre a le droit de vivre. Tout est MESURE, rien n'est suppose —
+   * les trois bords se deplacent selon l'ecran et l'etat de WME :
+   *  - a GAUCHE, le volet lateral de WME (bandeau d'icones, panneau d'edition
+   *    ouvert) : `#WazeMap` commence a 95 px replie, 264 ouvert (mesure).
+   *  - a DROITE, la colonne de boutons (calques, permalien, scripts) : la
+   *    fenetre se range a SA gauche, sinon elle masque le bouton du script.
+   *  - en BAS, le pied de page de WME (« Conditions | Mentions legales… »,
+   *    20 px) : la fenetre ne doit pas passer dessus (remarque de l'auteur).
+   */
+  function bornesCarte() {
+    const carte = document.querySelector('#WazeMap') || document.querySelector('.olMapViewport');
+    const b = carte ? carte.getBoundingClientRect()
+                    : { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
+    const pied = document.querySelector('.wz-map-ol-footer');
+    const hPied = pied ? pied.getBoundingClientRect().height : 22;
+    const col = document.querySelector('.overlay-buttons-container.top') ||
+                document.querySelector('.overlay-buttons-container');
+    const droite = col ? col.getBoundingClientRect().left - 12 : b.right - 64;
+    return {
+      gauche: Math.round(b.left) + 8,
+      droite: Math.round(droite),
+      haut: Math.round(b.top) + 8,
+      bas: Math.round(b.bottom - hPied - 6)
+    };
+  }
+
+  /**
+   * Place et dimensionne la fenetre en la RAMENANT dans les bornes.
+   * ⚠️ Une position memorisee n'est pas parole d'evangile : l'auteur a vu la
+   * fenetre s'ouvrir « tout a gauche, par-dessus le volet de WME ». Une
+   * position hors bornes n'est donc pas conservee — on la recale, et si elle
+   * mord sur le volet gauche on repart de la position par defaut (a droite).
+   */
+  function placerFenetre(x, y, h) {
+    const o = ui.overlay;
+    if (!o) return;
+    const z = bornesCarte();
+    const larg = o.offsetWidth || 400;
+    const hMax = Math.max(240, z.bas - z.haut);
+    // ⚠️ `memo` est LOCAL a buildOverlay : on relit le stockage plutot que de
+    // le capturer (ReferenceError vecu a la premiere ecriture de cette
+    // fonction — et `node --check` ne voit pas un symbole absent).
+    const uiV = (lire(STORE_UI, {}) || {}).uiV || 0;
+    const haut = Math.min(h && h >= 260 && uiV >= 3 ? h : hMax, hMax);
+    o.style.height = haut + 'px';
+    // Position par defaut : collee a droite, sous la barre d'outils.
+    const defX = Math.max(z.gauche, z.droite - larg);
+    const defY = z.haut;
+    let px = (x == null || isNaN(x)) ? defX : x;
+    let py = (y == null || isNaN(y)) ? defY : y;
+    // ⚠️ Mordre sur le volet gauche de WME = position refusee, pas rabotee :
+    // l'editeur l'avait forcement posee la par accident.
+    if (px < z.gauche) px = defX;
+    px = Math.min(px, Math.max(z.gauche, z.droite - larg));
+    py = Math.min(Math.max(py, z.haut), Math.max(z.haut, z.bas - haut));
+    o.style.left = Math.round(px) + 'px';
+    o.style.top = Math.round(py) + 'px';
+  }
   const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 
   function buildOverlay() {
@@ -3168,41 +3366,22 @@
         replierSection(sec.dataset.s, sec.classList.contains('agn-ferme'));
     });
 
-    // position / taille memorisees
-    // Par defaut la fenetre se range a DROITE, sous la barre d'outils, du meme
-    // cote que le bouton flottant. La position choisie par l'editeur prime,
-    // mais on la rejette si elle tombe hors de l'ecran : une taille d'ecran a
-    // pu changer depuis, et une fenetre invisible passe pour un script casse.
-    const largeur = memo.w || 400;
-    // La colonne d'icones de WME (calques, permalien, boutons de scripts) occupe
-    // le bord droit : on se range a SA gauche, sinon la fenetre passe dessus.
-    const col = document.querySelector('.overlay-buttons-container.top') ||
-                document.querySelector('.overlay-buttons-container');
-    const reserve = col ? (window.innerWidth - col.getBoundingClientRect().left + 12) : 76;
-    const parDefaut = { x: Math.max(0, window.innerWidth - largeur - reserve), y: 90 };
-    let x = memo.x != null ? memo.x : parDefaut.x;
-    let y = memo.y != null ? memo.y : parDefaut.y;
-    if (x < 0 || y < 0 || x > window.innerWidth - 120 || y > window.innerHeight - 60) {
-      x = parDefaut.x; y = parDefaut.y;
-    }
-    o.style.left = x + 'px';
-    o.style.top = y + 'px';
-    // On borne la hauteur memorisee : l'ecran a pu retrecir depuis, ou la
-    // fenetre avoir ete etiree au-dela quand la liste la poussait encore.
-    // ⚠️ `uiV` marque la refonte de la v1.70 : la fenetre descend desormais
-    // bien plus bas, et une hauteur memorisee sous l'ancienne mise en page
-    // annulerait tout le benefice. On ne reprend donc la hauteur enregistree
-    // que si elle a ete choisie APRES la refonte.
-    // ⚠️ Une taille ABERRANTE (fenetre repliee enregistree par erreur, ecran
-    // reduit depuis) n'est pas rattrapee au plancher mais simplement IGNOREE :
-    // on rend alors la taille par defaut, la seule confortable. Rattraper au
-    // minimum laisserait l'editeur avec une fenetre riquiqui sans qu'il
-    // comprenne pourquoi.
-    if (memo.h && memo.uiV >= 2 && memo.h >= 260) {
-      o.style.height = Math.min(memo.h, window.innerHeight - 70) + 'px';
-    }
-    if (memo.w && memo.w >= 300) o.style.width = Math.min(memo.w, window.innerWidth - 40) + 'px';
+    // position / taille memorisees, bornees aux limites MESUREES de la carte
+    const largeur = Math.max(300, Math.min(memo.w || 400, bornesCarte().droite - bornesCarte().gauche));
+    o.style.width = largeur + 'px';
+    placerFenetre(memo.x, memo.y, memo.h);
     if (memo.ouvert === false) o.style.display = 'none';
+    // L'ecran peut changer sous nos pieds (fenetre redimensionnee, panneau
+    // d'edition de WME ouvert) : on se remet dans les clous plutot que de
+    // laisser la fenetre a cheval sur le pied de page ou sous le volet gauche.
+    window.addEventListener('resize', () => {
+      clearTimeout(ui.tEcran);
+      ui.tEcran = setTimeout(() => {
+        if (o.style.display === 'none' || o.classList.contains('agn-replie')) return;
+        placerFenetre(parseInt(o.style.left, 10), parseInt(o.style.top, 10), o.offsetHeight);
+        placerVolet();
+      }, 250);
+    });
 
     // Volet des donnees : ouvert d'office tant qu'il n'y a pas de contours, car
     // c'est par la qu'il faut commencer ; referme des que le travail est pret.
@@ -3271,8 +3450,11 @@
     });
     document.addEventListener('mousemove', e => {
       if (!drag) return;
-      const x = Math.min(Math.max(0, e.clientX - drag.dx), window.innerWidth - 120);
-      const y = Math.min(Math.max(0, e.clientY - drag.dy), window.innerHeight - 40);
+      // Meme regle a la souris qu'au demarrage : la fenetre ne va pas se ranger
+      // sous le volet gauche de WME ni sur son pied de page.
+      const z = bornesCarte();
+      const x = Math.min(Math.max(z.gauche, e.clientX - drag.dx), Math.max(z.gauche, z.droite - 120));
+      const y = Math.min(Math.max(z.haut, e.clientY - drag.dy), Math.max(z.haut, z.bas - 40));
       o.style.left = x + 'px'; o.style.top = y + 'px';
       placerVolet();                    // le volet reste colle a la fenetre
       e.preventDefault();
@@ -3432,6 +3614,11 @@
         <div id="agn-r-couleurs"></div>
         <button class="agn-sb-b" id="agn-r-reset">Couleurs par defaut</button>
 
+        <h4>Contours communaux</h4>
+        <label class="agn-sb-c" title="Interroge geo.api.gouv.fr pour savoir quel departement est sous les yeux, et telecharge ses contours s'ils manquent."><input type="checkbox" id="agn-r-autodep">
+          Charger tout seul le departement visible</label>
+        <div class="agn-sb-n">Les contours se cumulent : charger un departement n'efface pas les autres.</div>
+
         <h4>Correction</h4>
         <div class="agn-sb-n" id="agn-r-droits"></div>
 
@@ -3468,6 +3655,9 @@
     });
     coche('#agn-r-zoom', 'zoomClic');
     coche('#agn-r-surligner', 'surligner', () => redrawEcarts(null));
+    // Recocher la case doit tenter TOUT DE SUITE : l'editeur vient d'exprimer
+    // son besoin, il n'a pas a bouger la carte pour que ca se declenche.
+    coche('#agn-r-autodep', 'autoDep', () => { if (options.autoDep) autoChargerDepartement(); });
 
     const zn = q('#agn-r-zoomniv');
     zn.value = options.zoomNiveau;
@@ -3520,7 +3710,13 @@
 
   function ouvrirOverlay() {
     ui.overlay.style.display = '';
-    ui.overlay.style.left = Math.min(parseInt(ui.overlay.style.left, 10) || 0, window.innerWidth - 200) + 'px';
+    // On reprend la position d'avant la fermeture, mais recalee : WME a pu
+    // ouvrir son panneau d'edition entre-temps, ou l'ecran changer de taille.
+    placerFenetre(parseInt(ui.overlay.style.left, 10), parseInt(ui.overlay.style.top, 10),
+                  ui.overlay.offsetHeight);
+    // Meme regle qu'au demarrage : sans commune en cours, on montre par ou
+    // commencer plutot que d'ouvrir une fenetre vide.
+    if (!communes.length || !communeActive) basculerVolet(true);
     repeindreCarte();
     saveUI(); majFab();
   }
@@ -3640,13 +3836,29 @@
   }
 
   function renderContours() {
-    if (!metaContours) {
+    if (!metaContours || !communes.length) {
       ui.statutContours.innerHTML = '<div class="agn-empty">Aucun contour charge. ' +
-        'Fabrique le fichier avec Recuperer-Communes.html.</div>';
+        (options.autoDep
+          ? 'Deplace-toi sur ta zone : le departement se telecharge tout seul.'
+          : 'Coche un departement ci-dessus, ou charge un fichier GeoJSON.') + '</div>';
       return;
     }
+    // On liste les DEPARTEMENTS en base, pas le dernier fichier charge : depuis
+    // que les contours se cumulent, « dep. 11 » ne dit plus ce qu'on a sous la
+    // main. L'editeur doit voir qu'il possede deja le 30 et le 34.
+    const deps = (metaContours.deps && metaContours.deps.length) ? metaContours.deps : depsCharges();
+    const noms = deps.map(d => {
+      const dd = DEPARTEMENTS.find(x => x.code === d);
+      return '<span class="agn-dep-chip" title="' + esc(dd ? dd.nom : d) + '">' + esc(d) + '</span>';
+    }).join('');
     ui.statutContours.innerHTML = `<div class="agn-stat agn-ok">
-      <b>${metaContours.nb}</b> commune(s) — <span style="opacity:.75">${esc(metaContours.nom)}</span></div>`;
+        <b>${communes.length}</b> commune(s) en base — ${deps.length} departement(s) : ${noms}</div>
+      <button class="agn-lien" id="agn-vider">tout vider</button>`;
+    const v = ui.statutContours.querySelector('#agn-vider');
+    if (v) v.onclick = () => {
+      if (confirm('Vider tous les contours en base (' + communes.length + ' communes) ?\n\n' +
+        'Les agglomerations tracees, elles, sont conservees : elles sont rangees par code INSEE.')) viderContours();
+    };
   }
 
   function renderAgglos() {
@@ -4167,16 +4379,28 @@
     rafraichirCommunesDeLaVue();
     renderAgglos();
     if (ui.overlay.style.display === 'none') nettoyerCarte();
-    // Rien a se mettre sous la dent : on ouvre le volet, c'est par la qu'on
-    // commence. Sinon on laisse toute la place au travail.
-    if (!communes.length) basculerVolet(true);
+    // ⚠️ Rien a se mettre sous la dent = volet OUVERT, pour montrer par ou
+    // commencer (demande de l'auteur, 22/07). « Rien » ne veut pas seulement
+    // dire « aucun contour » : tant qu'aucune commune n'est choisie, il n'y a
+    // pas de travail possible, et une fenetre vide avec un bouton grise
+    // n'explique rien. Des qu'une commune est en cours, on rend la place.
+    if (!communes.length || !communeActive) basculerVolet(true);
 
     let debounce = null;
     try {
       sdk.Events.on({ eventName: 'wme-map-move-end', eventHandler: () => {
-        clearTimeout(debounce); debounce = setTimeout(rafraichirCommunesDeLaVue, 400);
+        clearTimeout(debounce);
+        debounce = setTimeout(() => {
+          rafraichirCommunesDeLaVue();
+          // ⚠️ Apres le rafraichissement, pas avant : si les contours sont deja
+          // la, il n'y a rien a telecharger et rien ne part sur le reseau.
+          autoChargerDepartement().then(rafraichirCommunesDeLaVue);
+        }, 700);
         dessinerPoignees(); } });
     } catch (e) { log('abonnement au deplacement impossible', e); }
+
+    // Au demarrage aussi : l'editeur arrive souvent deja pose sur sa zone.
+    autoChargerDepartement().then(rafraichirCommunesDeLaVue);
 
     log('v' + VERSION + ' pret — fenetre flottante — ' +
       (communes.length ? communes.length + ' commune(s)' : 'aucun contour'));
