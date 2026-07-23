@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.96
+// @version      1.97
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -39,7 +39,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '1.96';
+    return '1.97';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -933,6 +933,13 @@
     return communes.filter(c => bboxIntersecte(c.bbox, ext)).sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
   }
 
+  /** Contours plies, sauf s'il n'y a aucune commune a proposer dans la vue. */
+  function replierContoursSelonListe() {
+    const muette = !communes.length ||
+      !ui.selCommune || ui.selCommune.options.length <= 1;
+    replierSection('contours', muette);
+  }
+
   function rafraichirCommunesDeLaVue() {
     if (!ui.selCommune) return;
     const liste = communesDeLaVue();
@@ -943,6 +950,7 @@
     else if (communeActive) { communeActive = null; oublierPanneaux(); redrawCommune(); }
     ui.nbCommunes.textContent = communes.length
       ? liste.length + ' commune(s) dans la vue sur ' + communes.length : '';
+    replierContoursSelonListe();
     renderAgglos();
   }
 
@@ -1597,13 +1605,14 @@
     if (!b.zones) {
       lignes.push('Aucun polygone trace : rien a confronter pour l\'instant.');
     } else {
-      lignes.push('✅ <b>' + b.dedans.length + '</b> a l\'interieur d\'un polygone · ' +
-        '⚠ <b>' + b.dehors.length + '</b> a l\'exterieur.');
-      if (b.dehors.length) {
-        const d = b.dehors.map(f => Math.round(f.zone ? f.zone.d : 0)).sort((x, y) => x - y);
-        lignes.push('Les panneaux hors polygone sont a ' + d[0] + ' m a ' +
-          d[d.length - 1] + ' m du bord le plus proche : le trace s\'arrete peut-etre trop tot.');
-      }
+      // ⚠️ Le decompte « n dedans / n dehors » et les distances au bord ont ete
+      // retires a la demande de l'auteur (23/07) : ils n'apprennent rien
+      // d'actionnable, et ils sont devenus trompeurs depuis que le trace passe
+      // PAR les panneaux — un point pile sur le bord bascule d'un cote ou de
+      // l'autre selon l'arrondi, d'ou des « 0 m » absurdes. Ce qui compte,
+      // c'est de regarder si le trace englobe le bati.
+      lignes.push('Verifie que le trace englobe bien les habitations de ' +
+        'l\'agglomeration, et ajuste-le aux poignees (✎) si besoin.');
     }
     if (b.tronque) {
       lignes.push('⚠️ <b>Releve peut-etre incomplet</b> : une zone rendait le maximum ' +
@@ -1631,6 +1640,29 @@
   }
 
   /**
+   * Alimente la liste de suggestions partagee par l'etiquette du volet et la
+   * boite de nommage. Un `datalist` PROPOSE sans enfermer : l'editeur choisit
+   * dans les villes que WME connait, ou tape ce qu'il veut — c'est la demande
+   * de l'auteur (« saisie manuelle qui doit rester possible »).
+   * ⚠️ Elle vit dans le `body` : la boite de dialogue et le volet sont dans
+   * deux arbres differents, un `datalist` local ne servirait qu'a l'un des deux.
+   */
+  function majDatalistVilles() {
+    let dl = document.getElementById('agn-villes-wme');
+    if (!dl) {
+      dl = document.createElement('datalist');
+      dl.id = 'agn-villes-wme';
+      document.body.appendChild(dl);
+    }
+    const commune = communeActive ? communeActive.nom : null;
+    const villes = villesDeWME();
+    // La commune elle-meme en tete : c'est le cas du bourg principal.
+    const choix = commune ? [commune, ...villes.filter(v => v !== commune)] : villes;
+    dl.innerHTML = choix.map(v => '<option value="' + esc(v) + '"></option>').join('');
+    return choix;
+  }
+
+  /**
    * Demande le nom d'un polygone propose. Rend `{label, rattache}` ou null.
    * ⚠️ Le format « Village (Commune) » coche tout seul « village rattache » :
    * c'est ce format, et lui seul, qui change la ville appliquee par l'analyse.
@@ -1638,9 +1670,7 @@
   function demanderNomAgglo(prop, rang, total) {
     return new Promise(resolve => {
       const commune = communeActive.nom;
-      const villes = villesDeWME();
-      // La commune elle-meme en tete : c'est le cas du bourg principal.
-      const choix = [commune, ...villes.filter(v => v !== commune)];
+      majDatalistVilles();
       const boite = el(`
         <div id="agn-modale">
           <div class="agn-modale-in">
@@ -1656,9 +1686,10 @@
               L'etiquette sert de repere. Le format
               <b>Village (Commune)</b> est le seul qui change la ville appliquee.
             </div>
-            <select class="agn-sel" id="agn-na-sel">
-              ${choix.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('')}
-            </select>
+            <input type="text" class="agn-sel" id="agn-na-sel" list="agn-villes-wme"
+                   value="${esc(commune)}" autocomplete="off"
+                   placeholder="Choisis une ville, ou saisis un nom">
+            <div class="agn-note" id="agn-na-apercu"></div>
             <label class="agn-sb-c"><input type="checkbox" id="agn-na-rat">
               Village rattache (ville = « Village (Commune) »)</label>
             <button class="agn-btn primary" id="agn-na-ok">Creer ce polygone</button>
@@ -1671,11 +1702,33 @@
       ['keydown', 'keypress', 'keyup'].forEach(ev =>
         boite.addEventListener(ev, e => e.stopPropagation()));
       const sel = boite.querySelector('#agn-na-sel'), rat = boite.querySelector('#agn-na-rat');
-      const majRat = () => { rat.checked = /\s\(.+\)\s*$/.test(sel.value); };
-      sel.onchange = majRat; majRat();
+      const apercu = boite.querySelector('#agn-na-apercu');
+      /**
+       * ⚠️ « Le script ne me propose pas de choisir la Commune de » (auteur,
+       * 23/07, sur Gruissan-Les Ayguades). Un village rattache s'ecrit
+       * « Village (Commune) », et c'est la COMMUNE INSEE qui va entre
+       * parentheses — l'editeur n'a donc a choisir QUE le village, le reste
+       * se compose tout seul. Il peut taper un nom qui n'existe pas encore
+       * dans WME : la liste propose, elle n'enferme pas.
+       */
+      const composer = () => {
+        const brut = sel.value.trim();
+        if (!rat.checked) return brut;
+        const village = brut.replace(/\s*\(.*\)\s*$/, '').trim();   // « X (Y) » → « X »
+        return village && village !== commune ? village + ' (' + commune + ')' : commune;
+      };
+      const maj = () => {
+        apercu.textContent = rat.checked
+          ? 'Ville appliquee : ' + composer()
+          : 'Ville appliquee : ' + (sel.value.trim() || commune);
+      };
+      // Un nom deja au format « X (Y) » coche la case tout seul.
+      sel.oninput = () => { if (/\s\(.+\)\s*$/.test(sel.value)) rat.checked = true; maj(); };
+      rat.onchange = maj;
+      maj();
       const finir = v => { boite.remove(); resolve(v); };
       boite.querySelector('#agn-na-ok').onclick =
-        () => finir({ label: sel.value, rattache: rat.checked });
+        () => finir({ label: composer(), rattache: rat.checked });
       boite.querySelector('#agn-na-skip').onclick = () => finir({ passe: true });
       boite.querySelector('#agn-na-stop').onclick = () => finir(null);
     });
@@ -2946,7 +2999,8 @@
     replierTout();                 // l'analyse prend toute la place
     findings = [];
     const skipped = { horsRegle: 0, sansAdresse: 0, horsCommune: 0, sansGeom: 0 };
-    const zones = { agglo: 0, hors: 0, cheval: 0, limCom: 0, limitrophe: 0, cartouche: 0, special: 0, giratoire: 0 };
+    const zones = { agglo: 0, hors: 0, cheval: 0, limCom: 0, limitrophe: 0, cartouche: 0, special: 0, giratoire: 0,
+                    villes: new Map() };
     const c = options.controles;
     const dejaVus = new Set();     // un segment vu dans deux cellules ne compte qu'une fois
     // Cartouche sur le nom principal : jugement de VOIE, pas de segment. On
@@ -3063,6 +3117,19 @@
 
       const enAgglo = loc.partAgglo >= haut;
       if (enAgglo) zones.agglo++; else zones.hors++;
+
+      // ⚠️⚠️ VILLE PORTEE PAR LE NOM PRINCIPAL = « ce segment se dit en agglo ».
+      // C'est la regle FR : en agglomeration la ville est renseignee sur le
+      // principal, hors agglomeration le principal n'en a pas. On tient donc
+      // le compte, par ville, des segments qui l'annoncent et de ceux qui
+      // tombent vraiment dans un polygone — voir `villesSansPolygone`.
+      const villePrincipale = nam.primary && nam.primary.cityName;
+      if (villePrincipale) {
+        let v = zones.villes.get(villePrincipale);
+        if (!v) { v = { total: 0, dansPolygone: 0 }; zones.villes.set(villePrincipale, v); }
+        v.total++;
+        if (enAgglo) v.dansPolygone++;
+      }
 
       const exp = REF.etatCible(nam, enAgglo ? loc.agglo : null, communeActive.nom);
       const ecartsNom = c.nommageZone ? diffNaming(nam, exp) : [];
@@ -4126,6 +4193,10 @@
   .agn-sb-col{display:flex;align-items:center;gap:7px;margin:4px 0;cursor:pointer}
   .agn-sb-col input{width:34px;height:22px;padding:0;border:1px solid #ccc;border-radius:3px;background:none;cursor:pointer}
   .agn-sb-n{font-size:11px;color:#e65100;min-height:14px;margin-top:4px}
+  /* Alerte de zonage : elle doit se voir AVANT qu'on lise les reports, sinon
+     l'editeur corrige de travers sans savoir que le zonage est incomplet. */
+  .agn-alerte-bloc{margin:6px 0;padding:8px 10px;border-radius:6px;font-size:12px;
+    background:#fff3e0;border:1px solid #ffb74d;color:#5d4037;line-height:1.45}
   /* « Segments : ☑ tableau ☑ carte » sur une seule ligne : deux cases par
      famille tiendraient mal sur deux lignes chacune dans un panneau etroit. */
   .agn-sb-oc{display:flex;align-items:center;gap:10px;margin:4px 0;font-size:12px}
@@ -4288,6 +4359,8 @@
             <div class="agn-sect-t"><span class="agn-chev">▾</span><b>3. Agglomeration</b>
               <span class="agn-sect-r"></span></div>
             <div class="agn-sect-c">
+              <div class="agn-sb-n" id="agn-voies">Trois facons d'obtenir le zonage :
+                tracer a la main, regarder les panneaux, ou partir d'un trace propose.</div>
               <button class="agn-btn" id="agn-tracer" disabled>＋ Tracer l'agglomeration</button>
               <button class="agn-btn" id="agn-panneaux" disabled title="Recupere les panneaux EB10 / EB20 (entree et sortie d'agglomeration) et les confronte aux polygones traces.">🪧 Panneaux d'agglomeration</button>
               <button class="agn-btn" id="agn-pretrace" disabled title="Fabrique un polygone par groupe d'entrees d'agglomeration. Trace grossier, a ajuster aux poignees.">✏️ Proposer un trace</button>
@@ -4759,6 +4832,11 @@
     // Meme regle qu'au demarrage : sans commune en cours, on montre par ou
     // commencer plutot que d'ouvrir une fenetre vide.
     if (!communes.length || !communeActive) basculerVolet(true);
+    // ⚠️ Les contours prennent beaucoup de place pour une etape qu'on ne refait
+    // presque jamais (demande de l'auteur, 23/07) : la section reste PLIEE.
+    // Seule exception, la seule qui compte : la liste des communes de la vue
+    // est vide — la ou il faut agir est alors precisement la, sous les yeux.
+    replierContoursSelonListe();
     repeindreCarte();
     saveUI(); majFab();
   }
@@ -4935,11 +5013,13 @@
       return;
     }
     majResumeSections();
+    majDatalistVilles();
     ui.listeAgglos.innerHTML = '';
     liste.forEach((a, i) => {
       const node = el(`
         <div class="agn-poly">
-          <input type="text" class="agn-label" title="Simple etiquette de reperage : elle n'entre PAS dans l'analyse"
+          <input type="text" class="agn-label" list="agn-villes-wme"
+                 title="Choisis dans les villes que WME connait, ou saisis librement."
                  placeholder="Etiquette (reperage seul)" value="${esc(a.label)}">
           <div class="agn-row">
             <label><input type="checkbox" class="agn-ratt" ${a.rattache ? 'checked' : ''}> village rattache</label>
@@ -5249,6 +5329,36 @@
       signaler, le script doit etre adapte.</div>`;
   }
 
+  /**
+   * ⚠️⚠️ UNE VILLE WAZE SANS POLYGONE FAUSSE TOUT — alerte demandee par
+   * l'auteur (23/07). Une ville portee par le NOM PRINCIPAL d'un segment
+   * signifie « ce segment se dit en agglomeration » (regle FR : hors agglo, le
+   * principal n'a pas de ville). Si aucun des segments qui portent cette ville
+   * ne tombe dans un polygone, c'est qu'il MANQUE un polygone : tous ces
+   * segments vont passer pour hors agglomeration, les ecarts seront faux, et —
+   * bien pire — le script proposera de les « corriger » dans le mauvais sens.
+   * Meme famille que le blindage de la v1.70, mais sur les agglos SECONDAIRES,
+   * que le garde-fou « aucun polygone du tout » ne voyait pas.
+   */
+  function villesSansPolygone() {
+    if (!lastScan || !lastScan.zones || !lastScan.zones.villes) return [];
+    return [...lastScan.zones.villes.entries()]
+      .filter(([, v]) => v.dansPolygone === 0)
+      .map(([nom, v]) => ({ nom, total: v.total }))
+      .sort((a, b) => b.total - a.total);
+  }
+
+  function bandeauVillesSansPolygone() {
+    const manquantes = villesSansPolygone();
+    if (!manquantes.length) return '';
+    return '<div class="agn-alerte-bloc">⚠️ <b>Il manque au moins un polygone.</b><br>' +
+      manquantes.map(v => '« <b>' + esc(v.nom) + '</b> » est portee par ' + v.total +
+        ' segment(s), dont <b>aucun</b> n\'est dans un polygone.').join('<br>') +
+      '<br>Ces segments se declarent en agglomeration, mais le zonage les place ' +
+      'dehors : <b>les ecarts les concernant sont faux, et les corrections proposees ' +
+      'iraient dans le mauvais sens</b>. Trace le polygone manquant, puis relance.</div>';
+  }
+
   function renderResults() {
     const s = lastScan;
     // Chaque onglet ne montre QUE ses propres reports, et son propre bilan :
@@ -5267,7 +5377,7 @@
           z.special ? ' · ' + z.special + ' voie(s) a regle propre' : ''}${
           z.giratoire ? ' · ' + z.giratoire + ' giratoire(s)' : ''}.<br>
         Ignores : ${s.skipped.horsCommune} hors commune, ${s.skipped.sansAdresse} sans adressage, ${s.skipped.horsRegle} regles propres.
-      </div>${bandeauInterrompu()}${bandeauSource()}`
+      </div>${bandeauVillesSansPolygone()}${bandeauInterrompu()}${bandeauSource()}`
         : `<div class="agn-stat">
         ${s.adr ? '<b>' + s.adr.hnLus + '</b> numero(s) lu(s) a ' + esc(communeActive.nom) +
             ', dont <b>' + s.adr.hnHorsAgglo + '</b> hors agglomeration.<br><b>' +
@@ -5277,7 +5387,7 @@
               ? '<br><span style="opacity:.8">La conversion cadre elle-meme sur les numeros : ' +
                 'WME ne les charge qu\'a partir du zoom ' + ZOOM_NUMEROS + '.</span>' : '')
           : 'Analyse non lancee.'}
-      </div>${bandeauInterrompu()}${bandeauSource()}`;
+      </div>${bandeauVillesSansPolygone()}${bandeauInterrompu()}${bandeauSource()}`;
     }
     ui.results.innerHTML = '';
     indexCourant = -1;
