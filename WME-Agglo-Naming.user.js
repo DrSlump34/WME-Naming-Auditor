@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.94
+// @version      1.95
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -39,7 +39,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '1.94';
+    return '1.95';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -1370,9 +1370,151 @@
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // PRE-TRACE d'un polygone a partir des panneaux
+  //
+  // ⚠️⚠️ CE QUE CE POLYGONE EST, ET CE QU'IL N'EST PAS. Les panneaux ne sont
+  // poses que SUR LES ROUTES : ils donnent les « portes » de l'agglomeration,
+  // pas son pourtour. Entre deux routes, la ligne est INVENTEE par le calcul.
+  // Le trace obtenu est donc un BROUILLON a corriger aux poignees — l'auteur
+  // l'a acte le 23/07 (« le polygone sera grossier entre 2 panneaux, c'est a
+  // l'utilisateur de tirer les poignees pour le parfaire »). Il ne doit jamais
+  // etre presente comme un contour valide, et l'interface le dit a chaque fois.
+  // ---------------------------------------------------------------------------
+
+  const R_TERRE = 6378137;
+  /** Repere metrique local : les calculs d'enveloppe et de distance n'ont aucun
+   *  sens en degres (un degre de longitude vaut 0,73 degre de latitude ici). */
+  const versM = (ref) => {
+    const kLon = 111320 * Math.cos(ref.lat * Math.PI / 180), kLat = 110540;
+    return {
+      aller: p => [(p[0] - ref.lon) * kLon, (p[1] - ref.lat) * kLat],
+      retour: p => [ref.lon + p[0] / kLon, ref.lat + p[1] / kLat]
+    };
+  };
+  const dist2 = (a, b) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2;
+
+  /** Enveloppe convexe (parcours monotone d'Andrew), points en metres. */
+  function hullConvexe(pts) {
+    if (pts.length < 3) return pts.slice();
+    const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const croix = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    const moitie = liste => {
+      const out = [];
+      for (const q of liste) {
+        while (out.length >= 2 && croix(out[out.length - 2], out[out.length - 1], q) <= 0) out.pop();
+        out.push(q);
+      }
+      out.pop();
+      return out;
+    };
+    return moitie(p).concat(moitie(p.slice().reverse()));
+  }
+
+  /** Ecarte chaque sommet du centre : l'agglomeration deborde toujours un peu
+   *  ses panneaux, et un polygone qui passe pile dessus laisserait les maisons
+   *  du bord dehors. */
+  function dilater(ring, metres) {
+    const cx = ring.reduce((s, p) => s + p[0], 0) / ring.length;
+    const cy = ring.reduce((s, p) => s + p[1], 0) / ring.length;
+    return ring.map(p => {
+      const dx = p[0] - cx, dy = p[1] - cy, d = Math.hypot(dx, dy) || 1;
+      return [p[0] + dx / d * metres, p[1] + dy / d * metres];
+    });
+  }
+
+  /** Cercle approche par 16 cotes — pour les clusters trop petits pour avoir
+   *  une enveloppe (une seule porte, ou deux portes alignees). */
+  const cercle = (c, r, n) => Array.from({ length: n || 16 }, (_, i) => {
+    const a = 2 * Math.PI * i / (n || 16);
+    return [c[0] + r * Math.cos(a), c[1] + r * Math.sin(a)];
+  });
+
+  const PORTE_FUSION_M = 60;    // EB10 et EB20 du meme poteau : ~15 m mesures
+  const CLUSTER_SEUIL_M = 2000; // au-dela, deux agglomerations distinctes
+  const DILATATION_M = 150;
+
+  /**
+   * Des panneaux bruts aux polygones proposes.
+   * 1. les panneaux d'un meme poteau deviennent UNE porte (EB10 + EB20) ;
+   * 2. les portes proches se regroupent — une commune a souvent plusieurs
+   *    agglomerations (bourg + hameaux), il ne faut surtout pas toutes les
+   *    enfermer dans un seul polygone ;
+   * 3. chaque groupe donne une enveloppe convexe dilatee.
+   */
+  function proposerPolygones(fiches) {
+    if (!fiches.length) return [];
+    const ref = { lon: fiches[0].p.longitude, lat: fiches[0].p.latitude };
+    const proj = versM(ref);
+    const pts = fiches.map(f => ({ m: proj.aller([f.p.longitude, f.p.latitude]), f }));
+
+    // 1. portes
+    const portes = [];
+    for (const pt of pts) {
+      const prox = portes.find(g => dist2(g.m, pt.m) <= PORTE_FUSION_M ** 2);
+      if (prox) { prox.membres.push(pt); }
+      else portes.push({ m: pt.m, membres: [pt] });
+    }
+
+    // 2. clusters, par liaison simple
+    const groupes = [];
+    const restant = portes.slice();
+    while (restant.length) {
+      const g = [restant.shift()];
+      let bouge = true;
+      while (bouge) {
+        bouge = false;
+        for (let i = restant.length - 1; i >= 0; i--) {
+          if (g.some(x => dist2(x.m, restant[i].m) <= CLUSTER_SEUIL_M ** 2)) {
+            g.push(restant.splice(i, 1)[0]); bouge = true;
+          }
+        }
+      }
+      groupes.push(g);
+    }
+
+    // 3. enveloppes
+    return groupes.map((g, i) => {
+      const m = g.map(x => x.m);
+      let ring;
+      if (m.length >= 3) {
+        const h = hullConvexe(m);
+        // ⚠️ Des portes presque alignees (toutes sur la meme traversee, cas
+        // frequent d'un village-rue) rendent une enveloppe PLATE : un triangle
+        // filiforme, inutilisable meme comme brouillon. On compare donc l'aire
+        // reelle a celle de sa boite englobante — sous 15 %, le cercle est plus
+        // honnete qu'une echarde.
+        if (h.length >= 3) {
+          let aire = 0;
+          for (let k = 0, n = h.length; k < n; k++) {
+            const a = h[k], b = h[(k + 1) % n];
+            aire += a[0] * b[1] - b[0] * a[1];
+          }
+          aire = Math.abs(aire) / 2;
+          const lx = Math.max(...h.map(p => p[0])) - Math.min(...h.map(p => p[0]));
+          const ly = Math.max(...h.map(p => p[1])) - Math.min(...h.map(p => p[1]));
+          if (aire >= 0.15 * Math.max(1, lx * ly)) ring = dilater(h, DILATATION_M);
+        }
+      }
+      if (!ring) {
+        const cx = m.reduce((s, p) => s + p[0], 0) / m.length;
+        const cy = m.reduce((s, p) => s + p[1], 0) / m.length;
+        const r = Math.max(300, Math.sqrt(Math.max(...m.map(p => dist2([cx, cy], p)))) + DILATATION_M);
+        ring = cercle([cx, cy], r);
+      }
+      const anneau = ring.map(proj.retour);
+      anneau.push(anneau[0].slice());       // un anneau se referme
+      const centre = anneau.reduce((s, p) => [s[0] + p[0], s[1] + p[1]], [0, 0])
+        .map(v => v / anneau.length);
+      return { idx: i, portes: g.length, panneaux: g.reduce((s, x) => s + x.membres.length, 0),
+               ring: anneau, centre: { lon: centre[0], lat: centre[1] } };
+    }).sort((a, b) => b.portes - a.portes);   // le bourg (le plus de portes) d'abord
+  }
+
   /** Efface le releve courant : appele des que la commune change. */
   function oublierPanneaux() {
     panneaux = []; bilanPanneaux = null;
+    if (ui.btnPreTrace) ui.btnPreTrace.disabled = true;
     redrawPanneaux(); renderBilanPanneaux();
   }
 
@@ -1392,6 +1534,7 @@
       bilanPanneaux = { ...r, ...cl };
       redrawPanneaux();
       renderBilanPanneaux();
+      ui.btnPreTrace.disabled = !panneaux.length;
     } catch (e) {
       panneaux = []; bilanPanneaux = null;
       redrawPanneaux();
@@ -1437,6 +1580,125 @@
         'de resultats que l\'API accepte, meme decoupee au plus fin.');
     }
     z.innerHTML = lignes.join('<br>');
+  }
+
+  /**
+   * Les villes que WME connait dans la vue courante. ⚠️ C'est la demande
+   * expresse de l'auteur (23/07) : « il faut que WME parcoure la liste, en
+   * fonction de la vue, les communes existantes dans WME, et on demandera a
+   * l'utilisateur de choisir ». On ne fait donc PAS saisir un nom a la main —
+   * une faute de frappe se propagerait sur toute une agglomeration — et on ne
+   * l'invente pas davantage. Verifie en live sur Gruissan : la liste rend
+   * « Gruissan », « Gruissan-Plage (Gruissan) » et la ville vide.
+   */
+  function villesDeWME() {
+    try {
+      return (sdk.DataModel.Cities.getAll() || [])
+        .map(c => c && c.name).filter(n => n)     // la ville VIDE n'est pas un nom
+        .filter((n, i, t) => t.indexOf(n) === i)
+        .sort((a, b) => a.localeCompare(b, 'fr'));
+    } catch (e) { log('lecture des villes de WME impossible', e); return []; }
+  }
+
+  /**
+   * Demande le nom d'un polygone propose. Rend `{label, rattache}` ou null.
+   * ⚠️ Le format « Village (Commune) » coche tout seul « village rattache » :
+   * c'est ce format, et lui seul, qui change la ville appliquee par l'analyse.
+   */
+  function demanderNomAgglo(prop, rang, total) {
+    return new Promise(resolve => {
+      const commune = communeActive.nom;
+      const villes = villesDeWME();
+      // La commune elle-meme en tete : c'est le cas du bourg principal.
+      const choix = [commune, ...villes.filter(v => v !== commune)];
+      const boite = el(`
+        <div id="agn-modale">
+          <div class="agn-modale-in">
+            <div class="agn-modale-t">Polygone ${rang} / ${total} — quel nom ?</div>
+            <div class="agn-modale-c">
+              Ce trace vient de <b>${prop.portes}</b> entree(s) d'agglomeration
+              (${prop.panneaux} panneau(x)).
+              <div class="agn-modale-geo">
+                <div class="agn-d">⚠️ <b>Trace grossier</b> : les panneaux ne sont
+                  poses que sur les routes. Entre deux entrees, la ligne est
+                  calculee, pas relevee — <b>a corriger aux poignees</b> ensuite.</div>
+              </div>
+              L'etiquette sert de repere. Le format
+              <b>Village (Commune)</b> est le seul qui change la ville appliquee.
+            </div>
+            <select class="agn-sel" id="agn-na-sel">
+              ${choix.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('')}
+            </select>
+            <label class="agn-sb-c"><input type="checkbox" id="agn-na-rat">
+              Village rattache (ville = « Village (Commune) »)</label>
+            <button class="agn-btn primary" id="agn-na-ok">Creer ce polygone</button>
+            <button class="agn-btn" id="agn-na-skip">Passer celui-ci</button>
+            <button class="agn-btn" id="agn-na-stop">Tout arreter</button>
+          </div>
+        </div>`);
+      document.body.appendChild(boite);
+      boite.addEventListener('mousedown', e => e.stopPropagation());
+      ['keydown', 'keypress', 'keyup'].forEach(ev =>
+        boite.addEventListener(ev, e => e.stopPropagation()));
+      const sel = boite.querySelector('#agn-na-sel'), rat = boite.querySelector('#agn-na-rat');
+      const majRat = () => { rat.checked = /\s\(.+\)\s*$/.test(sel.value); };
+      sel.onchange = majRat; majRat();
+      const finir = v => { boite.remove(); resolve(v); };
+      boite.querySelector('#agn-na-ok').onclick =
+        () => finir({ label: sel.value, rattache: rat.checked });
+      boite.querySelector('#agn-na-skip').onclick = () => finir({ passe: true });
+      boite.querySelector('#agn-na-stop').onclick = () => finir(null);
+    });
+  }
+
+  /**
+   * Pre-trace : un polygone A LA FOIS, cadre sur la carte avant d'etre nomme.
+   * ⚠️ Deposer trois polygones anonymes d'un bloc serait ingerable — l'auteur
+   * a demande qu'on ne « s'emmele pas les pinceaux ». On montre donc chaque
+   * proposition la ou elle est, et on la nomme avant de passer a la suivante.
+   */
+  async function preTracerDepuisPanneaux() {
+    if (!communeActive) return;
+    const cl = classerPanneaux();
+    const fiches = cl ? [...cl.dedans, ...cl.dehors] : [];
+    if (!fiches.length) {
+      ui.bilanPanneaux.innerHTML = 'Aucun panneau releve : rien a proposer. ' +
+        'Lance d\'abord « 🪧 Panneaux d\'agglomeration ».';
+      return;
+    }
+    const props = proposerPolygones(fiches);
+    const vueAvant = { centre: sdk.Map.getMapCenter(), zoom: sdk.Map.getZoomLevel() };
+    let crees = 0;
+    try {
+      for (let i = 0; i < props.length; i++) {
+        const p = props[i];
+        // On MONTRE avant de demander : nommer un polygone qu'on ne voit pas
+        // n'a aucun sens.
+        try { sdk.Map.setMapCenter({ lonLat: p.centre, zoomLevel: 14 }); } catch (e) { /* */ }
+        agglos[communeActive.code] = agglos[communeActive.code] || [];
+        const apercu = { id: 'apercu', label: '(proposition)', rattache: false, ring: p.ring };
+        agglos[communeActive.code].push(apercu);
+        redrawAgglos();
+        const rep = await demanderNomAgglo(p, i + 1, props.length);
+        // L'apercu ne survit jamais a la reponse : il n'est pas une donnee.
+        const liste = agglos[communeActive.code];
+        liste.splice(liste.indexOf(apercu), 1);
+        if (rep === null) break;
+        if (rep.passe) { redrawAgglos(); continue; }
+        liste.push({ id: 'a' + Date.now() + '-' + i, label: rep.label,
+                     rattache: rep.rattache, ring: p.ring });
+        crees++;
+        saveAgglos(); redrawAgglos(); renderAgglos();
+      }
+    } finally {
+      redrawAgglos(); renderAgglos();
+      try { sdk.Map.setMapCenter({ lonLat: vueAvant.centre, zoomLevel: vueAvant.zoom }); } catch (e) { /* */ }
+      ui.bilanPanneaux.innerHTML = crees
+        ? '<b>' + crees + ' polygone(s) cree(s)</b> a partir de ' + props.length +
+          ' groupe(s) d\'entrees.<br>⚠️ <b>Ces traces sont grossiers</b> : ouvre chaque ' +
+          'polygone (✎) et tire les poignees pour les ajuster au terrain avant d\'analyser.'
+        : 'Aucun polygone cree.';
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -3998,6 +4260,7 @@
             <div class="agn-sect-c">
               <button class="agn-btn" id="agn-tracer" disabled>＋ Tracer l'agglomeration</button>
               <button class="agn-btn" id="agn-panneaux" disabled title="Recupere les panneaux EB10 / EB20 (entree et sortie d'agglomeration) et les confronte aux polygones traces.">🪧 Panneaux d'agglomeration</button>
+              <button class="agn-btn" id="agn-pretrace" disabled title="Fabrique un polygone par groupe d'entrees d'agglomeration. Trace grossier, a ajuster aux poignees.">✏️ Proposer un trace</button>
               <div id="agn-prog-panneaux"></div>
               <div id="agn-bilan-panneaux" class="agn-sb-n"></div>
               <div id="agn-agglos"></div>
@@ -4017,6 +4280,7 @@
     ui.btnTracer = o.querySelector('#agn-tracer');
     ui.listeAgglos = o.querySelector('#agn-agglos');
     ui.btnPanneaux = o.querySelector('#agn-panneaux');
+    ui.btnPreTrace = o.querySelector('#agn-pretrace');
     ui.progPanneaux = o.querySelector('#agn-prog-panneaux');
     ui.bilanPanneaux = o.querySelector('#agn-bilan-panneaux');
     ui.btnScan = o.querySelector('#agn-scan');
@@ -4064,6 +4328,7 @@
     brancherSources(o);
     ui.btnTracer.onclick = tracerAgglo;
     ui.btnPanneaux.onclick = releverPanneaux;
+    ui.btnPreTrace.onclick = preTracerDepuisPanneaux;
     // Le scan est asynchrone depuis qu'il lit les numeros de rue (aller-retour
     // serveur) : on verrouille le bouton le temps qu'il tourne, et on affiche
     // l'echec plutot que de laisser une promesse tomber en silence.
@@ -4611,6 +4876,7 @@
   function renderAgglos() {
     ui.btnTracer.disabled = !communeActive;
     ui.btnPanneaux.disabled = !communeActive;
+    if (ui.btnPreTrace) ui.btnPreTrace.disabled = !communeActive || !panneaux.length;
     if (!communeActive) {
       ui.btnScan.disabled = true;
       ui.listeAgglos.innerHTML = '<div class="agn-empty">Choisis une commune.</div>';
