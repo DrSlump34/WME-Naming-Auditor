@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.95
+// @version      1.96
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -39,7 +39,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '1.95';
+    return '1.96';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -1411,16 +1411,37 @@
     return moitie(p).concat(moitie(p.slice().reverse()));
   }
 
-  /** Ecarte chaque sommet du centre : l'agglomeration deborde toujours un peu
-   *  ses panneaux, et un polygone qui passe pile dessus laisserait les maisons
-   *  du bord dehors. */
-  function dilater(ring, metres) {
+  /**
+   * ⚠️⚠️ LE POLYGONE PASSE PAR LES PANNEAUX, ON N'Y TOUCHE PAS.
+   *
+   * Erreur de conception corrigee en v1.96 sur remarque de l'auteur (« le trace
+   * ne s'aligne pas aux panneaux »). La v1.95 ecartait chaque sommet de 150 m
+   * vers l'exterieur, au motif que le bati deborde ses entrees. **C'est faux et
+   * c'est meme contre-productif** : l'EB10 marque PRECISEMENT ou l'agglomeration
+   * commence sur cet axe. Un polygone pose 150 m plus loin fait passer pour
+   * « en agglo » des segments que le panneau declare hors agglo — soit
+   * exactement le genre d'ecart que ce script est cense trouver.
+   *
+   * Les sommets restent donc EXACTEMENT sur les portes. Seul le MILIEU de
+   * chaque cote est bombe vers l'exterieur : entre deux entrees, l'enveloppe
+   * convexe coupe en ligne droite a travers le bati (visible sur Coursan, au
+   * sud). Ce bombage-la est assume comme une approximation — il ne deplace
+   * aucun point releve, et il se corrige a la poignee.
+   */
+  function bomberCotes(ring, part, plafond) {
     const cx = ring.reduce((s, p) => s + p[0], 0) / ring.length;
     const cy = ring.reduce((s, p) => s + p[1], 0) / ring.length;
-    return ring.map(p => {
-      const dx = p[0] - cx, dy = p[1] - cy, d = Math.hypot(dx, dy) || 1;
-      return [p[0] + dx / d * metres, p[1] + dy / d * metres];
-    });
+    const out = [];
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i], b = ring[(i + 1) % ring.length];
+      out.push(a);                                   // le sommet releve, intact
+      const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+      const dx = mx - cx, dy = my - cy, d = Math.hypot(dx, dy);
+      if (!d) continue;
+      const pousse = Math.min(plafond, Math.hypot(b[0] - a[0], b[1] - a[1]) * part);
+      out.push([mx + dx / d * pousse, my + dy / d * pousse]);
+    }
+    return out;
   }
 
   /** Cercle approche par 16 cotes — pour les clusters trop petits pour avoir
@@ -1432,7 +1453,12 @@
 
   const PORTE_FUSION_M = 60;    // EB10 et EB20 du meme poteau : ~15 m mesures
   const CLUSTER_SEUIL_M = 2000; // au-dela, deux agglomerations distinctes
-  const DILATATION_M = 150;
+  // Bombage des cotes seulement (les sommets ne bougent pas) : 15 % de la
+  // longueur du cote, jamais plus de 250 m.
+  const BOMBAGE_PART = 0.15, BOMBAGE_MAX_M = 250;
+  // Rayon minimal quand une agglomeration n'a qu'UNE porte : on ne sait rien de
+  // son etendue, il faut bien poser quelque chose de visible a ajuster.
+  const RAYON_MINI_M = 300;
 
   /**
    * Des panneaux bruts aux polygones proposes.
@@ -1493,13 +1519,17 @@
           aire = Math.abs(aire) / 2;
           const lx = Math.max(...h.map(p => p[0])) - Math.min(...h.map(p => p[0]));
           const ly = Math.max(...h.map(p => p[1])) - Math.min(...h.map(p => p[1]));
-          if (aire >= 0.15 * Math.max(1, lx * ly)) ring = dilater(h, DILATATION_M);
+          if (aire >= 0.15 * Math.max(1, lx * ly)) ring = bomberCotes(h, BOMBAGE_PART, BOMBAGE_MAX_M);
         }
       }
       if (!ring) {
         const cx = m.reduce((s, p) => s + p[0], 0) / m.length;
         const cy = m.reduce((s, p) => s + p[1], 0) / m.length;
-        const r = Math.max(300, Math.sqrt(Math.max(...m.map(p => dist2([cx, cy], p)))) + DILATATION_M);
+        // ⚠️ Meme regle : le cercle passe PAR la porte la plus eloignee, on ne
+        // lui ajoute rien. Avec une seule porte il n'y a aucune etendue connue,
+        // d'ou le rayon minimal — et c'est le seul cas ou le trace est invente
+        // de bout en bout.
+        const r = Math.max(RAYON_MINI_M, Math.sqrt(Math.max(...m.map(p => dist2([cx, cy], p)))));
         ring = cercle([cx, cy], r);
       }
       const anneau = ring.map(proj.retour);
