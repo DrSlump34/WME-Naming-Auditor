@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.98
+// @version      1.99
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -39,7 +39,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '1.98';
+    return '1.99';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -1018,11 +1018,16 @@
         layerName: LAYER_ADRESSES,
         styleContext: {
           couleur: ctx => (ctx.feature.properties || {}).couleur || '#00e5ff',
+          // ⚠️ `contour` distinct de `couleur` : c'est ce qui permet le HALO
+          // BLANC. Sans lui, l'anneau orchidee du RPP se noyait dans le fond
+          // satellite (remarque de l'auteur, 23/07). Meme recette que les
+          // panneaux, seuls points bien lisibles jusque-la.
+          contour: ctx => (ctx.feature.properties || {}).contour ||
+                           (ctx.feature.properties || {}).couleur || '#00e5ff',
           rayon: ctx => (ctx.feature.properties || {}).rayon || 7,
-          // ⚠️ Le style est UNIQUE pour tout le calque : la seule facon de
-          // donner deux formes a deux sortes de points est de faire varier
-          // remplissage et epaisseur de trait par feature. Disque = numero de
-          // rue, anneau = RPP.
+          // Le style est UNIQUE pour tout le calque : chaque point porte ses
+          // propres remplissage/trait. Disque plein = numero de rue ; anneau
+          // creux cercle de blanc = RPP (voir `redrawEcarts`).
           remplissage: ctx => {
             const r = (ctx.feature.properties || {}).remplissage;
             return (r === undefined) ? 0.55 : r;
@@ -1032,7 +1037,7 @@
         },
         styleRules: [{ style: Object.assign({
           pointRadius: '${rayon}', fillColor: '${couleur}', fillOpacity: '${remplissage}',
-          strokeColor: '${couleur}', strokeWidth: '${trait}', strokeOpacity: 0.95,
+          strokeColor: '${contour}', strokeWidth: '${trait}', strokeOpacity: 0.95,
           label: '${etiquette}', fontColor: '#004d5a', fontSize: '11px', fontWeight: 'bold',
           labelOutlineColor: '#fff', labelOutlineWidth: 3, labelYOffset: 14 }, INERTE) }]
       });
@@ -1258,19 +1263,31 @@
     try {
       // ⚠️ Cle = hnId (ou l'id du POI) : plusieurs numeros partagent un meme
       // segId, un id de feature base sur le segment les ferait se recouvrir.
-      const points = vivants.filter(f => f.adresse).map(f => ({
-        id: 'ad-' + cleAdresse(f), type: 'Feature', geometry: f.geom,
-        properties: {
-          couleur: options.couleurs[familleDe(f)] || '#00e5ff',
-          rayon: f === actif ? 11 : 7,
-          // Le RPP se dessine en ANNEAU : creux et trait epais. Le numero de
-          // rue reste un disque plein. Deux natures, deux formes.
-          remplissage: f.sousType === 'poi' ? 0.07 : 0.55,
-          trait: f.sousType === 'poi' ? (f === actif ? 5 : 3.5) : 2,
-          // Un report = un numero : on affiche le numero lui-meme sur la carte.
-          label: (f.hns && f.hns.length === 1) ? String(f.hns[0].number) : ''
+      const points = [];
+      vivants.filter(f => f.adresse).forEach(f => {
+        const cle = cleAdresse(f), estActif = f === actif;
+        if (f.sousType === 'poi') {
+          // RPP = ANNEAU orchidee CERCLE DE BLANC. Deux cercles concentriques :
+          // un anneau blanc epais DESSOUS (le halo qui le detache du satellite),
+          // l'anneau orchidee DESSUS. C'est le seul moyen d'avoir a la fois un
+          // creux (distinct du disque plein du numero) et un contour blanc.
+          const r = estActif ? 13 : 10;
+          points.push({ id: 'ad-halo-' + cle, type: 'Feature', geometry: f.geom,
+            properties: { couleur: '#ffffff', contour: '#ffffff', rayon: r,
+                          remplissage: 0, trait: estActif ? 8 : 6, label: '' } });
+          points.push({ id: 'ad-' + cle, type: 'Feature', geometry: f.geom,
+            properties: { couleur: options.couleurs.rpp || '#e040fb',
+                          contour: options.couleurs.rpp || '#e040fb', rayon: r,
+                          remplissage: 0.18, trait: estActif ? 4 : 3, label: '' } });
+        } else {
+          // Numero de rue = disque plein cyan, avec le numero ecrit dedans.
+          points.push({ id: 'ad-' + cle, type: 'Feature', geometry: f.geom,
+            properties: { couleur: options.couleurs.adresse || '#00e5ff',
+                          contour: options.couleurs.adresse || '#00e5ff',
+                          rayon: estActif ? 11 : 7, remplissage: 0.55, trait: 2,
+                          label: (f.hns && f.hns.length === 1) ? String(f.hns[0].number) : '' } });
         }
-      }));
+      });
       if (points.length) sdk.Map.addFeaturesToLayer({ layerName: LAYER_ADRESSES, features: points });
     } catch (e) { log('surlignage des adresses impossible', e); }
   }
