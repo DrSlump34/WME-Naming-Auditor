@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.93
+// @version      1.94
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -39,7 +39,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '1.93';
+    return '1.94';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -52,6 +52,7 @@
   const LAYER_AGGLO = SCRIPT_ID + '-agglo';
   const LAYER_ECARTS = SCRIPT_ID + '-ecarts';
   const LAYER_ADRESSES = SCRIPT_ID + '-adresses';   // points : HN et POI residentiels
+  const LAYER_PANNEAUX = SCRIPT_ID + '-panneaux';   // points : EB10 / EB20 releves
 
   // Familles de problemes : chacune a sa couleur de surlignage, reglable.
   // Palette choisie pour NE PAS se confondre avec le rendu de WME : le reseau
@@ -77,7 +78,12 @@
     // ANNEAU orchidee — la teinte oppose les deux, la forme les separe meme
     // pour un daltonien.
     adresse: { libelle: 'Numero de rue hors agglomeration', defaut: '#00e5ff' },
-    rpp: { libelle: 'RPP en agglomeration (a trancher)', defaut: '#e040fb' }
+    rpp: { libelle: 'RPP en agglomeration (a trancher)', defaut: '#e040fb' },
+    // Les panneaux ne sont pas des ecarts : ils ne passent pas par `familleDe`,
+    // mais leurs deux couleurs se reglent au meme endroit que les autres.
+    panneauNeutre: { libelle: 'Panneau releve (rien a confronter)', defaut: '#546e7a' },
+    panneauOk: { libelle: 'Panneau dans un polygone', defaut: '#00e676' },
+    panneauHors: { libelle: 'Panneau HORS polygone', defaut: '#ff1744' }
   };
   const familleDe = f => f.adresse ? (f.sousType === 'poi' ? 'rpp' : 'adresse')
     : f.cas === 'GIR' ? 'giratoire'
@@ -185,7 +191,7 @@
     // les adresses (demande de l'auteur, 23/07). Jusqu'ici la carte ne peignait
     // que l'onglet actif : ouvrir « Segments » effacait les adresses de la
     // carte, alors qu'on veut souvent garder les deux sous les yeux.
-    vue: { segTable: true, segCarte: true, adrTable: true, adrCarte: true },
+    vue: { segTable: true, segCarte: true, adrTable: true, adrCarte: true, panCarte: true },
     // Charger tout seul les contours du departement survole. Coche par defaut :
     // c'est une corvee sans valeur ajoutee, et elle se refait a chaque fois.
     autoDep: true,
@@ -516,7 +522,7 @@
 
   /** Repart de zero : l'editeur doit pouvoir vider ce qu'il a accumule. */
   async function viderContours() {
-    communes = []; metaContours = null; communeActive = null;
+    communes = []; metaContours = null; communeActive = null; oublierPanneaux();
     depsTentes.clear();
     try { await idbSet('communes', []); await idbSet('meta', null); }
     catch (e) { log('purge des contours impossible', e); }
@@ -615,12 +621,143 @@
       aide: 'Numero de departement (01 a 95, 2A, 2B, 971…). ~3 Mo et ~10 s par departement.'
     },
     wazefrance: {
-      libelle: 'api.wazefrance.com (a confirmer)',
-      indisponible: 'Cette source expose des statistiques BAN, mais aucun point ' +
-        'd\'entree documente pour les contours de communes. ' +
-        'A confirmer avec Sebiseba avant activation.'
+      libelle: 'api.wazefrance.com — a ECARTER pour les contours',
+      // ⚠️ Tranche le 23/07 : son `/updates` nomme ses sources, et le decoupage
+      // communal y est le « decoupage administratif issu d'OpenStreetMap »,
+      // donc ODbL VIRAL. Admin Express (IGN) est en Licence Ouverte : on garde
+      // `gouv`. Seuls les PANNEAUX de cette API sont exploitables (voir plus
+      // bas), et pour une tout autre raison : ils viennent de l'Etat.
+      indisponible: 'Ses contours de communes sont derives d\'OpenStreetMap (ODbL, ' +
+        'licence virale). La source « geo.api.gouv.fr » ci-dessus livre les memes ' +
+        'communes en Licence Ouverte : c\'est elle qu\'il faut utiliser.'
     }
   };
+
+  // ---------------------------------------------------------------------------
+  // PANNEAUX D'ENTREE D'AGGLOMERATION (EB10 / EB20)
+  //
+  // Idee de l'auteur (23/07), venue de Draw Borders France (Sebiseba) : les
+  // panneaux d'entree d'agglo disent OU commence l'agglomeration, ce qu'aucune
+  // donnee Waze ne dit. Deux usages : confronter les panneaux au polygone deja
+  // trace, et proposer un pre-trace quand il n'y en a pas.
+  //
+  // ✅ SOURCE : `api.wazefrance.com/rs` republie le jeu data.gouv.fr
+  // « signalisation routiere determinant la VMA », produit par le Ministere de
+  // l'Interieur (DSR), en **Licence Ouverte 2.0** — permissive comme Admin
+  // Express, sans la viralite de l'ODbL. Verifie le 23/07 via `/updates`.
+  //
+  // ⚠️ QUATRE LIMITES MESUREES EN LIVE le 23/07, toutes structurantes :
+  //  1. Couverture : 86 departements / 11 regions. Pas l'Ile-de-France —
+  //     Paris rend 0 panneau. Une commune sans panneau n'est donc PAS une
+  //     commune sans agglomeration : il faut le dire, pas le deduire.
+  //  2. `panneau_value` (le nom porte par le panneau) est presque toujours
+  //     `null` (100 % a Gruissan, Saint-Laurent-des-Arbres, Carcassonne).
+  //     On ne peut pas en tirer le nom d'une agglomeration.
+  //  3. La reponse est PLAFONNEE A 500 items, et les B14 (limitations de
+  //     vitesse) saturent le quota bien avant les EB10. D'ou le decoupage
+  //     adaptatif ci-dessous : sans lui, on perdrait des panneaux EN SILENCE.
+  //  4. EB10 et EB20 sont poses sur le MEME poteau, a ~15 m l'un de l'autre
+  //     (les deux faces). Une « porte » d'agglomeration, c'est donc un couple,
+  //     et le sens ne se lit pas dans la geometrie.
+  // ---------------------------------------------------------------------------
+
+  const URL_PANNEAUX = (lat, lon, zoom) =>
+    'https://api.wazefrance.com/rs?lat=' + lat + '&lon=' + lon + '&zoom=' + zoom;
+
+  /**
+   * ⚠️ L'emprise d'une requete N'EST PAS DOCUMENTEE : elle a ete MESUREE le
+   * 23/07 sur Carcassonne, a quatre zooms, et elle se divise exactement par
+   * deux a chaque niveau (les quatre mesures se deduisent l'une de l'autre a
+   * 1 % pres, donc ce sont bien les bords reels et pas l'etendue des donnees) :
+   *
+   *   zoom 13 → demi-emprise 0,1651° lat / 0,2240° lon   (384 items)
+   *   zoom 14 → 0,0778 / 0,1107      zoom 15 → 0,0411 / 0,0557
+   *   zoom 16 → 0,0208 / 0,0277      zoom 17 → vide, l'API ne sert plus
+   *
+   * Le rapport lon/lat vaut 1,36 ≈ 1/cos(43°) : c'est un rayon en metres
+   * (~18 km au zoom 13). ⚠️ **Ne pas remplacer ces constantes par une formule
+   * de tuile** (360/2^z) : ca n'en est pas une, je m'y suis trompe en premier
+   * jet. Le zoom 12 est refuse par l'API (HTTP 400).
+   */
+  const DEMI_LAT_Z13 = 0.1651, DEMI_LON_Z13 = 0.2240;
+  const ZOOM_PANNEAUX_DEPART = 13, ZOOM_PANNEAUX_MAX = 16, PLAFOND_API = 500;
+  /** Demi-emprise d'une requete, en degres, a ce zoom. */
+  const demiEmprise = z => {
+    const k = Math.pow(2, ZOOM_PANNEAUX_DEPART - z);
+    return { dLat: DEMI_LAT_Z13 * k, dLon: DEMI_LON_Z13 * k };
+  };
+
+  /** Clef de dedoublonnage : deux cellules qui se recouvrent rendent le meme
+   *  panneau. Le 1e-5 degre (~1 m) evite de fusionner deux panneaux voisins. */
+  const clePanneau = p => [p.latitude.toFixed(5), p.longitude.toFixed(5),
+                           p.panneau_code, p.panneau_value].join('|');
+
+  /**
+   * Recupere tous les panneaux d'agglomeration sur une emprise.
+   *
+   * ⚠️⚠️ Le plafond de 500 ne se signale pas : l'API rend 500 items et se tait.
+   * Une requete pleine est donc SUSPECTE, jamais complete — on la redecoupe en
+   * quatre et on recommence, jusqu'au zoom 16. Sans ce garde-fou on croirait
+   * avoir tout lu, et un polygone se fabriquerait sur des portes manquantes.
+   * A l'inverse, une commune rurale tient en UNE requete : on ne decoupe que
+   * lorsque c'est necessaire.
+   *
+   * Rend `{ panneaux: [...], cellules: n, tronque: bool }` — `tronque` reste
+   * vrai si une cellule etait encore pleine au zoom maximal, et ce doute doit
+   * remonter jusqu'a l'editeur.
+   */
+  async function chargerPanneauxAgglo(bbox, prog) {
+    const vus = new Map();
+    let cellules = 0, tronque = false;
+    const aFaire = [];
+
+    // Grille de depart couvrant la bbox. ⚠️ Une seule requete au centre ne
+    // suffit pas : une grande commune (Arles fait 75 km) deborde largement
+    // l'emprise du zoom 13, et ses bords seraient perdus en silence. On garde
+    // 10 % de recouvrement entre cellules — le dedoublonnage absorbe le reste.
+    {
+      const { dLat, dLon } = demiEmprise(ZOOM_PANNEAUX_DEPART);
+      const pasLat = dLat * 1.8, pasLon = dLon * 1.8;
+      const nLat = Math.max(1, Math.ceil((bbox[3] - bbox[1]) / pasLat));
+      const nLon = Math.max(1, Math.ceil((bbox[2] - bbox[0]) / pasLon));
+      for (let i = 0; i < nLat; i++) for (let j = 0; j < nLon; j++) {
+        aFaire.push({
+          lat: bbox[1] + (i + 0.5) * (bbox[3] - bbox[1]) / nLat,
+          lon: bbox[0] + (j + 0.5) * (bbox[2] - bbox[0]) / nLon,
+          zoom: ZOOM_PANNEAUX_DEPART
+        });
+      }
+    }
+
+    while (aFaire.length) {
+      if (prog) prog.verifier();
+      const { lat, lon, zoom } = aFaire.shift();
+      cellules++;
+      if (prog) prog.info(cellules + ' zone(s) interrogee(s), ' + vus.size + ' panneau(x) d\'agglo');
+      let data;
+      try { data = JSON.parse(await telecharger(URL_PANNEAUX(lat, lon, zoom), prog)); }
+      catch (e) {
+        if (e instanceof AnnulationDemandee) throw e;
+        throw new Error('api.wazefrance.com : ' + e.message);
+      }
+      const liste = (data && data.rs) || [];
+      // On ne garde QUE les entrees/sorties d'agglo : les B14 (limitations de
+      // vitesse) ne nous apprennent rien et font l'essentiel du volume.
+      for (const p of liste) {
+        if (p.panneau_code !== 'EB10' && p.panneau_code !== 'EB20') continue;
+        if (typeof p.latitude !== 'number' || typeof p.longitude !== 'number') continue;
+        vus.set(clePanneau(p), p);
+      }
+      // Cellule pleine = SUSPECTE, jamais complete (voir le bloc d'en-tete).
+      if (liste.length < PLAFOND_API) continue;
+      if (zoom >= ZOOM_PANNEAUX_MAX) { tronque = true; continue; }
+      const { dLat, dLon } = demiEmprise(zoom + 1);
+      for (const [dy, dx] of [[-dLat, -dLon], [-dLat, dLon], [dLat, -dLon], [dLat, dLon]]) {
+        aFaire.push({ lat: lat + dy / 2, lon: lon + dx / 2, zoom: zoom + 1 });
+      }
+    }
+    return { panneaux: [...vus.values()], cellules, tronque };
+  }
 
   // Les 101 departements, pour le selecteur integre a la fenetre.
   const DEPARTEMENTS = [
@@ -803,7 +940,7 @@
     ui.selCommune.innerHTML = '<option value="">— choisir une commune —</option>' +
       liste.map(c => `<option value="${esc(c.code)}">${esc(c.nom)}</option>`).join('');
     if (avant && liste.some(c => c.code === avant)) ui.selCommune.value = avant;
-    else if (communeActive) { communeActive = null; redrawCommune(); }
+    else if (communeActive) { communeActive = null; oublierPanneaux(); redrawCommune(); }
     ui.nbCommunes.textContent = communes.length
       ? liste.length + ' commune(s) dans la vue sur ' + communes.length : '';
     renderAgglos();
@@ -890,6 +1027,23 @@
           strokeColor: '${couleur}', strokeWidth: '${trait}', strokeOpacity: 0.95,
           label: '${etiquette}', fontColor: '#004d5a', fontSize: '11px', fontWeight: 'bold',
           labelOutlineColor: '#fff', labelOutlineWidth: 3, labelYOffset: 14 }, INERTE) }]
+      });
+      // Panneaux EB10 / EB20. Ils ne sont pas des ecarts mais une DONNEE DE
+      // TERRAIN : calque a part, carre (aucune autre de nos features n'en a),
+      // pour qu'on ne les confonde jamais avec un report a traiter.
+      sdk.Map.addLayer({
+        layerName: LAYER_PANNEAUX,
+        styleContext: {
+          couleur: ctx => (ctx.feature.properties || {}).couleur || '#ff1744',
+          rayon: ctx => (ctx.feature.properties || {}).rayon || 6,
+          etiquette: ctx => (ctx.feature.properties || {}).label || ''
+        },
+        styleRules: [{ style: Object.assign({
+          graphicName: 'square', pointRadius: '${rayon}',
+          fillColor: '${couleur}', fillOpacity: 0.85,
+          strokeColor: '#ffffff', strokeWidth: 2, strokeOpacity: 0.9,
+          label: '${etiquette}', fontColor: '#b71c1c', fontSize: '10px', fontWeight: 'bold',
+          labelOutlineColor: '#fff', labelOutlineWidth: 3, labelYOffset: -13 }, INERTE) }]
       });
       calquesPrets = true;
     } catch (e) { log('creation des calques impossible', e); }
@@ -1134,6 +1288,155 @@
         id: a.id, type: 'Feature', geometry: { type: 'Polygon', coordinates: [a.ring] },
         properties: { label: a.label || '' } })) });
     } catch (e) { log('affichage des agglos impossible', e); }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Panneaux : confrontation aux polygones traces
+  //
+  // ⚠️ Le panneau est un FAIT DE TERRAIN, le polygone une intention d'editeur.
+  // Quand les deux divergent, c'est le polygone qu'on suspecte — mais on ne le
+  // corrige jamais tout seul : la donnee data.gouv « peut presenter des ecarts
+  // avec la signalisation reelle », et un panneau peut avoir ete depose.
+  // ---------------------------------------------------------------------------
+
+  let panneaux = [];          // le releve brut de la commune active
+  let bilanPanneaux = null;
+
+  /** Distance approximative d'un point a un anneau, en metres. */
+  function distanceAuRing(lon, lat, ring) {
+    const kLon = 111320 * Math.cos(lat * Math.PI / 180), kLat = 110540;
+    const p = [lon * kLon, lat * kLat];
+    let best = Infinity;
+    for (let i = 1; i < ring.length; i++) {
+      const a = [ring[i - 1][0] * kLon, ring[i - 1][1] * kLat];
+      const b = [ring[i][0] * kLon, ring[i][1] * kLat];
+      best = Math.min(best, distPointSegment(p, a, b));
+    }
+    return best;
+  }
+
+  /**
+   * Classe chaque panneau de la commune par rapport aux polygones traces.
+   * ⚠️ On ne juge QUE les EB10/EB20 tombant dans le contour INSEE : ceux des
+   * communes voisines sont ramenes par l'API (l'emprise deborde largement) et
+   * n'ont rien a dire du polygone d'ici.
+   */
+  function classerPanneaux() {
+    if (!communeActive) return null;
+    const zones = agglos[communeActive.code] || [];
+    const dedans = [], dehors = [];
+    for (const p of panneaux) {
+      if (!pointInGeom(p.longitude, p.latitude, communeActive.geom)) continue;
+      let meilleure = null;
+      zones.forEach((z, i) => {
+        const d = distanceAuRing(p.longitude, p.latitude, z.ring);
+        const inclus = pointInRing(p.longitude, p.latitude, z.ring);
+        if (!meilleure || d < meilleure.d) meilleure = { i, d, inclus, label: z.label };
+      });
+      const fiche = { p, zone: meilleure };
+      if (meilleure && meilleure.inclus) dedans.push(fiche); else dehors.push(fiche);
+    }
+    return { dedans, dehors, zones: zones.length };
+  }
+
+  /** Repeint le calque des panneaux d'apres le classement courant. */
+  function redrawPanneaux() {
+    ensureLayers();
+    try { sdk.Map.removeAllFeaturesFromLayer({ layerName: LAYER_PANNEAUX }); } catch (e) { /* */ }
+    if (!options.vue.panCarte || !panneaux.length) return;
+    const cl = classerPanneaux();
+    if (!cl) return;
+    const feat = (f, couleur) => ({
+      id: 'pn-' + f.p.latitude + '-' + f.p.longitude + '-' + f.p.panneau_code,
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [f.p.longitude, f.p.latitude] },
+      properties: {
+        couleur, rayon: 6,
+        // Le nom porte par le panneau est presque toujours vide : on n'affiche
+        // que le code, sinon l'etiquette ment par omission.
+        label: f.p.panneau_code + (f.p.panneau_value ? ' ' + f.p.panneau_value : '')
+      }
+    });
+    // ⚠️ Sans polygone trace, il n'y a RIEN a confronter : tout peindre en
+    // rouge ferait croire a 15 anomalies alors qu'aucune n'a ete constatee
+    // (vu en live sur Narbonne). Dans ce cas les panneaux sont NEUTRES.
+    const features = cl.zones
+      ? [...cl.dedans.map(f => feat(f, options.couleurs.panneauOk || '#00e676')),
+         ...cl.dehors.map(f => feat(f, options.couleurs.panneauHors || '#ff1744'))]
+      : [...cl.dedans, ...cl.dehors].map(f => feat(f, options.couleurs.panneauNeutre || '#546e7a'));
+    if (features.length) {
+      try { sdk.Map.addFeaturesToLayer({ layerName: LAYER_PANNEAUX, features }); }
+      catch (e) { log('affichage des panneaux impossible', e); }
+    }
+  }
+
+  /** Efface le releve courant : appele des que la commune change. */
+  function oublierPanneaux() {
+    panneaux = []; bilanPanneaux = null;
+    redrawPanneaux(); renderBilanPanneaux();
+  }
+
+  /** Va chercher les panneaux de la commune active, puis les confronte. */
+  async function releverPanneaux() {
+    if (!communeActive) return;
+    const btn = ui.btnPanneaux, bilan = ui.bilanPanneaux;
+    btn.disabled = true;
+    // Total 0 = barre indeterminee : on ne sait pas d'avance combien de zones
+    // il faudra interroger, le decoupage depend de ce que l'API repond.
+    const prog = progression(ui.progPanneaux,
+      { titre: 'Panneaux d\'agglomeration', annulable: true }).etape('Interrogation de la source', 0);
+    try {
+      const r = await chargerPanneauxAgglo(communeActive.bbox, prog);
+      panneaux = r.panneaux;
+      const cl = classerPanneaux();
+      bilanPanneaux = { ...r, ...cl };
+      redrawPanneaux();
+      renderBilanPanneaux();
+    } catch (e) {
+      panneaux = []; bilanPanneaux = null;
+      redrawPanneaux();
+      bilan.innerHTML = (e instanceof AnnulationDemandee)
+        ? 'Releve interrompu.'
+        : '⚠ ' + esc(e.message) +
+          '<br>Cette source exige Tampermonkey (la page de WME ne peut pas appeler l\'exterieur).';
+    } finally {
+      prog.fin();
+      btn.disabled = !communeActive;
+    }
+  }
+
+  function renderBilanPanneaux() {
+    const z = ui.bilanPanneaux;
+    if (!z) return;
+    if (!bilanPanneaux) { z.textContent = ''; return; }
+    const b = bilanPanneaux;
+    const total = b.dedans.length + b.dehors.length;
+    if (!total) {
+      // ⚠️ Ne JAMAIS traduire « aucun panneau » par « aucune agglomeration » :
+      // 86 departements sur 101 sont couverts, et le releve peut etre muet.
+      z.innerHTML = '<b>Aucun panneau EB10 / EB20 releve dans cette commune.</b><br>' +
+        'Le jeu national ne couvre que 86 departements, et une commune couverte ' +
+        'peut n\'avoir aucun panneau saisi : cela ne dit RIEN sur son agglomeration.';
+      return;
+    }
+    const lignes = ['<b>' + total + ' panneau(x) d\'agglomeration</b> dans la commune (' +
+      b.cellules + ' requete(s)).'];
+    if (!b.zones) {
+      lignes.push('Aucun polygone trace : rien a confronter pour l\'instant.');
+    } else {
+      lignes.push('✅ <b>' + b.dedans.length + '</b> a l\'interieur d\'un polygone · ' +
+        '⚠ <b>' + b.dehors.length + '</b> a l\'exterieur.');
+      if (b.dehors.length) {
+        const d = b.dehors.map(f => Math.round(f.zone ? f.zone.d : 0)).sort((x, y) => x - y);
+        lignes.push('Les panneaux hors polygone sont a ' + d[0] + ' m a ' +
+          d[d.length - 1] + ' m du bord le plus proche : le trace s\'arrete peut-etre trop tot.');
+      }
+    }
+    if (b.tronque) {
+      lignes.push('⚠️ <b>Releve peut-etre incomplet</b> : une zone rendait le maximum ' +
+        'de resultats que l\'API accepte, meme decoupee au plus fin.');
+    }
+    z.innerHTML = lignes.join('<br>');
   }
 
   // ---------------------------------------------------------------------------
@@ -3694,6 +3997,9 @@
               <span class="agn-sect-r"></span></div>
             <div class="agn-sect-c">
               <button class="agn-btn" id="agn-tracer" disabled>＋ Tracer l'agglomeration</button>
+              <button class="agn-btn" id="agn-panneaux" disabled title="Recupere les panneaux EB10 / EB20 (entree et sortie d'agglomeration) et les confronte aux polygones traces.">🪧 Panneaux d'agglomeration</button>
+              <div id="agn-prog-panneaux"></div>
+              <div id="agn-bilan-panneaux" class="agn-sb-n"></div>
               <div id="agn-agglos"></div>
             </div>
           </div>
@@ -3710,6 +4016,9 @@
     ui.nbCommunes = o.querySelector('#agn-nb-communes');
     ui.btnTracer = o.querySelector('#agn-tracer');
     ui.listeAgglos = o.querySelector('#agn-agglos');
+    ui.btnPanneaux = o.querySelector('#agn-panneaux');
+    ui.progPanneaux = o.querySelector('#agn-prog-panneaux');
+    ui.bilanPanneaux = o.querySelector('#agn-bilan-panneaux');
     ui.btnScan = o.querySelector('#agn-scan');
     ui.stats = o.querySelector('#agn-stats');
     ui.bandeauFix = o.querySelector('#agn-fix');
@@ -3754,6 +4063,7 @@
     ui.inputFichier.onchange = surFichierContours;
     brancherSources(o);
     ui.btnTracer.onclick = tracerAgglo;
+    ui.btnPanneaux.onclick = releverPanneaux;
     // Le scan est asynchrone depuis qu'il lit les numeros de rue (aller-retour
     // serveur) : on verrouille le bouton le temps qu'il tourne, et on affiche
     // l'echec plutot que de laisser une promesse tomber en silence.
@@ -3770,6 +4080,9 @@
     };
     ui.selCommune.onchange = () => {
       communeActive = communes.find(c => c.code === ui.selCommune.value) || null;
+      // ⚠️ Un releve de panneaux appartient a UNE commune : le garder en
+      // changeant de commune afficherait un bilan qui ne parle plus de rien.
+      oublierPanneaux();
       redrawCommune(); redrawAgglos(); renderAgglos();
       if (communeActive) replierSection('commune', false);   // choix fait
       if (communeActive) { try { sdk.Map.centerMapOnGeometry({ geometry: communeActive.geom }); } catch (e) { /* */ } }
@@ -4015,6 +4328,8 @@
         <div class="agn-sb-oc"><b>Adresses</b>
           <label class="agn-sb-c"><input type="checkbox" id="agn-r-adrtable"> tableau</label>
           <label class="agn-sb-c"><input type="checkbox" id="agn-r-adrcarte"> carte</label></div>
+        <div class="agn-sb-oc"><b>Panneaux</b>
+          <label class="agn-sb-c"><input type="checkbox" id="agn-r-pancarte"> carte</label></div>
 
         <h4>Surlignage sur la carte</h4>
         <label class="agn-sb-c"><input type="checkbox" id="agn-r-surligner">
@@ -4069,7 +4384,8 @@
     // Les 4 cases « tableau / carte » vivent dans `options.vue`, pas a la
     // racine : `coche` ne sait pas les atteindre.
     const CASES_VUE = { '#agn-r-segtable': 'segTable', '#agn-r-adrtable': 'adrTable',
-                        '#agn-r-segcarte': 'segCarte', '#agn-r-adrcarte': 'adrCarte' };
+                        '#agn-r-segcarte': 'segCarte', '#agn-r-adrcarte': 'adrCarte',
+                        '#agn-r-pancarte': 'panCarte' };
     // ⚠️ Relire l'etat APRES coup, sur les quatre : `majOnglets` peut avoir
     // recoche « Segments / tableau » de force (on ne masque pas les deux
     // onglets). Sans ca, la case resterait vide alors que l'onglet est la.
@@ -4080,6 +4396,7 @@
       q(id).onchange = () => {
         options.vue[cle] = q(id).checked; saveUI();
         if (cle === 'segTable' || cle === 'adrTable') { majOnglets(); renderResults(); }
+        else if (cle === 'panCarte') redrawPanneaux();
         else redrawEcarts(null);
         syncVue();
       };
@@ -4161,14 +4478,14 @@
   function nettoyerCarte() {
     if (edition) sortirEdition(false);
     cacherBulle();
-    [LAYER_COMMUNE, LAYER_AGGLO, LAYER_ECARTS, LAYER_ADRESSES].forEach(n => {
+    [LAYER_COMMUNE, LAYER_AGGLO, LAYER_ECARTS, LAYER_ADRESSES, LAYER_PANNEAUX].forEach(n => {
       try { sdk.Map.removeAllFeaturesFromLayer({ layerName: n }); } catch (e) { /* */ }
     });
   }
 
   /** Reouverture : on remet ce qui correspond a l'etat courant. */
   function repeindreCarte() {
-    redrawCommune(); redrawAgglos(); redrawEcarts(null);
+    redrawCommune(); redrawAgglos(); redrawEcarts(null); redrawPanneaux();
   }
 
   /**
@@ -4293,6 +4610,7 @@
 
   function renderAgglos() {
     ui.btnTracer.disabled = !communeActive;
+    ui.btnPanneaux.disabled = !communeActive;
     if (!communeActive) {
       ui.btnScan.disabled = true;
       ui.listeAgglos.innerHTML = '<div class="agn-empty">Choisis une commune.</div>';
