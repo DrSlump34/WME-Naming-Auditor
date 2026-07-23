@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.97
+// @version      1.98
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -39,7 +39,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '1.97';
+    return '1.98';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -1452,21 +1452,11 @@
     return out;
   }
 
-  /** Cercle approche par 16 cotes — pour les clusters trop petits pour avoir
-   *  une enveloppe (une seule porte, ou deux portes alignees). */
-  const cercle = (c, r, n) => Array.from({ length: n || 16 }, (_, i) => {
-    const a = 2 * Math.PI * i / (n || 16);
-    return [c[0] + r * Math.cos(a), c[1] + r * Math.sin(a)];
-  });
-
   const PORTE_FUSION_M = 60;    // EB10 et EB20 du meme poteau : ~15 m mesures
   const CLUSTER_SEUIL_M = 2000; // au-dela, deux agglomerations distinctes
   // Bombage des cotes seulement (les sommets ne bougent pas) : 15 % de la
   // longueur du cote, jamais plus de 250 m.
   const BOMBAGE_PART = 0.15, BOMBAGE_MAX_M = 250;
-  // Rayon minimal quand une agglomeration n'a qu'UNE porte : on ne sait rien de
-  // son etendue, il faut bien poser quelque chose de visible a ajuster.
-  const RAYON_MINI_M = 300;
 
   /**
    * Des panneaux bruts aux polygones proposes.
@@ -1507,17 +1497,26 @@
       groupes.push(g);
     }
 
-    // 3. enveloppes
-    return groupes.map((g, i) => {
+    // 3. enveloppes — mais SEULEMENT quand les portes forment une vraie surface
+    //
+    // ⚠️⚠️ ON NE TRACE PLUS DE CERCLE INVENTE. Le repli en cercle (v1.95-97)
+    // produisait des « ronds autour des panneaux » denonces par l'auteur sur
+    // Narbonne : ses 15 entrees sont eparpillees sur 14 km (hameaux et
+    // quartiers distincts), et chaque groupe de 1 a 3 portes ALIGNEES le long
+    // d'une route tombait sur le cercle. Or une poignee de portes alignees ne
+    // dit RIEN de l'etendue d'une agglo — juste ou elle commence sur cet axe.
+    // Meme faute que la dilatation de v1.95 : deviner une surface la ou on n'a
+    // qu'un point ou une ligne, c'est fabriquer de la donnee fausse.
+    //
+    // Regle : un groupe ne donne un polygone que si son enveloppe convexe est
+    // une VRAIE surface (>= 3 portes, aire >= 15 % de sa boite englobante).
+    // Les autres groupes sont RENDUS, mais sans `ring` : l'appelant les compte
+    // et invite a les tracer a la main, panneaux affiches en repere.
+    const props = groupes.map((g, i) => {
       const m = g.map(x => x.m);
-      let ring;
+      let ring = null;
       if (m.length >= 3) {
         const h = hullConvexe(m);
-        // ⚠️ Des portes presque alignees (toutes sur la meme traversee, cas
-        // frequent d'un village-rue) rendent une enveloppe PLATE : un triangle
-        // filiforme, inutilisable meme comme brouillon. On compare donc l'aire
-        // reelle a celle de sa boite englobante — sous 15 %, le cercle est plus
-        // honnete qu'une echarde.
         if (h.length >= 3) {
           let aire = 0;
           for (let k = 0, n = h.length; k < n; k++) {
@@ -1530,23 +1529,25 @@
           if (aire >= 0.15 * Math.max(1, lx * ly)) ring = bomberCotes(h, BOMBAGE_PART, BOMBAGE_MAX_M);
         }
       }
+      const info = { idx: i, portes: g.length,
+                     panneaux: g.reduce((s, x) => s + x.membres.length, 0) };
       if (!ring) {
+        // Groupe non tracable : on garde son centre pour pouvoir cadrer dessus,
+        // mais aucun anneau — rien a proposer, rien d'invente.
         const cx = m.reduce((s, p) => s + p[0], 0) / m.length;
         const cy = m.reduce((s, p) => s + p[1], 0) / m.length;
-        // ⚠️ Meme regle : le cercle passe PAR la porte la plus eloignee, on ne
-        // lui ajoute rien. Avec une seule porte il n'y a aucune etendue connue,
-        // d'ou le rayon minimal — et c'est le seul cas ou le trace est invente
-        // de bout en bout.
-        const r = Math.max(RAYON_MINI_M, Math.sqrt(Math.max(...m.map(p => dist2([cx, cy], p)))));
-        ring = cercle([cx, cy], r);
+        const c = proj.retour([cx, cy]);
+        return Object.assign(info, { ring: null, centre: { lon: c[0], lat: c[1] } });
       }
       const anneau = ring.map(proj.retour);
       anneau.push(anneau[0].slice());       // un anneau se referme
       const centre = anneau.reduce((s, p) => [s[0] + p[0], s[1] + p[1]], [0, 0])
         .map(v => v / anneau.length);
-      return { idx: i, portes: g.length, panneaux: g.reduce((s, x) => s + x.membres.length, 0),
-               ring: anneau, centre: { lon: centre[0], lat: centre[1] } };
-    }).sort((a, b) => b.portes - a.portes);   // le bourg (le plus de portes) d'abord
+      return Object.assign(info, { ring: anneau, centre: { lon: centre[0], lat: centre[1] } });
+    });
+    // Les vrais polygones d'abord (le plus de portes en tete), les non-tracables
+    // ensuite : l'appelant les distingue par la presence de `ring`.
+    return props.sort((a, b) => (!!b.ring - !!a.ring) || (b.portes - a.portes));
   }
 
   /** Efface le releve courant : appele des que la commune change. */
@@ -1749,7 +1750,29 @@
         'Lance d\'abord « 🪧 Panneaux d\'agglomeration ».';
       return;
     }
-    const props = proposerPolygones(fiches);
+    const tous = proposerPolygones(fiches);
+    // ⚠️ Seuls les groupes qui forment une VRAIE surface sont proposables. Les
+    // autres (portes isolees ou alignees) ne sont pas traces — on ne devine
+    // pas une etendue qu'on ne connait pas —, mais on les COMPTE pour le dire.
+    const props = tous.filter(p => p.ring);
+    const nonTracables = tous.filter(p => !p.ring);
+    const nManuels = nonTracables.reduce((s, p) => s + p.portes, 0);
+    const phraseManuels = nManuels
+      ? ' <b>' + nManuels + ' entree(s)</b> supplementaire(s) sont trop isolees ou ' +
+        'alignees pour deviner un contour : trace-les a la main, les panneaux ' +
+        '(carres) restent affiches en repere.'
+      : '';
+
+    if (!props.length) {
+      // Rien a proposer : c'est le cas Narbonne. On le dit clairement plutot
+      // que de sortir des ronds arbitraires.
+      ui.bilanPanneaux.innerHTML = 'Les <b>' + fiches.length + '</b> panneau(x) releve(s) ' +
+        'ne forment <b>aucune surface exploitable</b> : leurs entrees sont eparpillees ' +
+        'ou alignees le long des routes.<br>Aucun trace propose — <b>trace les ' +
+        'agglomerations a la main</b> en t\'appuyant sur les panneaux affiches (carres).';
+      return;
+    }
+
     const vueAvant = { centre: sdk.Map.getMapCenter(), zoom: sdk.Map.getZoomLevel() };
     let crees = 0;
     try {
@@ -1779,8 +1802,9 @@
       ui.bilanPanneaux.innerHTML = crees
         ? '<b>' + crees + ' polygone(s) cree(s)</b> a partir de ' + props.length +
           ' groupe(s) d\'entrees.<br>⚠️ <b>Ces traces sont grossiers</b> : ouvre chaque ' +
-          'polygone (✎) et tire les poignees pour les ajuster au terrain avant d\'analyser.'
-        : 'Aucun polygone cree.';
+          'polygone (✎) et tire les poignees pour les ajuster au terrain avant d\'analyser.' +
+          phraseManuels
+        : 'Aucun polygone cree.' + phraseManuels;
     }
   }
 
