@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.92
+// @version      1.93
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -28,7 +28,19 @@
 
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
-  const VERSION = '1.92';
+  /**
+   * ⚠️ Le bandeau affichait une constante ecrite a la main, oubliee au bump :
+   * la fenetre annoncait « v1.92 » alors que le fichier etait en 1.93. Un
+   * editeur qui remonte un bug donnerait alors un mauvais numero. On lit donc
+   * d'abord le `@version` reel (Tampermonkey l'expose dans `GM_info`), et la
+   * constante ne sert que de repli — pour le test par injection, ou GM_info
+   * n'existe pas.
+   */
+  const VERSION = (() => {
+    try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
+    catch (e) { /* pas de Tampermonkey : on prend le repli */ }
+    return '1.93';
+  })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
   // et durable, pas une boite de dialogue qu'on clique sans lire.
@@ -57,9 +69,17 @@
     forme: { libelle: 'Redaction du nom seule', defaut: '#76ff03' },
     special: { libelle: 'Bretelle / voie ferree / rocade', defaut: '#ff4081' },
     giratoire: { libelle: 'Giratoires', defaut: '#00e676' },
-    adresse: { libelle: 'Adressage (numeros / POI residentiels)', defaut: '#00e5ff' }
+    // ⚠️ Les deux ecarts d'adressage sont de nature OPPOSEE et ne se lisent pas
+    // pareil : le numero hors agglo est un defaut a corriger, le RPP en agglo
+    // est une question a trancher (l'entree peut donner sur une autre voie).
+    // Ils partageaient couleur ET forme : indistinguables sur la carte alors
+    // qu'ils s'y cotoient. Le numero reste un DISQUE cyan, le RPP devient un
+    // ANNEAU orchidee — la teinte oppose les deux, la forme les separe meme
+    // pour un daltonien.
+    adresse: { libelle: 'Numero de rue hors agglomeration', defaut: '#00e5ff' },
+    rpp: { libelle: 'RPP en agglomeration (a trancher)', defaut: '#e040fb' }
   };
-  const familleDe = f => f.adresse ? 'adresse'
+  const familleDe = f => f.adresse ? (f.sousType === 'poi' ? 'rpp' : 'adresse')
     : f.cas === 'GIR' ? 'giratoire'
     : f.special ? 'special'
     : f.seulementCartouche ? 'cartouche' : f.seulementForme ? 'forme'
@@ -161,6 +181,11 @@
   let options = {
     sansAdresse: false, altEnTrop: false, seuil: 0.8,
     zoomClic: true, zoomNiveau: 17, surligner: true,
+    // Tableau et carte se choisissent SEPAREMENT, pour les segments comme pour
+    // les adresses (demande de l'auteur, 23/07). Jusqu'ici la carte ne peignait
+    // que l'onglet actif : ouvrir « Segments » effacait les adresses de la
+    // carte, alors qu'on veut souvent garder les deux sous les yeux.
+    vue: { segTable: true, segCarte: true, adrTable: true, adrCarte: true },
     // Charger tout seul les contours du departement survole. Coche par defaut :
     // c'est une corvee sans valeur ajoutee, et elle se refait a chaque fois.
     autoDep: true,
@@ -849,11 +874,20 @@
         styleContext: {
           couleur: ctx => (ctx.feature.properties || {}).couleur || '#00e5ff',
           rayon: ctx => (ctx.feature.properties || {}).rayon || 7,
+          // ⚠️ Le style est UNIQUE pour tout le calque : la seule facon de
+          // donner deux formes a deux sortes de points est de faire varier
+          // remplissage et epaisseur de trait par feature. Disque = numero de
+          // rue, anneau = RPP.
+          remplissage: ctx => {
+            const r = (ctx.feature.properties || {}).remplissage;
+            return (r === undefined) ? 0.55 : r;
+          },
+          trait: ctx => (ctx.feature.properties || {}).trait || 2,
           etiquette: ctx => (ctx.feature.properties || {}).label || ''
         },
         styleRules: [{ style: Object.assign({
-          pointRadius: '${rayon}', fillColor: '${couleur}', fillOpacity: 0.55,
-          strokeColor: '${couleur}', strokeWidth: 2, strokeOpacity: 0.95,
+          pointRadius: '${rayon}', fillColor: '${couleur}', fillOpacity: '${remplissage}',
+          strokeColor: '${couleur}', strokeWidth: '${trait}', strokeOpacity: 0.95,
           label: '${etiquette}', fontColor: '#004d5a', fontSize: '11px', fontWeight: 'bold',
           labelOutlineColor: '#fff', labelOutlineWidth: 3, labelYOffset: 14 }, INERTE) }]
       });
@@ -915,7 +949,10 @@
       if (a && b) tol = Math.abs(b.lon - a.lon) || tol;
     } catch (e) { /* on garde la valeur par defaut */ }
     let meilleur = null, dMin = tol;
-    for (const f of findings) {
+    // ⚠️ L'infobulle ne parle que de ce qui est PEINT : sans ce filtre elle
+    // decrirait un ecart d'une famille que l'editeur a retiree de la carte,
+    // sur un point invisible.
+    for (const f of findingsCarte()) {
       if (f.traite || !f.geom) continue;
       const d = distAuReport(p, f);
       if (d < dMin) { dMin = d; meilleur = f; }
@@ -1037,9 +1074,10 @@
       try { sdk.Map.removeAllFeaturesFromLayer({ layerName: n }); } catch (e) { /* */ }
     });
     if (!options.surligner || !findings.length) return;
-    // On ne peint que l'onglet courant : sinon la carte montre des ecarts que
-    // la liste n'affiche pas, et les deux ne se lisent plus ensemble.
-    const vivants = findingsVisibles().filter(f => f.geom && !f.traite);  // un ecart traite ne se surligne plus
+    // ⚠️ La carte ne suit PLUS l'onglet actif (v1.93) : elle obeit a ses deux
+    // cases propres. Ouvrir « Segments » n'efface plus les adresses — on peut
+    // lister les numeros tout en gardant les segments surlignes sous les yeux.
+    const vivants = findingsCarte().filter(f => f.geom && !f.traite);  // un ecart traite ne se surligne plus
     // ⚠️ `idActif` est l'INDEX du report (c'est ce que passe `allerA`), pas un
     // identifiant de segment : le comparer a `f.segId` ne matchait jamais, donc
     // l'element courant n'etait jamais mis en avant. Meme faute que l'ancienne
@@ -1061,8 +1099,12 @@
       const points = vivants.filter(f => f.adresse).map(f => ({
         id: 'ad-' + cleAdresse(f), type: 'Feature', geometry: f.geom,
         properties: {
-          couleur: options.couleurs.adresse || '#00e5ff',
+          couleur: options.couleurs[familleDe(f)] || '#00e5ff',
           rayon: f === actif ? 11 : 7,
+          // Le RPP se dessine en ANNEAU : creux et trait epais. Le numero de
+          // rue reste un disque plein. Deux natures, deux formes.
+          remplissage: f.sousType === 'poi' ? 0.07 : 0.55,
+          trait: f.sousType === 'poi' ? (f === actif ? 5 : 3.5) : 2,
           // Un report = un numero : on affiche le numero lui-meme sur la carte.
           label: (f.hns && f.hns.length === 1) ? String(f.hns[0].number) : ''
         }
@@ -1111,10 +1153,24 @@
     return null;
   }
 
+  /**
+   * Tracer demande la carte ENTIERE : nos panneaux s'effacent le temps du
+   * trace, et reviennent des que le polygone est boucle — c'est a ce
+   * moment-la, et pas avant, qu'il y a quelque chose a nommer et a enregistrer
+   * (demande de l'auteur, 23/07).
+   *
+   * ⚠️ On ne rouvre que ce qu'on a soi-meme ferme : une fenetre deja repliee
+   * par l'editeur avant le clic doit le rester. Le `finally` garantit le
+   * retour meme si le trace est annule (double-clic a vide, echappement).
+   */
   async function tracerAgglo() {
     if (!communeActive) return;
     ui.btnTracer.disabled = true;
     ui.btnTracer.textContent = 'Trace en cours… (double-clic pour fermer)';
+    const etaitReplie = ui.overlay.classList.contains('agn-replie');
+    const voletEtaitOuvert = ui.volet && ui.volet.classList.contains('agn-volet-ouvert');
+    if (!etaitReplie) basculerRepli(true);   // ferme aussi le volet (voir basculerRepli)
+    else basculerVolet(false);
     try {
       const ring = extractRing(await sdk.Map.drawPolygon());
       if (!ring || ring.length < 4) throw new Error('trace inexploitable');
@@ -1126,6 +1182,11 @@
       saveAgglos(); redrawAgglos(); renderAgglos();
     } catch (e) { log('trace annule ou echoue', e); }
     finally {
+      if (!etaitReplie) basculerRepli(false);
+      if (voletEtaitOuvert) basculerVolet(true);
+      // La section « agglomeration » porte le nom a donner au polygone qu'on
+      // vient de tracer : la deplier evite de la chercher.
+      replierSection('agglo', true);
       ui.btnTracer.disabled = false;
       ui.btnTracer.textContent = '＋ Tracer l\'agglomeration';
     }
@@ -3470,6 +3531,11 @@
   .agn-sb-col{display:flex;align-items:center;gap:7px;margin:4px 0;cursor:pointer}
   .agn-sb-col input{width:34px;height:22px;padding:0;border:1px solid #ccc;border-radius:3px;background:none;cursor:pointer}
   .agn-sb-n{font-size:11px;color:#e65100;min-height:14px;margin-top:4px}
+  /* « Segments : ☑ tableau ☑ carte » sur une seule ligne : deux cases par
+     famille tiendraient mal sur deux lignes chacune dans un panneau etroit. */
+  .agn-sb-oc{display:flex;align-items:center;gap:10px;margin:4px 0;font-size:12px}
+  .agn-sb-oc b{min-width:66px}
+  .agn-sb-oc .agn-sb-c{margin:0;white-space:nowrap}
   .agn-sb-b{width:100%;padding:6px;margin-top:6px;border:1px solid #bbb;border-radius:4px;
     background:#fff;cursor:pointer;font-size:12px}
   .agn-sb-b:hover{background:#f3f3f3}
@@ -3545,7 +3611,17 @@
   function buildOverlay() {
     const style = document.createElement('style'); style.textContent = CSS; document.head.appendChild(style);
     const memo = lire(STORE_UI, {});
-    if (memo.options) options = Object.assign(options, memo.options);
+    if (memo.options) {
+      // ⚠️ `Object.assign` est PLAT : un `vue` enregistre avant l'ajout d'une
+      // case la ferait revenir `undefined` (donc decochee) au lieu de prendre
+      // le defaut. On refusionne les sous-objets sur leurs valeurs par defaut.
+      const vueDefaut = options.vue, couleursDefaut = options.couleurs;
+      options = Object.assign(options, memo.options);
+      options.vue = Object.assign({}, vueDefaut, memo.options.vue || {});
+      // Meme piege pour les couleurs : la famille `rpp`, ajoutee en v1.93,
+      // serait `undefined` chez qui a deja des reglages enregistres.
+      options.couleurs = Object.assign({}, couleursDefaut, memo.options.couleurs || {});
+    }
     // Les controles disponibles dependent du referentiel : on active par defaut
     // ceux qu'il declare et que l'utilisateur n'a pas deja regles.
     REF.controles.forEach(ct => {
@@ -3672,6 +3748,7 @@
     o.querySelector('#agn-volet-ok').onclick = () => basculerVolet(false);
     ui.onglets.forEach(t => { t.onclick = () => choisirVue(t.dataset.vue); });
     choisirVue(memo.vue === 'adresses' ? 'adresses' : 'segments');
+    majOnglets();   // un onglet decoche la session derniere reste masque
 
     o.querySelector('#agn-contours').onclick = () => ui.inputFichier.click();
     ui.inputFichier.onchange = surFichierContours;
@@ -3708,18 +3785,7 @@
      * On memorise donc la hauteur avant repli, et `saveUI` n'ecrit rien tant
      * qu'on est replie.
      */
-    o.querySelector('#agn-reduire').onclick = () => {
-      const replie = o.classList.contains('agn-replie');
-      if (!replie) ui.hAvantRepli = o.offsetHeight;      // on la garde sous le coude
-      o.classList.toggle('agn-replie', !replie);
-      ui.corps.style.display = replie ? '' : 'none';
-      const ong = o.querySelector('#agn-onglets');
-      if (ong) ong.style.display = replie ? '' : 'none';
-      o.style.height = replie ? (ui.hAvantRepli || 560) + 'px' : 'auto';
-      o.style.resize = replie ? 'both' : 'none';
-      if (replie) placerVolet(); else basculerVolet(false);
-      if (replie) saveUI();
-    };
+    o.querySelector('#agn-reduire').onclick = () => basculerRepli();
 
     // Deplacement par l'en-tete. On coupe la propagation : sans ca, le
     // glissement part dans la carte de WME.
@@ -3790,6 +3856,33 @@
    * dehors d'elle : la zone de travail garde toute sa largeur. S'il n'y a pas
    * la place a gauche, il bascule a droite plutot que de sortir de l'ecran.
    */
+  /**
+   * Replie ou deplie la fenetre de travail. Sans argument, elle bascule.
+   *
+   * ⚠️⚠️ Reduire la fenetre ne doit JAMAIS ecraser sa hauteur de travail.
+   * Bug vecu (auteur, 21/07 : « l'overlay est devenu tres petit apres quelques
+   * manipulations ») : replier posait `height:auto`, le ResizeObserver voyait
+   * la fenetre retrecir et `saveUI` enregistrait la hauteur REPLIEE (~40 px) —
+   * qui devenait la taille au demarrage suivant. On memorise donc la hauteur
+   * avant repli, et `saveUI` n'ecrit rien tant qu'on est replie.
+   */
+  function basculerRepli(force) {
+    const o = ui.overlay;
+    if (!o) return;
+    const replie = o.classList.contains('agn-replie');
+    const veut = force === undefined ? !replie : !!force;
+    if (veut === replie) return;
+    if (veut) ui.hAvantRepli = o.offsetHeight;      // on la garde sous le coude
+    o.classList.toggle('agn-replie', veut);
+    ui.corps.style.display = veut ? 'none' : '';
+    const ong = o.querySelector('#agn-onglets');
+    if (ong) ong.style.display = veut ? 'none' : '';
+    o.style.height = veut ? 'auto' : (ui.hAvantRepli || 560) + 'px';
+    o.style.resize = veut ? 'none' : 'both';
+    if (veut) basculerVolet(false); else placerVolet();
+    if (!veut) saveUI();
+  }
+
   function basculerVolet(force) {
     const ouvrir = force !== undefined ? force : !ui.volet.classList.contains('agn-volet-ouvert');
     ui.volet.classList.toggle('agn-volet-ouvert', ouvrir);
@@ -3826,9 +3919,30 @@
     redrawEcarts(null);
   }
 
-  /** Les reports de l'onglet courant. */
+  /** Les reports de l'onglet courant (le TABLEAU). */
   const findingsVisibles = () =>
     findings.filter(f => (vueCourante === 'adresses') === !!f.adresse);
+
+  /** Les reports a peindre sur la CARTE — reglage independant de l'onglet. */
+  const findingsCarte = () =>
+    findings.filter(f => f.adresse ? options.vue.adrCarte : options.vue.segCarte);
+
+  /**
+   * Un onglet decoche disparait de la barre. ⚠️ On ne peut pas les masquer tous
+   * les deux : la fenetre n'aurait plus rien a montrer. Le dernier reste, et
+   * sa case se recoche toute seule (`majOnglets` est aussi appele apres coup).
+   */
+  function majOnglets() {
+    if (!ui.onglets) return;
+    if (!options.vue.segTable && !options.vue.adrTable) options.vue.segTable = true;
+    ui.onglets.forEach(t => {
+      const montre = t.dataset.vue === 'adresses' ? options.vue.adrTable : options.vue.segTable;
+      t.style.display = montre ? '' : 'none';
+    });
+    // L'onglet actif vient d'etre masque : on bascule sur celui qui reste.
+    const actifMontre = vueCourante === 'adresses' ? options.vue.adrTable : options.vue.segTable;
+    if (!actifMontre) choisirVue(vueCourante === 'adresses' ? 'segments' : 'adresses');
+  }
 
   /** Chaque onglet annonce son nombre de reports, meme quand il n'est pas actif. */
   function majCompteursOnglets() {
@@ -3891,9 +4005,22 @@
           <span>Zoom maximal</span>
           <input type="number" id="agn-r-zoomniv" min="12" max="22" step="1"></label>
 
-        <h4>Surlignage des segments</h4>
+        <h4>Ou voir les resultats</h4>
+        <div class="agn-sb-n">Tableau et carte se choisissent separement. La carte
+          ne suit plus l'onglet ouvert : on peut lister les numeros en gardant
+          les segments surlignes.</div>
+        <div class="agn-sb-oc"><b>Segments</b>
+          <label class="agn-sb-c"><input type="checkbox" id="agn-r-segtable"> tableau</label>
+          <label class="agn-sb-c"><input type="checkbox" id="agn-r-segcarte"> carte</label></div>
+        <div class="agn-sb-oc"><b>Adresses</b>
+          <label class="agn-sb-c"><input type="checkbox" id="agn-r-adrtable"> tableau</label>
+          <label class="agn-sb-c"><input type="checkbox" id="agn-r-adrcarte"> carte</label></div>
+
+        <h4>Surlignage sur la carte</h4>
         <label class="agn-sb-c"><input type="checkbox" id="agn-r-surligner">
-          Surligner les segments en ecart sur la carte</label>
+          Surligner les ecarts sur la carte</label>
+        <div class="agn-sb-n">Numero de rue hors agglo = disque plein ·
+          RPP en agglo = anneau.</div>
         <div id="agn-r-couleurs"></div>
         <button class="agn-sb-b" id="agn-r-reset">Couleurs par defaut</button>
 
@@ -3938,6 +4065,26 @@
     });
     coche('#agn-r-zoom', 'zoomClic');
     coche('#agn-r-surligner', 'surligner', () => redrawEcarts(null));
+
+    // Les 4 cases « tableau / carte » vivent dans `options.vue`, pas a la
+    // racine : `coche` ne sait pas les atteindre.
+    const CASES_VUE = { '#agn-r-segtable': 'segTable', '#agn-r-adrtable': 'adrTable',
+                        '#agn-r-segcarte': 'segCarte', '#agn-r-adrcarte': 'adrCarte' };
+    // ⚠️ Relire l'etat APRES coup, sur les quatre : `majOnglets` peut avoir
+    // recoche « Segments / tableau » de force (on ne masque pas les deux
+    // onglets). Sans ca, la case resterait vide alors que l'onglet est la.
+    const syncVue = () => {
+      for (const [id, cle] of Object.entries(CASES_VUE)) q(id).checked = !!options.vue[cle];
+    };
+    for (const [id, cle] of Object.entries(CASES_VUE)) {
+      q(id).onchange = () => {
+        options.vue[cle] = q(id).checked; saveUI();
+        if (cle === 'segTable' || cle === 'adrTable') { majOnglets(); renderResults(); }
+        else redrawEcarts(null);
+        syncVue();
+      };
+    }
+    syncVue();
     // Recocher la case doit tenter TOUT DE SUITE : l'editeur vient d'exprimer
     // son besoin, il n'a pas a bouger la carte pour que ca se declenche.
     coche('#agn-r-autodep', 'autoDep', () => { if (options.autoDep) autoChargerDepartement(); });
@@ -4569,7 +4716,7 @@
             <span class="agn-chev">▸</span>
             <span class="agn-pastille" style="background:${options.couleurs[cle] || fam.defaut}"></span>
             <b>${esc(fam.libelle)}</b>
-            ${_ft() && _fv() && cle !== 'adresse' && membres.some(planDeCorrection)
+            ${_ft() && _fv() && cle !== 'adresse' && cle !== 'rpp' && membres.some(planDeCorrection)
               ? '<button class="agn-fix-grp" title="Appliquer toutes les corrections automatisables de ce groupe">⚡ corriger</button>' : ''}
             <span class="agn-grp-n">${membres.length}</span>
           </div>
