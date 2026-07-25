@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      1.99
+// @version      2.00
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -9,8 +9,11 @@
 // @match        https://beta.waze.com/editor*
 // @match        https://beta.waze.com/*/editor*
 // @grant        GM_xmlhttpRequest
+// @grant        GM_getValue
+// @grant        GM_setValue
 // @connect      geo.api.gouv.fr
 // @connect      api.wazefrance.com
+// @connect      raw.githubusercontent.com
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -26,6 +29,232 @@
    */
   const hote = (typeof unsafeWindow !== 'undefined' && unsafeWindow) ? unsafeWindow : window;
 
+  // ===========================================================================
+  // WMEPrefs -- persistance partagee (COPIE CONFORME de la bibliotheque autonome)
+  //
+  // Copie a l'identique de C:\Users\drslu\Projets\WME-Prefs\WMEPrefs.js.
+  // Ne PAS la diverger ici : corriger la lib d'origine, puis recopier. Meme
+  // demarche que WCT.
+  // ===========================================================================
+  var WMEPrefs = (function () {
+      'use strict';
+
+      const FORMAT = 'wme-userscript-prefs/1';   // enveloppe des fichiers échangés
+
+      // ── Accès au stockage du gestionnaire, quelle que soit sa génération ─────
+      // Tampermonkey expose GM_getValue (synchrone), les autres GM.getValue
+      // (promesse). On normalise tout en promesse, et on retombe sur localStorage
+      // si aucun n'est accordé — un script sans @grant doit continuer de marcher.
+      const _gm = {
+          get disponible() {
+              return (typeof GM_getValue === 'function' && typeof GM_setValue === 'function')
+                  || (typeof GM !== 'undefined' && GM && typeof GM.getValue === 'function');
+          },
+          async get(cle) {
+              if (typeof GM_getValue === 'function') return GM_getValue(cle, undefined);
+              if (typeof GM !== 'undefined' && GM?.getValue) return await GM.getValue(cle, undefined);
+              return undefined;
+          },
+          async set(cle, val) {
+              if (typeof GM_setValue === 'function') return GM_setValue(cle, val);
+              if (typeof GM !== 'undefined' && GM?.setValue) return await GM.setValue(cle, val);
+          },
+      };
+
+      const _ls = {
+          get(cle) { try { return localStorage.getItem(cle) ?? undefined; } catch (e) { return undefined; } },
+          set(cle, val) { try { localStorage.setItem(cle, val); return true; } catch (e) { return false; } },
+      };
+
+      const _parse = (txt) => {
+          if (typeof txt !== 'string' || !txt.trim()) return undefined;
+          try { return JSON.parse(txt); } catch (e) { return undefined; }
+      };
+      const _estObjet = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+      // Fusion en profondeur. L'objet ENTRANT gagne sur les conflits de feuilles,
+      // mais ne supprime jamais une clé absente de lui : importer des préréglages
+      // partagés ne doit pas effacer les réglages personnels de l'éditeur.
+      const _fusion = (base, entrant) => {
+          if (!_estObjet(base)) return entrant;
+          if (!_estObjet(entrant)) return entrant === undefined ? base : entrant;
+          const out = { ...base };
+          for (const [k, v] of Object.entries(entrant)) {
+              out[k] = (_estObjet(v) && _estObjet(base[k])) ? _fusion(base[k], v) : v;
+          }
+          return out;
+      };
+
+      // Téléchargement par Blob : une data URL casserait sur un « # » ou un « ? »
+      // présents dans les données.
+      const _telecharger = (contenu, nomFichier) => {
+          const url = URL.createObjectURL(new Blob([contenu], { type: 'application/json;charset=utf-8' }));
+          const a = document.createElement('a');
+          a.style.display = 'none'; a.href = url; a.download = nomFichier;
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 5000);
+      };
+
+      // ⚠️ La CSP de WME interdit tout fetch() vers un domaine externe : la
+      // requête doit partir du contexte de l'extension, donc GM_xmlhttpRequest,
+      // avec le domaine déclaré en @connect par le script hôte.
+      const _recupererURL = (url) => new Promise((resolve, reject) => {
+          if (typeof GM_xmlhttpRequest !== 'function' && !(typeof GM !== 'undefined' && GM?.xmlHttpRequest))
+              return reject(new Error('GM_xmlhttpRequest non accordé : ajoute @grant GM_xmlhttpRequest et @connect <domaine>'));
+          const req = (typeof GM_xmlhttpRequest === 'function') ? GM_xmlhttpRequest : GM.xmlHttpRequest;
+          req({
+              method: 'GET', url, timeout: 20000,
+              onload: r => (r.status >= 200 && r.status < 300)
+                  ? resolve(r.responseText)
+                  : reject(new Error('HTTP ' + r.status)),
+              onerror: () => reject(new Error('échec réseau (domaine déclaré en @connect ?)')),
+              ontimeout: () => reject(new Error('délai dépassé')),
+          });
+      });
+
+      class Store {
+          constructor(opts) {
+              if (!opts || !opts.scriptId) throw new Error('WMEPrefs : scriptId obligatoire');
+              this.scriptId = String(opts.scriptId);
+              this.scriptName = String(opts.scriptName || opts.scriptId);
+              this.schema = Number.isFinite(opts.schema) ? opts.schema : 1;
+              this.legacyKey = opts.legacyKey || null;
+              this.migrate = typeof opts.migrate === 'function' ? opts.migrate : null;
+              this.cle = 'wmeprefs:' + this.scriptId;
+              this.dernierBackend = null;
+          }
+
+          // Charge les données. Ordre : stockage du gestionnaire, puis miroir
+          // localStorage, puis REPRISE de l'ancienne clé du script (migration
+          // unique et silencieuse — l'utilisateur ne doit rien perdre en migrant).
+          async load() {
+              let enveloppe = _parse(await _gm.get(this.cle));
+              this.dernierBackend = enveloppe ? 'gm' : null;
+
+              if (!enveloppe) {
+                  enveloppe = _parse(_ls.get(this.cle));
+                  if (enveloppe) this.dernierBackend = 'localStorage';
+              }
+              if (!enveloppe && this.legacyKey) {
+                  const ancien = _parse(_ls.get(this.legacyKey));
+                  if (ancien !== undefined) {
+                      const donnees = this._migrer(ancien, 0);
+                      await this.save(donnees);      // recopié dans le nouveau socle
+                      // ⚠️ APRÈS le save, jamais avant : save() repositionne
+                      // dernierBackend, et l'information « on vient de reprendre
+                      // l'ancien stockage » serait perdue — or c'est précisément
+                      // ce qu'on veut pouvoir dire à l'utilisateur.
+                      this.dernierBackend = 'migration';
+                      return donnees;
+                  }
+              }
+              if (!enveloppe) { this.dernierBackend = 'vide'; return {}; }
+
+              const brut = _estObjet(enveloppe) && 'payload' in enveloppe ? enveloppe.payload : enveloppe;
+              const depuis = _estObjet(enveloppe) ? (enveloppe.schema ?? 0) : 0;
+              return this._migrer(brut, depuis);
+          }
+
+          _migrer(donnees, depuis) {
+              if (!_estObjet(donnees)) return {};
+              if (depuis === this.schema || !this.migrate) return donnees;
+              try { return this.migrate(donnees, depuis, this.schema) || donnees; }
+              catch (e) { console.warn('[WMEPrefs] migration ' + this.scriptId + ' : ' + e.message); return donnees; }
+          }
+
+          _enveloppe(donnees) {
+              return {
+                  format: FORMAT, script: this.scriptId, scriptName: this.scriptName,
+                  schema: this.schema, savedAt: new Date().toISOString(), payload: donnees,
+              };
+          }
+
+          // Écrit dans le stockage du gestionnaire ET dans localStorage.
+          // Le miroir est volontaire : il permet de relire les réglages même si
+          // l'utilisateur retire les @grant, et sert de repli si GM est absent.
+          async save(donnees) {
+              const txt = JSON.stringify(this._enveloppe(donnees));
+              let ok = false;
+              if (_gm.disponible) { try { await _gm.set(this.cle, txt); ok = true; } catch (e) {} }
+              const okLs = _ls.set(this.cle, txt);
+              this.dernierBackend = ok ? 'gm' : (okLs ? 'localStorage' : 'aucun');
+              return ok || okLs;
+          }
+
+          // opts.only : n'exporter QUE ces clés de premier niveau.
+          // Sert au partage : envoyer ses préréglages à un autre éditeur ne doit pas
+          // lui imposer au passage sa langue, son thème et ses préférences d'affichage.
+          async exportData(opts = {}) {
+              const tout = await this.load();
+              if (!Array.isArray(opts.only) || !opts.only.length) return tout;
+              const partiel = {};
+              for (const k of opts.only) if (k in tout) partiel[k] = tout[k];
+              return partiel;
+          }
+
+          async exportFile(nomFichier, opts = {}) {
+              const donnees = await this.exportData(opts);
+              const nom = nomFichier || (this.scriptId + '-prefs-' + new Date().toISOString().slice(0, 10) + '.json');
+              _telecharger(JSON.stringify(this._enveloppe(donnees), null, 2), nom);
+              return { nom, cles: Object.keys(donnees) };
+          }
+
+          // Contrôle strict avant d'écraser quoi que ce soit : un fichier d'un
+          // AUTRE script, ou un JSON quelconque, doit être refusé avec une raison
+          // lisible plutôt que d'écrire n'importe quoi dans les préférences.
+          inspect(texte) {
+              const j = _parse(texte);
+              if (j === undefined) return { ok: false, raison: 'json-invalide' };
+              if (!_estObjet(j)) return { ok: false, raison: 'json-invalide' };
+              if (j.format !== FORMAT) return { ok: false, raison: 'format-inconnu', format: j.format ?? null };
+              if (!_estObjet(j.payload)) return { ok: false, raison: 'contenu-absent' };
+              if (j.script !== this.scriptId) return { ok: false, raison: 'autre-script', script: j.script ?? null };
+              return { ok: true, schema: j.schema ?? 0, savedAt: j.savedAt || null, payload: j.payload };
+          }
+
+          // mode 'merge' (défaut) : complète l'existant sans rien effacer.
+          // mode 'replace' : remplace tout — réservé à une restauration assumée.
+          async importFromText(texte, opts = {}) {
+              const info = this.inspect(texte);
+              if (!info.ok) return { ok: false, raison: info.raison, script: info.script, format: info.format };
+              const entrant = this._migrer(info.payload, info.schema);
+              const donnees = (opts.mode === 'replace') ? entrant : _fusion(await this.load(), entrant);
+              await this.save(donnees);
+              return { ok: true, mode: opts.mode === 'replace' ? 'replace' : 'merge', donnees, savedAt: info.savedAt };
+          }
+
+          async importFromFile(fichier, opts = {}) {
+              const texte = await new Promise((resolve, reject) => {
+                  const fr = new FileReader();
+                  fr.onload = () => resolve(String(fr.result || ''));
+                  fr.onerror = () => reject(new Error('lecture impossible'));
+                  fr.readAsText(fichier);
+              });
+              return this.importFromText(texte, opts);
+          }
+
+          async importFromURL(url, opts = {}) {
+              return this.importFromText(await _recupererURL(url), opts);
+          }
+
+          // De quoi afficher honnêtement à l'utilisateur OÙ vivent ses réglages.
+          info() {
+              return {
+                  scriptId: this.scriptId, schema: this.schema,
+                  socle: _gm.disponible ? 'gestionnaire de scripts' : 'localStorage (navigateur)',
+                  resistantAuNettoyage: _gm.disponible,
+                  dernierAcces: this.dernierBackend,
+              };
+          }
+      }
+
+      return {
+          FORMAT,
+          create: (opts) => new Store(opts),
+          _internes: { _fusion, _parse, _estObjet },   // exposés pour les tests
+      };
+  })();
+
   const SCRIPT_ID = 'wme-agglo-naming';
   const SCRIPT_NAME = 'WME Agglo Naming';
   /**
@@ -39,7 +268,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '1.99';
+    return '2.00';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -178,6 +407,11 @@
   let metaContours = null;
   let agglos = {};
   let sansAgglo = {};        // { <code INSEE>: true }
+  // Ecarts marques « traite », par commune : { <INSEE>: { <cle d'ecart>: true } }.
+  // PERSONNEL (pas partage) : suit l'editeur d'un poste a l'autre, pas les
+  // autres. Structure OBJET et non tableau pour que la fusion multi-poste soit
+  // une union, jamais un ecrasement.
+  let traites = {};
   let communeActive = null;
   let findings = [];
   let lastScan = null;
@@ -410,8 +644,114 @@
   const ecrire = (cle, val) => {
     try { localStorage.setItem(cle, JSON.stringify(val)); } catch (e) { log('ecriture ' + cle, e); }
   };
-  const saveAgglos = () => ecrire(STORE_AGGLOS, agglos);
-  const saveSansAgglo = () => ecrire(STORE_SANS_AGGLO, sansAgglo);
+  // ---------------------------------------------------------------------------
+  // Persistance en ligne (WMEPrefs) + repli local
+  //
+  // « En ligne » = le stockage du GESTIONNAIRE DE SCRIPTS (GM_setValue), qui
+  // survit a un « effacer les donnees du site » sur waze.com et entre dans les
+  // sauvegardes du gestionnaire (Drive, OneDrive…). Ce n'est PAS un serveur
+  // temps reel : la sync multi-poste n'est pas automatique, elle passe par un
+  // fichier exporte/importe. WMEPrefs miroir aussi tout dans localStorage, ce
+  // qui constitue le REPLI si le gestionnaire est absent ou echoue.
+  //
+  // Trois choses y vivent : les polygones (`agglos`), les declarations « sans
+  // agglo » (`sansAgglo`) et les coches « traite » (`traites`). Les CONTOURS
+  // communaux (volumineux, refabricables en un clic) restent hors de la, en
+  // IndexedDB. Le PARTAGE communautaire n'emporte que polygones + sans-agglo,
+  // jamais les traites (personnels) — voir `exporterPartage`.
+  // ---------------------------------------------------------------------------
+
+  const prefs = WMEPrefs.create({ scriptId: SCRIPT_ID, scriptName: SCRIPT_NAME, schema: 1 });
+  // ⚠️ Garde-fou : tant que le chargement initial n'a pas eu lieu, `agglos` et
+  // consorts sont vides — sauver a ce moment ECRASERAIT les donnees stockees.
+  let prefsPret = false;
+
+  /** Charge polygones / sans-agglo / traites, avec reprise unique des anciennes
+   *  cles localStorage (personne ne doit rien perdre en passant a WMEPrefs). */
+  async function chargerPrefs() {
+    let data = {};
+    try { data = (await prefs.load()) || {}; }
+    catch (e) { log('WMEPrefs load', e); data = {}; }
+    // Premiere fois sur ce socle : reprendre ce qui etait en localStorage brut.
+    if (!data.agglos && !data.sansAgglo && !data.traites) {
+      const a = lire(STORE_AGGLOS, null), sa = lire(STORE_SANS_AGGLO, null);
+      if (a || sa) {
+        data = { agglos: a || {}, sansAgglo: sa || {}, traites: {} };
+        try { await prefs.save(data); log('prefs : anciennes cles localStorage reprises'); }
+        catch (e) { log('WMEPrefs migration', e); }
+      }
+    }
+    agglos = data.agglos || {};
+    sansAgglo = data.sansAgglo || {};
+    traites = data.traites || {};
+    prefsPret = true;
+  }
+
+  /** Ecrit l'etat courant dans le gestionnaire (+ miroir localStorage). Appel
+   *  asynchrone volontairement « tire et oublie » : l'UI ne l'attend pas. */
+  function sauverPrefs() {
+    if (!prefsPret) return;   // avant chargement : ne rien ecraser
+    prefs.save({ agglos, sansAgglo, traites }).catch(e => log('WMEPrefs save', e));
+  }
+  const saveAgglos = () => sauverPrefs();
+  const saveSansAgglo = () => sauverPrefs();
+  const saveTraites = () => sauverPrefs();
+
+  // ---------------------------------------------------------------------------
+  // Partage communautaire — fichier exporte / importe
+  //
+  // On n'echange QUE les polygones et les declarations « sans agglo » : le
+  // travail de zonage a de la valeur pour toute la communaute. Les coches
+  // « traite » sont PERSONNELLES et restent en dehors (`only`). A l'import, on
+  // ne touche jamais une commune deja tracee localement — on n'ajoute que les
+  // manquantes (choix de l'auteur, 25/07) : le partage ENRICHIT, il n'ecrase pas.
+  // ---------------------------------------------------------------------------
+
+  const CLES_PARTAGE = ['agglos', 'sansAgglo'];
+
+  async function exporterPartage() {
+    return prefs.exportFile('wme-agglo-naming-partage-' +
+      new Date().toISOString().slice(0, 10) + '.json', { only: CLES_PARTAGE });
+  }
+
+  /**
+   * Fusionne un fichier de partage sans jamais ecraser le local. Rend
+   * `{ ok, ajoutPoly, ajoutSans }` ou `{ ok:false, raison }` (jamais d'exception,
+   * et rien n'est ecrit en cas de rejet — meme discipline que WMEPrefs).
+   */
+  function fusionnerPartage(texte) {
+    const info = prefs.inspect(texte);
+    if (!info.ok) return info;                 // { ok:false, raison, script?, format? }
+    const p = info.payload || {};
+    let ajoutPoly = 0, ajoutSans = 0;
+    for (const [insee, liste] of Object.entries(p.agglos || {})) {
+      // « n'ajouter que les absentes » : une commune deja tracee est intouchee.
+      if ((!agglos[insee] || !agglos[insee].length) && Array.isArray(liste) && liste.length) {
+        agglos[insee] = liste; ajoutPoly++;
+      }
+    }
+    for (const insee of Object.keys(p.sansAgglo || {})) {
+      if (!sansAgglo[insee]) { sansAgglo[insee] = true; ajoutSans++; }
+    }
+    if (ajoutPoly || ajoutSans) { saveAgglos(); saveSansAgglo(); }
+    return { ok: true, ajoutPoly, ajoutSans };
+  }
+
+  function importerPartageFichier(fichier) {
+    return new Promise(resolve => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fusionnerPartage(String(fr.result || '')));
+      fr.onerror = () => resolve({ ok: false, raison: 'lecture-impossible' });
+      fr.readAsText(fichier);
+    });
+  }
+
+  async function importerPartageURL(url) {
+    let texte;
+    try { texte = await telecharger(url); }
+    catch (e) { return { ok: false, raison: 'reseau', message: e.message }; }
+    return fusionnerPartage(texte);
+  }
 
   function saveUI() {
     const o = ui.overlay;
@@ -4246,6 +4586,8 @@
   .agn-sb-b{width:100%;padding:6px;margin-top:6px;border:1px solid #bbb;border-radius:4px;
     background:#fff;cursor:pointer;font-size:12px}
   .agn-sb-b:hover{background:#f3f3f3}
+  .agn-sb-i{width:100%;box-sizing:border-box;padding:4px 6px;font-size:12px;
+    border:1px solid #bbb;border-radius:4px;margin-top:2px}
   .agn-sb-b.agn-sb-p{background:#1e88e5;color:#fff;border-color:#1976d2;font-weight:600}
   .agn-nav{display:flex;gap:6px;align-items:center;margin:6px 0}
   .agn-nav button{flex:0 0 auto;padding:4px 9px}
@@ -4756,6 +5098,21 @@
         <h4>Correction</h4>
         <div class="agn-sb-n" id="agn-r-droits"></div>
 
+        <h4>Sauvegarde &amp; partage</h4>
+        <div class="agn-sb-n" id="agn-r-socle"></div>
+        <div class="agn-sb-n">Polygones, communes « sans agglo » et coches « traité »
+          sont conservés dans le gestionnaire de scripts (survit au nettoyage du
+          navigateur), avec repli local.</div>
+        <button class="agn-sb-b" id="agn-r-exporter">⬇️ Exporter (polygones + communes)</button>
+        <div class="agn-sb-n">Le fichier partage les <b>polygones</b> et les
+          communes « sans agglo ». Les coches « traité » restent personnelles.</div>
+        <button class="agn-sb-b" id="agn-r-importer-f">⬆️ Importer un fichier</button>
+        <input type="file" id="agn-r-fichier-partage" accept=".json,application/json" style="display:none">
+        <label class="agn-sb-l" style="margin-top:8px"><span>Importer depuis une URL</span></label>
+        <input type="text" id="agn-r-url" class="agn-sb-i" placeholder="https://raw.githubusercontent.com/…/zone.json" autocomplete="off">
+        <button class="agn-sb-b" id="agn-r-importer-u">🌐 Importer depuis l'URL</button>
+        <div class="agn-sb-n" id="agn-r-partage-etat"></div>
+
         <h4>Fenetre de travail</h4>
         <button class="agn-sb-b agn-sb-p" id="agn-rouvrir">Afficher la fenetre</button>
       </div>`;
@@ -4860,6 +5217,55 @@
       let n = 0;
       const t = setInterval(() => { if (peindreDroits() || ++n > 20) clearInterval(t); }, 1000);
     }
+
+    // ── Sauvegarde & partage ────────────────────────────────────────────────
+    const socle = q('#agn-r-socle');
+    const info = prefs.info();
+    socle.innerHTML = info.resistantAuNettoyage
+      ? 'Socle : <b>gestionnaire de scripts</b> — résistant au nettoyage du navigateur.'
+      : '⚠️ Socle : <b>localStorage</b> seul (gestionnaire non accordé) — un nettoyage ' +
+        'du navigateur effacerait tout. Réinstalle le script dans Tampermonkey.';
+
+    const etatPartage = q('#agn-r-partage-etat');
+    const dire = (txt, err) => { etatPartage.textContent = txt; etatPartage.style.color = err ? '#c62828' : '#2e7d32'; };
+    const RAISONS = {
+      'json-invalide': 'fichier illisible (pas du JSON).',
+      'format-inconnu': 'ce fichier n\'est pas un partage WME Agglo Naming.',
+      'autre-script': 'ce fichier vient d\'un autre script.',
+      'contenu-absent': 'fichier vide.',
+      'lecture-impossible': 'lecture du fichier impossible.',
+      'reseau': 'téléchargement impossible (URL joignable ? domaine autorisé ?).'
+    };
+    const apresImport = r => {
+      if (!r.ok) { dire('Import refusé : ' + (RAISONS[r.raison] || r.raison), true); return; }
+      if (!r.ajoutPoly && !r.ajoutSans) {
+        dire('Rien de nouveau : les communes du fichier étaient déjà chez toi.');
+      } else {
+        dire(r.ajoutPoly + ' commune(s) avec polygone et ' + r.ajoutSans +
+          ' « sans agglo » ajoutée(s). Tes communes existantes n\'ont pas été touchées.');
+      }
+      // Rafraichir ce que l'editeur voit : liste des communes, agglos, carte.
+      rafraichirCommunesDeLaVue(); renderAgglos(); redrawAgglos();
+    };
+
+    q('#agn-r-exporter').onclick = async () => {
+      try { const r = await exporterPartage();
+            dire('Exporté : ' + (r.cles.join(' + ') || 'rien à exporter') + '.'); }
+      catch (e) { dire('Export impossible : ' + e.message, true); }
+    };
+    const inputPartage = q('#agn-r-fichier-partage');
+    q('#agn-r-importer-f').onclick = () => inputPartage.click();
+    inputPartage.onchange = async () => {
+      if (!inputPartage.files || !inputPartage.files[0]) return;
+      apresImport(await importerPartageFichier(inputPartage.files[0]));
+      inputPartage.value = '';
+    };
+    q('#agn-r-importer-u').onclick = async () => {
+      const url = (q('#agn-r-url').value || '').trim();
+      if (!url) { dire('Colle d\'abord une URL.', true); return; }
+      dire('Téléchargement…');
+      apresImport(await importerPartageURL(url));
+    };
 
     q('#agn-rouvrir').onclick = ouvrirOverlay;
   }
@@ -5099,14 +5505,54 @@
   let indexCourant = -1;
 
   /**
+   * Cles ELEMENTAIRES d'un report, stables entre deux analyses. Un report de
+   * nommage regroupe plusieurs segments : chacun donne sa cle, si bien qu'un
+   * groupe qui retrecit (des segments corriges) reste « traite » sur ce qu'il
+   * lui reste. Un report d'adresse s'identifie par son numero (hnId) ou son POI
+   * (venueId). ⚠️ Le `cas` entre dans la cle : si l'ecart change de nature, le
+   * traite ne s'y applique plus et l'editeur le revoit — c'est voulu.
+   */
+  function clesTraite(f) {
+    if (f.adresse) return [f.cas + '|' + (f.hnId || f.venueId || f.segId)];
+    return (f.segIds || [f.segId]).map(id => f.cas + '|' + id);
+  }
+
+  /** Un report est « traite » si TOUTES ses cles elementaires le sont. */
+  function estTraite(f) {
+    if (!communeActive) return false;
+    const t = traites[communeActive.code];
+    if (!t) return false;
+    const cs = clesTraite(f);
+    return cs.length > 0 && cs.every(c => t[c]);
+  }
+
+  /** Reapplique l'etat « traite » memorise a la liste courante. Idempotent :
+   *  `traites` est la source de verite, `f.traite` n'en est que le reflet. */
+  function appliquerTraites() {
+    if (!communeActive) return;
+    findings.forEach(f => { f.traite = estTraite(f); });
+  }
+
+  /**
    * Marque un ecart comme traite : il reste dans la liste, barre et coche, mais
    * son surlignage disparait de la carte. A la prochaine analyse il ne devrait
    * plus remonter du tout — c'est la verification que la correction a pris.
+   * L'etat est PERSISTE (WMEPrefs) et suit l'editeur d'un poste a l'autre.
    * Cette fonction sera aussi le point d'entree de la correction automatique.
    */
   function marquerTraite(f, node, force) {
     f.traite = force !== undefined ? force : !f.traite;
     node.classList.toggle('agn-traite', !!f.traite);
+    // Persistance : on repercute sur `traites[INSEE]` puis on sauve.
+    const insee = communeActive && communeActive.code;
+    if (insee) {
+      const t = traites[insee] || (traites[insee] = {});
+      const cs = clesTraite(f);
+      if (f.traite) cs.forEach(c => { t[c] = true; });
+      else cs.forEach(c => { delete t[c]; });
+      if (!Object.keys(t).length) delete traites[insee];
+      saveTraites();
+    }
     redrawEcarts(null);
     majCompteurTraites();
     majBoutonsGroupes();
@@ -5402,6 +5848,9 @@
 
   function renderResults() {
     const s = lastScan;
+    // Ce que l'editeur avait marque « traite » (memorise, meme d'un autre poste)
+    // se retrouve coche des la premiere analyse — avant tout affichage.
+    appliquerTraites();
     // Chaque onglet ne montre QUE ses propres reports, et son propre bilan :
     // afficher les deux ensemble rendait la liste illisible.
     const liste = findingsVisibles();
@@ -5500,7 +5949,7 @@
 
       membres.forEach(f => {
         const node = el(`
-          <div class="agn-item agn-${cle}" data-seg="${f.segId}" data-idx="${findings.indexOf(f)}">
+          <div class="agn-item agn-${cle}${f.traite ? ' agn-traite' : ''}" data-seg="${f.segId}" data-idx="${findings.indexOf(f)}">
             <div class="agn-h"><span>${esc(f.libelle)}</span>
               ${planDeCorrection(f) && _ft() && f.verrouilles !== f.nb
                 ? '<button class="agn-fix-btn" title="Appliquer la correction (sans enregistrer)">⚡</button>' : ''}
@@ -5573,8 +6022,7 @@
     // /!\ Ne PAS appeler sdk.Events.waitForWmeReady() : la methode existe mais
     // son appel leve une TypeError et fait echouer tout le demarrage.
 
-    agglos = lire(STORE_AGGLOS, {});
-    sansAgglo = lire(STORE_SANS_AGGLO, {});
+    await chargerPrefs();   // polygones + sans-agglo + traites (WMEPrefs, repli local)
     buildOverlay();
     installerFab();
     ensureLayers();
