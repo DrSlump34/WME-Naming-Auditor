@@ -2,7 +2,7 @@
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
 // @version      2.02
-// @description  Audit du nommage et de l'adressage des voies selon les regles locales de nommage. Referentiel France (agglomeration / hors agglomeration, contours communaux INSEE) ; architecture ouverte a d'autres pays.
+// @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les regles d'edition francaises (agglomeration / hors agglomeration, contours communaux INSEE). D'autres pays sont prevus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
 // @homepageURL  https://github.com/DrSlump34/WME-Naming-Auditor
