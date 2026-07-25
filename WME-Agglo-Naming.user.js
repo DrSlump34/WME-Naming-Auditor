@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Agglo Naming (FR)
 // @namespace    https://github.com/DrSlump34
-// @version      2.00
+// @version      2.01
 // @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
@@ -268,7 +268,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '2.00';
+    return '2.01';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -3867,7 +3867,13 @@
     let city = null;
     if (nomVille) {
       city = DM.Cities.getCity({ cityName: nomVille });
-      if (!city) city = DM.Cities.addCity({ cityName: nomVille });
+      // ⚠️⚠️ ON NE CREE JAMAIS DE COMMUNE (doctrine de l'auteur, 25/07). Une
+      // commune INSEE existe normalement deja dans Waze ; si elle est absente,
+      // c'est une anomalie a regler a la main, pas a fabriquer d'office. On
+      // refuse donc la correction — le message remonte a l'editeur via le
+      // try/catch de `appliquerCorrection`. (Auparavant : `addCity` de repli.)
+      if (!city) throw new Error('commune « ' + nomVille + ' » absente de Waze : ' +
+        'le script ne cree pas de commune. Verifie ou cree-la a la main, puis relance.');
     } else {
       city = villeVide();
     }
