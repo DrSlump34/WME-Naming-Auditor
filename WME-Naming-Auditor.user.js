@@ -4,6 +4,9 @@
 // @version      2.02
 // @description  Audit du nommage et de l'adressage des voies selon les regles locales de nommage. Referentiel France (agglomeration / hors agglomeration, contours communaux INSEE) ; architecture ouverte a d'autres pays.
 // @author       DrSlump34
+// @license      MIT
+// @homepageURL  https://github.com/DrSlump34/WME-Naming-Auditor
+// @supportURL   https://github.com/DrSlump34/WME-Naming-Auditor/issues
 // @match        https://www.waze.com/editor*
 // @match        https://www.waze.com/*/editor*
 // @match        https://beta.waze.com/editor*
