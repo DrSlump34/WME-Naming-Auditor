@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         WME Agglo Naming (FR)
+// @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.01
-// @description  Audit du nommage des segments selon la regle FR agglomeration / hors agglomeration : contours communaux INSEE + polygone d'agglomeration trace a la main
+// @version      2.02
+// @description  Audit du nommage et de l'adressage des voies selon les regles locales de nommage. Referentiel France (agglomeration / hors agglomeration, contours communaux INSEE) ; architecture ouverte a d'autres pays.
 // @author       DrSlump34
 // @match        https://www.waze.com/editor*
 // @match        https://www.waze.com/*/editor*
@@ -255,8 +255,12 @@
       };
   })();
 
-  const SCRIPT_ID = 'wme-agglo-naming';
-  const SCRIPT_NAME = 'WME Agglo Naming';
+  const SCRIPT_ID = 'wme-naming-auditor';
+  const SCRIPT_NAME = 'WME Naming Auditor';
+  // ⚠️ Ancien identifiant (jusqu'a la v2.01, « WME Agglo Naming ») : sert
+  // UNIQUEMENT a reprendre le stockage existant au renommage — voir
+  // `chargerPrefs`. Ne rien ecrire dessus, ne l'utiliser pour rien d'autre.
+  const ANCIEN_SCRIPT_ID = 'wme-agglo-naming';
   /**
    * ⚠️ Le bandeau affichait une constante ecrite a la main, oubliee au bump :
    * la fenetre annoncait « v1.92 » alors que le fichier etait en 1.93. Un
@@ -268,7 +272,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '2.01';
+    return '2.02';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -666,14 +670,37 @@
   // consorts sont vides — sauver a ce moment ECRASERAIT les donnees stockees.
   let prefsPret = false;
 
-  /** Charge polygones / sans-agglo / traites, avec reprise unique des anciennes
-   *  cles localStorage (personne ne doit rien perdre en passant a WMEPrefs). */
+  const prefsVide = d => !d || (!d.agglos && !d.sansAgglo && !d.traites);
+
+  /**
+   * Charge polygones / sans-agglo / traites. Reprise EN CASCADE, pour que
+   * personne ne perde rien — ni en passant a WMEPrefs, ni au renommage du
+   * script (« WME Agglo Naming » → « WME Naming Auditor », v2.02) :
+   *   1. le stockage courant (scriptId actuel) ;
+   *   2. sinon le stockage de l'ANCIEN scriptId (WMEPrefs de la v2.00/2.01) ;
+   *   3. sinon les toutes premieres cles localStorage brutes.
+   * Chaque niveau, une fois repris, est recopie dans le socle courant.
+   */
   async function chargerPrefs() {
     let data = {};
     try { data = (await prefs.load()) || {}; }
     catch (e) { log('WMEPrefs load', e); data = {}; }
-    // Premiere fois sur ce socle : reprendre ce qui etait en localStorage brut.
-    if (!data.agglos && !data.sansAgglo && !data.traites) {
+
+    // 2. Ancien identifiant : le stockage WMEPrefs d'avant le renommage.
+    if (prefsVide(data)) {
+      try {
+        const ancien = WMEPrefs.create({ scriptId: ANCIEN_SCRIPT_ID, scriptName: SCRIPT_NAME, schema: 1 });
+        const d2 = await ancien.load();
+        if (!prefsVide(d2)) {
+          data = { agglos: d2.agglos || {}, sansAgglo: d2.sansAgglo || {}, traites: d2.traites || {} };
+          await prefs.save(data);
+          log('prefs : repris depuis l\'ancien identifiant « ' + ANCIEN_SCRIPT_ID + ' »');
+        }
+      } catch (e) { log('reprise ancien scriptId', e); }
+    }
+
+    // 3. Toutes premieres cles localStorage brutes (avant WMEPrefs).
+    if (prefsVide(data)) {
       const a = lire(STORE_AGGLOS, null), sa = lire(STORE_SANS_AGGLO, null);
       if (a || sa) {
         data = { agglos: a || {}, sansAgglo: sa || {}, traites: {} };
@@ -681,6 +708,7 @@
         catch (e) { log('WMEPrefs migration', e); }
       }
     }
+
     agglos = data.agglos || {};
     sansAgglo = data.sansAgglo || {};
     traites = data.traites || {};
@@ -710,7 +738,7 @@
   const CLES_PARTAGE = ['agglos', 'sansAgglo'];
 
   async function exporterPartage() {
-    return prefs.exportFile('wme-agglo-naming-partage-' +
+    return prefs.exportFile('wme-naming-auditor-partage-' +
       new Date().toISOString().slice(0, 10) + '.json', { only: CLES_PARTAGE });
   }
 
@@ -4687,7 +4715,7 @@
       <div id="agn-overlay">
         <div id="agn-main">
         <div id="agn-tete">
-          <b>🏙️ Agglo Naming</b><span class="agn-v">v${VERSION}</span><span class="agn-sp"></span>
+          <b>🏙️ Naming Auditor</b><span class="agn-v">v${VERSION}</span><span class="agn-sp"></span>
           <button id="agn-reduire" title="Reduire">–</button>
           <button id="agn-fermer" title="Fermer">✕</button>
         </div>
