@@ -1,4 +1,4 @@
-# WME Agglo Naming
+# WME Naming Auditor
 
 Userscript pour l'éditeur de cartes Waze (WME). Il audite le **nommage des segments** — nom principal et noms alternatifs — en s'appuyant sur les **contours communaux officiels** et sur un **polygone d'agglomération** tracé à la main, puis liste les écarts à la règle.
 
@@ -22,7 +22,7 @@ Le script ne **crée** jamais un nom ni un numéro : il réorganise ce qui est d
 
 ## Mise en route
 
-1. Installer `WME-Agglo-Naming.user.js` dans Tampermonkey (accepter l'autorisation d'accès à `geo.api.gouv.fr`).
+1. Installer `WME-Naming-Auditor.user.js` dans Tampermonkey (accepter l'autorisation d'accès à `geo.api.gouv.fr`).
 2. Dans WME, ouvrir la fenêtre par le bouton 🏙️ de la barre d'icônes.
 3. Cocher un ou plusieurs départements et cliquer sur **Télécharger et charger** : les contours arrivent directement, sans passer par un fichier.
 4. Choisir une commune, tracer son agglomération, analyser.

@@ -5264,7 +5264,7 @@
     const dire = (txt, err) => { etatPartage.textContent = txt; etatPartage.style.color = err ? '#c62828' : '#2e7d32'; };
     const RAISONS = {
       'json-invalide': 'fichier illisible (pas du JSON).',
-      'format-inconnu': 'ce fichier n\'est pas un partage WME Agglo Naming.',
+      'format-inconnu': 'ce fichier n\'est pas un partage WME Naming Auditor.',
       'autre-script': 'ce fichier vient d\'un autre script.',
       'contenu-absent': 'fichier vide.',
       'lecture-impossible': 'lecture du fichier impossible.',
