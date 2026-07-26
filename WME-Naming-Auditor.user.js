@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.09
+// @version      2.10
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -275,7 +275,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '2.09';
+    return '2.10';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -3882,9 +3882,43 @@
                      } catch (e) { return false; } })() };
       const forme = REF.verifierForme(nam);
 
+      // --- Type de voie : determine ICI, avant toute branche, parce que le
+      //     garde-fou « ville sans polygone » juste en dessous en a besoin ---
+      const estRail = REF.typesSansAdresseTotale.has(seg.roadType);      // rail, piste, ferry
+      const estBretelle = seg.roadType === REF.typeBretelle;
+      const estRocade = REF.estRocade(nomsBruts);
+      const enAgglo = loc.partAgglo >= haut;
+
+      // ⚠️⚠️ GARDE-FOU « VILLE SANS POLYGONE » — VILLE PORTEE PAR LE NOM
+      // PRINCIPAL = « ce segment se dit en agglomeration ». C'est la regle FR :
+      // en agglomeration la ville est renseignee sur le principal, hors
+      // agglomeration le principal n'en a pas. On tient donc le compte, par
+      // ville, des segments qui l'annoncent et de ceux qui tombent vraiment dans
+      // un polygone (voir `villesSansPolygone`).
+      //
+      // ⚠️⚠️ LE COMPTAGE EST FAIT AVANT LES BRANCHES (corrige en v2.10, trouve par
+      // l'audit). Il etait place tout en bas, APRES les `continue` du giratoire,
+      // des voies a regle propre et des zones grises : un GIRATOIRE portant la
+      // ville n'etait donc JAMAIS compte. Consequence exacte que ce garde-fou est
+      // censé empecher : dans un village dont le polygone manque, le rond-point
+      // se voyait reclamer le RETRAIT de sa ville — une correction a l'envers —
+      // et aucune alerte ne se declenchait.
+      //
+      // ⚠️ Les voies a regle propre (rail, bretelle, rocade) sont EXCLUES : elles
+      // ne doivent jamais porter de ville, quelle que soit la zone. Y voir une
+      // « declaration d'agglomeration » produirait de fausses alertes sur une
+      // simple bretelle mal nommee.
+      const villePrincipale = nam.primary && nam.primary.cityName;
+      if (villePrincipale && !estRail && !estBretelle && !estRocade) {
+        let v = zones.villes.get(villePrincipale);
+        if (!v) { v = { total: 0, dansPolygone: 0 }; zones.villes.set(villePrincipale, v); }
+        v.total++;
+        if (enAgglo) v.dansPolygone++;
+      }
+
       // --- Giratoire : reconnu par son junctionId, quelle que soit la zone ---
       if (seg.junctionId != null && c.giratoires) {
-        const enAggloG = loc.partAgglo >= haut;
+        const enAggloG = enAgglo;
         const villeG = enAggloG ? communeActive.nom : '';
         const ecartsG = verifierGiratoire(nam, villeG).concat(forme);
         if (!ecartsG.length) continue;
@@ -3898,10 +3932,7 @@
       if (seg.junctionId != null && !c.giratoires) { skipped.horsRegle++; continue; }
 
       // --- Voies a regle propre : elles sortent du raisonnement agglo ---
-      const estRail = REF.typesSansAdresseTotale.has(seg.roadType);      // rail, piste, ferry
-      const estBretelle = seg.roadType === REF.typeBretelle;
-      const estRocade = REF.estRocade(nomsBruts);
-
+      // (les trois drapeaux sont calcules plus haut, pour le garde-fou)
       if (estRail || estBretelle || estRocade) {
         const actif = estRail ? c.rails : estBretelle ? c.bretelles : c.rocades;
         if (!actif) { skipped.horsRegle++; continue; }
@@ -3969,21 +4000,9 @@
         continue;
       }
 
-      const enAgglo = loc.partAgglo >= haut;
+      // `enAgglo` et le comptage des villes sont faits plus haut, avant les
+      // branches : ici on ne totalise plus que les voies ORDINAIRES analysees.
       if (enAgglo) zones.agglo++; else zones.hors++;
-
-      // ⚠️⚠️ VILLE PORTEE PAR LE NOM PRINCIPAL = « ce segment se dit en agglo ».
-      // C'est la regle FR : en agglomeration la ville est renseignee sur le
-      // principal, hors agglomeration le principal n'en a pas. On tient donc
-      // le compte, par ville, des segments qui l'annoncent et de ceux qui
-      // tombent vraiment dans un polygone — voir `villesSansPolygone`.
-      const villePrincipale = nam.primary && nam.primary.cityName;
-      if (villePrincipale) {
-        let v = zones.villes.get(villePrincipale);
-        if (!v) { v = { total: 0, dansPolygone: 0 }; zones.villes.set(villePrincipale, v); }
-        v.total++;
-        if (enAgglo) v.dansPolygone++;
-      }
 
       const exp = REF.etatCible(nam, enAgglo ? loc.agglo : null, communeActive.nom);
       const ecartsNom = c.nommageZone ? diffNaming(nam, exp) : [];
@@ -6610,23 +6629,58 @@
    * Meme famille que le blindage de la v1.70, mais sur les agglos SECONDAIRES,
    * que le garde-fou « aucun polygone du tout » ne voyait pas.
    */
+  /**
+   * Villes annoncees en agglomeration mais mal (ou pas) couvertes par un polygone.
+   * Deux degres, parce qu'ils n'ont pas la meme force :
+   *  - `aucun`   : AUCUN segment dans un polygone ⇒ il en manque un, c'est sur ;
+   *  - `presque` : une PART INFIME seulement ⇒ le polygone existe mais parait
+   *                trop petit. Ajoute en v2.10 : le seul test « aucun » laissait
+   *                passer « 1 segment sur 27 dans le polygone », ou les 26 autres
+   *                recevaient malgre tout des corrections a l'envers.
+   *
+   * ⚠️ Ce seuil est PROPRE au garde-fou, et n'est PAS `1 - options.seuil`. J'avais
+   * d'abord voulu reutiliser le seuil de rattachement par elegance : c'etait faux
+   * de sens (constate par les tests). Les deux notions n'ont rien a voir — l'une
+   * porte sur la LONGUEUR d'UN segment a cheval, l'autre sur la PROPORTION des
+   * segments d'une ville. Pire, `1 - seuil` inversait la logique : un seuil de
+   * rattachement plus EXIGEANT (90 %) rendait l'alerte moins sensible (10 %),
+   * alors que l'editeur demandait justement plus de rigueur.
+   */
+  const PART_MIN_EN_POLYGONE = 0.25;
+
   function villesSansPolygone() {
     if (!lastScan || !lastScan.zones || !lastScan.zones.villes) return [];
+    const bas = PART_MIN_EN_POLYGONE;
     return [...lastScan.zones.villes.entries()]
-      .filter(([, v]) => v.dansPolygone === 0)
-      .map(([nom, v]) => ({ nom, total: v.total }))
+      .map(([nom, v]) => ({ nom, total: v.total, dans: v.dansPolygone,
+                            degre: v.dansPolygone === 0 ? 'aucun'
+                              : (v.dansPolygone / v.total < bas ? 'presque' : null) }))
+      .filter(v => v.degre)
       .sort((a, b) => b.total - a.total);
   }
 
   function bandeauVillesSansPolygone() {
     const manquantes = villesSansPolygone();
     if (!manquantes.length) return '';
-    return '<div class="agn-alerte-bloc">⚠️ <b>Il manque au moins un polygone.</b><br>' +
-      manquantes.map(v => '« <b>' + esc(v.nom) + '</b> » est portee par ' + v.total +
-        ' segment(s), dont <b>aucun</b> n\'est dans un polygone.').join('<br>') +
-      '<br>Ces segments se déclarent en agglomération, mais le zonage les place ' +
-      'dehors : <b>les écarts les concernant sont faux, et les corrections proposées ' +
-      'iraient dans le mauvais sens</b>. Trace le polygone manquant, puis relance.</div>';
+    // ⚠️⚠️ Une analyse INTERROMPUE n'a pas vu toute la commune : les segments qui
+    // tombent dans le polygone peuvent etre precisement ceux qui manquent. On
+    // n'AFFIRME donc plus rien dans ce cas — meme doctrine que pour les
+    // cartouches, qui ne concluent pas sur un recensement partiel (v2.10).
+    const partiel = !!(lastScan && lastScan.interrompu);
+    const titre = partiel
+      ? '⚠️ <b>Zonage a verifier</b> — analyse interrompue, ce constat n\'est pas fiable :'
+      : '⚠️ <b>Il manque au moins un polygone.</b>';
+    const lignes = manquantes.map(v => v.degre === 'aucun'
+      ? '« <b>' + esc(v.nom) + '</b> » est portée par ' + v.total +
+        ' segment(s), dont <b>aucun</b> n\'est dans un polygone.'
+      : '« <b>' + esc(v.nom) + '</b> » est portée par ' + v.total + ' segment(s), dont ' +
+        '<b>' + v.dans + ' seulement</b> dans un polygone — il est probablement trop petit.');
+    return '<div class="agn-alerte-bloc">' + titre + '<br>' + lignes.join('<br>') +
+      (partiel ? '<br>Relance l\'analyse en entier pour trancher.'
+        : '<br>Ces segments se déclarent en agglomération, mais le zonage les place ' +
+          'dehors : <b>les écarts les concernant sont faux, et les corrections proposées ' +
+          'iraient dans le mauvais sens</b>. Trace le polygone manquant, puis relance.') +
+      '</div>';
   }
 
   function renderResults() {
