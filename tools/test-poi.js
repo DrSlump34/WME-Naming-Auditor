@@ -311,8 +311,13 @@ verifier('26. aucune voie nommée à portée ⇒ aucune proposition',
   const D121 = rue('D121', 44.06005);            // plus proche que la Rue de la Poste
   const p = proposerAdressePoi([4.710, 44.0601], [D121, R_POSTE, R_MOULIN], []);
   verifier('26bis. un numéro de route n\'est jamais proposé comme rue', p.rue, 'Rue de la Poste');
+  // ⚠️ REGLE AFFINEE le 26/07 : s'il n'y a QUE lui, on ne le propose pas
+  // d'office (`rue` reste vide) mais il reste CHOISISSABLE — l'auteur veut
+  // pouvoir prendre « D121 » ou saisir librement.
   const seule = proposerAdressePoi([4.710, 44.0601], [D121], []);
-  verifier('26bis. et s\'il n\'y a que lui, on ne propose RIEN', seule, null);
+  verifier('26bis. seul un numéro de route : rien n\'est proposé d\'office', seule.rue, null);
+  verifier('26bis. mais il reste choisissable', seule.candidats.map(c => c.nom), ['D121']);
+  verifier('26bis. et rien n\'est applicable sans passer par la liste', seule.fiable, false);
 }
 verifier('27. sans position (POI sans géométrie exploitable) ⇒ rien',
   proposerAdressePoi(null, RESEAU, []), null);
@@ -362,9 +367,37 @@ const NUMS = [
                     geometry: { type: 'Point', coordinates: [4.710, 44.0605] } });
   const out = apiProp.auditerPoi([poi], RUES, VILLES, COMMUNE, stats, RESEAU, NUMS);
   const e = out[0].ecarts.find(x => x.champ === 'adresse absente');
-  verifier('32. ⚠️ ambigu : le texte dit que rien ne se détache',
-    /^aucune voie ne se détache/.test(e.apres), true);
-  verifier('32. ⚠️ et AUCUN bouton n\'est proposé', out[0].propositionAdresse, null);
+  // ⚠️ REGLE CHANGEE le 26/07 par l'auteur : « il faut le ⚡ quand on a quelque
+  // chose de concret a proposer ». Un cas ambigu garde donc son bouton — mais
+  // le clic OUVRE LA LISTE au lieu d'ecrire (`direct: false`).
+  verifier('32. ambigu : le texte donne les autres possibilités',
+    /autres possibilités : Rue du Moulin/.test(e.apres), true);
+  verifier('32. et invite à choisir', /\(⚡ pour choisir\)/.test(e.apres), true);
+  verifier('32. ⚡ présent malgré l\'ambiguïté', !!out[0].propositionAdresse, true);
+  verifier('32. ⚠️ mais il N\'APPLIQUE RIEN tout seul', out[0].propositionAdresse.direct, false);
+  verifier('32. les deux voies sont proposées au choix',
+    out[0].propositionAdresse.candidats.map(c => c.nom), ['Rue de la Poste', 'Rue du Moulin']);
+}
+{
+  // ⚠️⚠️ LE CAS QUI A TOUT DECLENCHE (camp militaire de Saint-Laurent, signale
+  // par l'auteur) : la voie proche porte « D121 » en PRINCIPAL et « Route de
+  // Laudun » en ALTERNATIF. Ne lire que le principal, c'est ne jamais voir le
+  // nom de rue — et proposer un numero de route comme adresse.
+  const stats = { poiAudites: 0, poiHorsCommune: 0, poiNaturels: 0, poiBati: 0, poiConformes: 0 };
+  const D121 = { id: 's-d121',
+    geometry: { type: 'LineString', coordinates: [[4.700, 44.0600], [4.720, 44.0600]] },
+    _nam: { primary: { name: 'D121', cityName: '' },
+            alts: [{ name: 'D121', cityName: 'Saint-Laurent-des-Arbres' },
+                   { name: 'Route de Laudun', cityName: 'Saint-Laurent-des-Arbres' }] } };
+  const poi = POI({ name: 'Camp Militaire', streetID: null, houseNumber: '',
+                    geometry: { type: 'Point', coordinates: [4.710, 44.06015] } });
+  const out = monter(DEFAUT).auditerPoi([poi], RUES, VILLES, COMMUNE, stats, [D121], []);
+  const p = out[0].propositionAdresse;
+  verifier('35. ⭐ le nom ALTERNATIF est proposé, pas le numéro de route', p.rue, 'Route de Laudun');
+  verifier('35. le numéro de route reste proposable, mais en dernier',
+    p.candidats.map(c => c.nom + (c.estRoute ? ' (route)' : '')),
+    ['Route de Laudun', 'D121 (route)']);
+  verifier('35. et le ⚡ ouvre la liste au lieu d\'écrire', p.direct, false);
 }
 {
   // ── Le NUMERO absent : c'est la que la proposition sert le plus (43 cas

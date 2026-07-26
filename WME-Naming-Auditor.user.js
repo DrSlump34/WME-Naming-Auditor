@@ -3824,32 +3824,53 @@
    */
   function proposerAdressePoi(point, segs, numeros) {
     if (!point) return null;
-    const candidats = [];
+    // ⚠️⚠️ TOUS LES NOMS DU SEGMENT, principal ET ALTERNATIFS — comme `rueDuPoi`.
+    // Le cas qui l'a impose (camp militaire de Saint-Laurent, releve du 26/07) :
+    // le segment a 15 m porte « D121 » en PRINCIPAL et « Route de Laudun » en
+    // ALTERNATIF. C'est le nommage hors agglomeration canonique du projet — ne
+    // lire que le principal, c'est ne jamais voir le vrai nom de rue.
+    const parNom = new Map();
     for (const s of segs || []) {
       const co = s && s.geometry && s.geometry.coordinates;
       if (!co || !co.length) continue;
       let nam = null; try { nam = readNaming(s); } catch (e) { /* hors modele */ }
-      // ⚠️ Une voie SANS NOM ne fournit pas d'adresse : le POI est tres souvent
-      // colle a une allee de desserte anonyme, qui n'apprend rien.
-      const nom = nam && nam.primary && (nam.primary.name || '').trim();
-      if (!nom) continue;
-      // ⚠️⚠️ UN NUMERO DE ROUTE N'EST PAS UNE ADRESSE — c'est deja la doctrine de
-      // `rueDuPoi` (« 43 D981 » ne s'ecrit pas). Sans ce filtre, le releve du
-      // 26/07 proposait « D121 » comme rue au camp militaire de Saint-Laurent.
-      if (RE_ROUTE.test(nom)) continue;
+      if (!nam) continue;
       const d = distanceAuTrace(point[0], point[1], co);
       if (d > POI_PORTEE_VOIE_M) continue;
-      candidats.push({ d, nom, ville: (nam.primary.cityName || '').trim(), segId: s.id });
+      for (const e of [nam.primary, ...(nam.alts || [])]) {
+        // ⚠️ Une voie SANS NOM ne fournit pas d'adresse : le POI est tres souvent
+        // colle a une allee de desserte anonyme, qui n'apprend rien.
+        const nom = (e && e.name || '').trim();
+        if (!nom) continue;
+        const vu = parNom.get(nom);
+        if (!vu || d < vu.d) {
+          parNom.set(nom, { d, nom, ville: (e.cityName || '').trim(), segId: s.id,
+                            // ⚠️ « D121 » N'EST PAS UNE ADRESSE (doctrine de
+                            // `rueDuPoi`) : le numero de route reste PROPOSABLE
+                            // — l'editeur peut avoir ses raisons — mais jamais
+                            // en tete, et jamais applique sans qu'il l'ait dit.
+                            estRoute: RE_ROUTE.test(nom) });
+        }
+      }
     }
-    if (!candidats.length) return null;
-    candidats.sort((a, b) => a.d - b.d);
-    const best = candidats[0];
-    const autre = candidats.find(c => c.nom !== best.nom);
+    if (!parNom.size) return null;
+    // Les vrais noms de rue d'abord, du plus proche au plus loin ; les numeros
+    // de route ensuite, en dernier recours.
+    const candidats = [...parNom.values()].sort((a, b) =>
+      (a.estRoute ? 1 : 0) - (b.estRoute ? 1 : 0) || a.d - b.d);
+    const vrais = candidats.filter(c => !c.estRoute);
+    const best = vrais[0] || null;
+    // « L'autre voie » qui compte pour l'indecision est un autre VRAI nom de rue :
+    // un numero de route porte par le meme segment ne dispute rien a personne.
+    const autre = best ? vrais.find(c => c.nom !== best.nom) : null;
     const dAutre = autre ? autre.d : Infinity;
-    return { rue: best.nom, ville: best.ville, dist: best.d, autre: dAutre,
-             segId: best.segId, numero: numeroLePlusProche(point, best.nom, numeros),
-             // Net = la voie est proche ET aucune autre ne se la dispute.
-             fiable: dAutre - best.d >= POI_MARGE_VOIE_M };
+    return { rue: best ? best.nom : null, ville: best ? best.ville : '',
+             dist: best ? best.d : Infinity, autre: dAutre,
+             segId: best ? best.segId : candidats[0].segId,
+             numero: best ? numeroLePlusProche(point, best.nom, numeros) : null,
+             candidats,
+             // Net = un vrai nom de rue, proche, et aucun autre ne se le dispute.
+             fiable: !!best && dAutre - best.d >= POI_MARGE_VOIE_M };
   }
 
   /**
@@ -3930,16 +3951,26 @@
         ' (voie à ' + Math.round(p.dist) + ' m' +
         (isFinite(p.autre) ? ', la suivante à ' + Math.round(p.autre) + ' m' : '') +
         (p.numero ? ', numéro à ' + Math.round(p.numero.dist) + ' m' : '') + ')';
+      const autresQue = p => p.candidats.filter(c => c.nom !== p.rue)
+        .map(c => c.nom + ' (' + Math.round(c.d) + ' m)').join(', ');
       // ── 1. Adresse incomplete ────────────────────────────────────────────
       if (c.poiAdresse) {
         // ⚠️ On ne propose QUE si c'est net (`fiable`). Sinon on montre quand
         // meme la piste, en disant qu'elle n'en est qu'une : « pas de match
         // pertinent ⇒ l'editeur prend ses responsabilites » (auteur, 26/07).
+        // Trois situations, trois messages — et le ⚡ existe dans les trois,
+        // parce qu'il y a matiere a proposer dans les trois.
         const suite = !propose
           ? null
-          : propose.fiable
-            ? 'proposition : ' + commePhrase(propose)
-            : 'aucune voie ne se détache — piste : ' + commePhrase(propose) + ', à vérifier';
+          : !propose.rue
+            // Que des numeros de route a proximite : ce ne sont pas des
+            // adresses, mais l'editeur doit pouvoir les choisir quand meme.
+            ? 'aucun nom de rue à proximité — seulement ' + autresQue(propose) +
+              ' : ⚡ pour choisir ou saisir l\'adresse'
+            : propose.fiable && propose.candidats.length === 1
+              ? 'proposition : ' + commePhrase(propose)
+              : 'proposition : ' + commePhrase(propose) + ' — autres possibilités : ' +
+                autresQue(propose) + ' (⚡ pour choisir)';
         if (v.streetID == null) {
           ecarts.push({ champ: 'adresse absente', avant: '—',
             apres: suite || 'renseigner la rue et la commune (' + commune.nom + ')' });
@@ -3999,11 +4030,21 @@
         categorie: cats[0] || '',
         centre: situation.point ? { lon: situation.point[0], lat: situation.point[1] } : null,
         geom: v.geometry, ecarts, editable: true,
-        // ⚠️ Seule une proposition NETTE devient applicable d'un clic : c'est
-        // `planDeCorrection` qui lit ce champ, et il n'y a pas de bouton sans
-        // lui. Une piste incertaine reste affichee, sans bouton.
-        propositionAdresse: (propose && propose.fiable) ? {
+        // ⚡ LE BOUTON APPARAIT DES QU'IL Y A QUELQUE CHOSE DE CONCRET A PROPOSER
+        // (l'auteur, 26/07) — pas seulement quand c'est net. Quand plusieurs
+        // noms sont possibles, ou qu'aucun ne se detache, le clic n'applique
+        // rien : il OUVRE LA BOITE DE CHOIX, le meilleur en tete. C'est l'editeur
+        // qui tranche, ce qui reste fidele a « pas de match pertinent ⇒ il prend
+        // ses responsabilites » : on ne lui impose rien, on lui epargne la
+        // recherche.
+        propositionAdresse: (propose && propose.candidats.length) ? {
           rue: propose.rue, ville: commune.nom, segId: propose.segId,
+          candidats: propose.candidats.map(c => ({
+            nom: c.nom, ville: commune.nom, dist: c.dist != null ? c.dist : c.d,
+            d: c.d, estRoute: c.estRoute, segId: c.segId })),
+          // Un seul vrai nom de rue, net, et rien d'autre a proposer : inutile
+          // d'ouvrir une boite pour un choix unique.
+          direct: !!propose.fiable && propose.candidats.length === 1,
           // Le numero n'est JAMAIS applique (arbitrage de l'auteur, 26/07) : a
           // 30 m ce peut etre celui du voisin, et une adresse fausse posee d'un
           // clic est pire que l'adresse manquante qu'on corrige.
@@ -4011,22 +4052,28 @@
         } : null,
         aideTitre: propose ? 'D\'où vient cette proposition' : null,
         aide: propose ? [
-          'Voie nommée la plus proche du ' +
-            (situation.source === 'accès principal' || situation.source === 'point d\'accès'
-              ? 'point d\'accès' : 'lieu') + ' : « ' + propose.rue + ' », à ' +
-            Math.round(propose.dist) + ' m' +
-            (isFinite(propose.autre)
-              ? ', la voie suivante étant à ' + Math.round(propose.autre) + ' m.'
-              : ', et aucune autre voie nommée à moins de ' + POI_PORTEE_VOIE_M + ' m.'),
+          (propose.rue
+            ? 'Voie nommée la plus proche du ' +
+              (situation.source === 'accès principal' || situation.source === 'point d\'accès'
+                ? 'point d\'accès' : 'lieu') + ' : « ' + propose.rue + ' », à ' +
+              Math.round(propose.dist) + ' m' +
+              (isFinite(propose.autre)
+                ? ', la voie suivante étant à ' + Math.round(propose.autre) + ' m.'
+                : ', et aucune autre voie nommée à moins de ' + POI_PORTEE_VOIE_M + ' m.')
+            : 'Les seules voies à moins de ' + POI_PORTEE_VOIE_M + ' m portent un numéro de route : ' +
+              'ce n\'est pas une adresse postale, le script ne le propose donc pas d\'office.') +
+            ' Le nom est cherché sur le principal ET les alternatifs : hors agglomération, ' +
+            'c\'est justement l\'alternatif qui porte le nom de rue.',
           propose.numero
             ? '⚠️ Numéro n° ' + propose.numero.num + ' relevé à ' + Math.round(propose.numero.dist) +
               ' m sur cette voie : c\'est le point d\'adresse le plus proche, PAS une certitude — ' +
               'à cette distance ce peut être celui du voisin. Le script ne l\'applique jamais.'
             : 'Aucun numéro à moins de ' + POI_PORTEE_NUM_M + ' m sur cette voie : à saisir à la main.',
-          propose.fiable
+          (propose.fiable && propose.candidats.length === 1)
             ? 'La commune appliquée est celle du contour INSEE (' + commune.nom + '), pas celle du segment.'
-            : '⚠️ Deux voies se disputent ce lieu (moins de ' + POI_MARGE_VOIE_M + ' m d\'écart) : ' +
-              'le script ne tranche pas, c\'est à toi de voir sur la carte.'
+            : '⚡ ouvre la liste des noms relevés autour du lieu — le plus probable en tête, ' +
+              'les numéros de route ensuite, et une saisie libre. La commune appliquée sera ' +
+              'celle du contour INSEE (' + commune.nom + ').'
         ] : null,
         // La provenance de la position est DITE : un verdict fonde sur une part de
         // surface n'a pas la meme force qu'un point d'acces explicite.
@@ -5351,10 +5398,15 @@
     // proche, on propose — mais UNIQUEMENT quand aucune autre voie ne se la
     // dispute, et JAMAIS le numero (il peut etre celui du voisin).
     if (f.poi) {
-      if (!f.propositionAdresse || !f.propositionAdresse.rue) return null;
+      const p = f.propositionAdresse;
+      // ⚡ « Il faut le ⚡ quand on a quelque chose de concret a proposer »
+      // (l'auteur, 26/07) : un candidat releve autour du lieu suffit, meme si
+      // c'est un numero de route — le clic ouvrira la liste au lieu d'ecrire.
+      if (!p || !p.candidats || !p.candidats.length) return null;
       return [{ type: 'poiAdresse', venueId: f.venueId,
-                rue: f.propositionAdresse.rue, ville: f.propositionAdresse.ville,
-                segId: f.propositionAdresse.segId }];
+                rue: p.rue, ville: p.ville, segId: p.segId,
+                candidats: p.candidats, direct: p.direct,
+                numeroPropose: p.numeroPropose }];
     }
     // --- Adressage : convertir des numeros en POI residentiels --------------
     // Regle TOUT OU RIEN : creer le POI sans retirer le numero laisserait
@@ -5712,24 +5764,77 @@
    * c'est alors l'editeur qui ecrit, pas nous.
    */
   function demanderNomPrincipal(f, op) {
+    return choisirUnNom({
+      titre: 'Plusieurs noms possibles',
+      intro: 'Ce segment porte <b>' + op.candidats.length + '</b> noms. Lequel doit devenir le ' +
+             '<b>nom principal</b> ?',
+      libelle: f.libelle,
+      note: f.nb > 1
+        ? 'Le choix s\'applique aux <b>' + f.nb + '</b> segments de ce report.'
+        : 'Les autres noms restent en alternatif.',
+      candidats: op.candidats,
+      villeParDefaut: op.ville
+    });
+  }
+
+  /**
+   * Quelle adresse donner a un POI qui n'en a pas (v2.19).
+   *
+   * ⚠️⚠️ Le cas qui a impose cette boite (le camp militaire, signale par
+   * l'auteur le 26/07) : la voie a 15 m porte « D121 » en principal et « Route
+   * de Laudun » en alternatif. Le bon choix est evident pour un humain, pas
+   * pour un automate — donc on PROPOSE, en mettant le nom de rue en tete et le
+   * numero de route en second, et c'est l'editeur qui tranche.
+   */
+  function demanderAdressePoi(f, op) {
+    const cands = op.candidats || [];
+    const routes = cands.filter(c => c.estRoute).length;
+    return choisirUnNom({
+      titre: 'Quelle adresse pour ce POI ?',
+      intro: cands.length > 1
+        ? 'Voici les noms relevés autour du lieu, du plus probable au moins probable.' +
+          (routes ? ' Les numéros de route sont en dernier : ce ne sont pas des adresses postales.' : '')
+        : 'Un seul nom a été relevé autour du lieu.',
+      libelle: f.libelle,
+      note: 'La commune appliquée sera <b>' + esc(op.ville) + '</b> (contour INSEE)' +
+            (op.numeroPropose
+              ? ', et le n° ' + esc(op.numeroPropose) + ' reste à saisir à la main après vérification.'
+              : '.'),
+      // La distance est DITE sur chaque bouton : c'est elle qui a servi a
+      // classer, l'editeur doit pouvoir refaire le raisonnement.
+      candidats: cands.map(c => ({ nom: c.nom, ville: op.ville, segId: c.segId,
+        suffixe: Math.round(c.d) + ' m' + (c.estRoute ? ' · numéro de route' : '') })),
+      villeParDefaut: op.ville
+    });
+  }
+
+  /**
+   * Boite de choix d'un nom : des propositions (la premiere mise en avant) et
+   * une saisie libre. Rend l'option choisie, `{nom, ville}` saisi, ou null.
+   *
+   * ⚠️ MUTUALISEE (v2.19) entre le choix du nom PRINCIPAL d'un segment et celui
+   * de l'adresse d'un POI. Deux boites identiques a la virgule pres auraient
+   * fini par diverger sur un detail qui ne se voit pas — le clavier qui repart
+   * dans les raccourcis de WME, le bornage a l'ecran, le glissement. C'est
+   * exactement la faute des giratoires de la v2.11.
+   */
+  function choisirUnNom(o) {
     return new Promise(resolve => {
-      const cands = op.candidats;
+      const cands = o.candidats;
       const boite = el(`
         <div id="agn-modale">
           <div class="agn-modale-in">
-            <div class="agn-modale-t">Plusieurs noms possibles</div>
+            <div class="agn-modale-t">${esc(o.titre)}</div>
             <div class="agn-modale-c">
-              Ce segment porte <b>${cands.length}</b> noms. Lequel doit devenir le
-              <b>nom principal</b> ?
+              ${o.intro}
               <div class="agn-modale-geo">
-                <div class="agn-d"><b>${esc(f.libelle)}</b></div>
-                <div class="agn-d" style="opacity:.8">${f.nb > 1
-                  ? 'Le choix s\'applique aux <b>' + f.nb + '</b> segments de ce report.'
-                  : 'Les autres noms restent en alternatif.'}</div>
+                <div class="agn-d"><b>${esc(o.libelle)}</b></div>
+                <div class="agn-d" style="opacity:.8">${o.note}</div>
               </div>
             </div>
             ${cands.map((c, i) => `<button class="agn-btn${i === 0 ? ' primary' : ''}" data-i="${i}">${
-              esc(c.nom)}${c.ville ? ' / ' + esc(c.ville) : ''}</button>`).join('')}
+              esc(c.nom)}${c.ville ? ' / ' + esc(c.ville) : ''}${
+              c.suffixe ? ' <span style="opacity:.7">— ' + esc(c.suffixe) + '</span>' : ''}</button>`).join('')}
             <div class="agn-modale-saisie">
               <div class="agn-note">Ou saisir un autre nom</div>
               <input type="text" id="agn-np-nom" placeholder="Nom de la rue…" autocomplete="off">
@@ -5755,7 +5860,7 @@
         const nom = champ.value.trim();
         if (!nom) return;
         boite.remove();
-        resolve({ nom, ville: op.ville });
+        resolve({ nom, ville: o.villeParDefaut });
       };
       boite.querySelectorAll('button[data-i]').forEach(b => {
         b.onclick = () => {
@@ -5797,6 +5902,18 @@
       // exactement comme pour les numeros, puis on laisse WME charger.
       cadrerSur(f, true);
       await new Promise(r => setTimeout(r, 900));
+      // ⚠️⚠️ ON DEMANDE DES QU'IL Y A UN CHOIX (l'auteur, 26/07). Le clic sur ⚡
+      // n'applique tout seul QUE le cas ou un unique nom de rue se detache ;
+      // partout ailleurs il ouvre la liste, le plus probable en tete. La
+      // question se pose AVANT toute ecriture — jamais au milieu.
+      if (!op.direct) {
+        const choix = await demanderAdressePoi(f, op);
+        if (!choix) return { ok: false, motif: 'choix de l\'adresse annulé' };
+        op.rue = choix.nom;
+        if (choix.ville) op.ville = choix.ville;
+        // Le contexte administratif se lit sur le segment du nom RETENU.
+        if (choix.segId != null) op.segId = choix.segId;
+      }
       let ctx = {};
       try { ctx = contexteAdresse(op.segId); }
       catch (e) {
