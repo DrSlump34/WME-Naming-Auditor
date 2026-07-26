@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.14
+// @version      2.15
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -275,7 +275,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '2.14';
+    return '2.15';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -315,13 +315,17 @@
     // pour un daltonien.
     adresse: { libelle: 'Numéro de rue hors agglomération', defaut: '#00e5ff' },
     rpp: { libelle: 'RPP en agglomération (à trancher)', defaut: '#e040fb' },
+    // Les VRAIS POI (v2.15) : famille a part, pour ne pas les confondre avec les
+    // RPP sur la carte — ce sont deux sujets differents.
+    poiAdresse: { libelle: 'POI : adresse en écart', defaut: '#ffab00' },
     // Les panneaux ne sont pas des ecarts : ils ne passent pas par `familleDe`,
     // mais leurs deux couleurs se reglent au meme endroit que les autres.
     panneauNeutre: { libelle: 'Panneau relevé (rien à confronter)', defaut: '#546e7a' },
     panneauOk: { libelle: 'Panneau dans un polygone', defaut: '#00e676' },
     panneauHors: { libelle: 'Panneau HORS polygone', defaut: '#ff1744' }
   };
-  const familleDe = f => f.adresse ? (f.sousType === 'poi' ? 'rpp' : 'adresse')
+  const familleDe = f => f.poi ? 'poiAdresse'
+    : f.adresse ? (f.sousType === 'poi' ? 'rpp' : 'adresse')
     : f.cas === 'GIR' ? 'giratoire'
     : f.special ? 'special'
     : f.seulementCartouche ? 'cartouche' : f.seulementForme ? 'forme'
@@ -378,6 +382,31 @@
    */
   const RE_NOM_COMPOSITE =
     /^((?:A|N|D|M|E|T|CR|CV|CC|VC|RC|C)\s?\d+[a-zA-Z0-9]*)\s*[-–—]\s*(\S.*)$/;
+
+  /**
+   * POI (les VRAIS, pas les RPP) que l'audit d'adresse doit LAISSER TRANQUILLES.
+   *
+   * ⚠️ Demande de l'auteur (26/07) : « sortir de l'analyse les POI de type
+   * Riviere, Fleuve, Mer, Lac, Etang, Ile, Foret, Plantation, en particulier
+   * s'ils n'ont pas de nom ». Ces objets decrivent un element du paysage : ils
+   * n'ont pas d'adresse postale, et leur en reclamer une n'aurait aucun sens.
+   *
+   * ⚡ Les cles ne sont PAS inventees : relevees dans les traductions de WME
+   * (`I18n.translations[locale].venues.categories`, 134 categories) le 26/07.
+   * Correspondance avec ce que l'auteur a nomme :
+   *   RIVER_STREAM   « Riviere, fleuve »        SEA_LAKE_POOL « Mer, lac, etang »
+   *   ISLAND         « Ile »                    FOREST_GROVE  « Foret, plantation »
+   * On y ajoute les voisins de meme nature : CANAL, SWAMP_MARSH « Marais,
+   * marecage », POOL « Bassin, mare », NATURAL_FEATURES « Sites naturels »,
+   * BEACH « Plage ».
+   * ⚠️ NE PAS y mettre : FARM (« Ferme »), SEAPORT_MARINA_HARBOR (« Port,
+   * marina »), SWIMMING_POOL (« Piscine »), CARPOOL_SPOT — ce sont des lieux
+   * batis ou amenages, qui ont bel et bien une adresse.
+   */
+  const POI_CATEGORIES_NATURELLES = new Set([
+    'RIVER_STREAM', 'SEA_LAKE_POOL', 'ISLAND', 'FOREST_GROVE',
+    'CANAL', 'SWAMP_MARSH', 'POOL', 'NATURAL_FEATURES', 'BEACH'
+  ]);
 
   // Voies qui ne portent NI ville NI nom de rue : ferry, voie ferree, piste.
   const ROADTYPE_SANS_ADRESSE_TOTALE = new Set([15, 18, 19]);
@@ -452,7 +481,9 @@
     // les adresses (demande de l'auteur, 23/07). Jusqu'ici la carte ne peignait
     // que l'onglet actif : ouvrir « Segments » effacait les adresses de la
     // carte, alors qu'on veut souvent garder les deux sous les yeux.
-    vue: { segTable: true, segCarte: true, adrTable: true, adrCarte: true, panCarte: true },
+    vue: { segTable: true, segCarte: true, adrTable: true, adrCarte: true, panCarte: true,
+           // Les VRAIS POI (v2.15) : leur propre onglet et leur propre calque.
+           poiTable: true, poiCarte: true },
     // Charger tout seul les contours du departement survole. Coche par defaut :
     // c'est une corvee sans valeur ajoutee, et elle se refait a chaque fois.
     autoDep: true,
@@ -2867,7 +2898,17 @@
         { cle: 'hnHorsAgglo', portee: 'adresse',
           libelle: 'Numéros de rue (HN) hors agglomération' },
         { cle: 'poiAgglo', portee: 'adresse',
-          libelle: 'POI résidentiels en agglomération (à vérifier)' }
+          libelle: 'POI résidentiels en agglomération (à vérifier)' },
+        // ── Les VRAIS POI (pas les RPP) : audit de leur adresse ───────────────
+        { cle: 'poiAdresse', portee: 'poi',
+          libelle: 'POI : adresse incomplète (rue ou commune manquante)' },
+        { cle: 'poiVilleCommune', portee: 'poi',
+          libelle: 'POI : commune différente du contour INSEE (à vérifier)' },
+        // ⚠️ DECOCHE PAR DEFAUT (arbitrage de l'auteur) : mesure a
+        // Saint-Laurent-des-Arbres, 49 POI sur 98 n'ont pas de numero. L'activer
+        // d'office noierait les rues et communes manquantes, qui sont 25.
+        { cle: 'poiNumero', portee: 'poi', defaut: false,
+          libelle: 'POI : numéro de rue manquant' }
       ],
       // Les controles de forme partagent une seule fonction, qui lit elle-meme
       // quelles cases sont cochees.
@@ -3396,6 +3437,200 @@
     return hnsManipulables(f).length;
   }
 
+  // ===========================================================================
+  // POI (les VRAIS, pas les RPP) — audit de leur ADRESSE (v2.15)
+  //
+  // Deux controles demandes par l'auteur le 26/07 :
+  //   1. adresse INCOMPLETE : pas d'adresse du tout, ou rue absente, ou ville
+  //      absente, ou numero absent — ce dernier en controle A PART, decoche par
+  //      defaut (mesure : 49 POI sur 98 en manquent a Saint-Laurent-des-Arbres,
+  //      l'activer d'office noierait les autres ecarts) ;
+  //   2. un POI situe dans le contour INSEE de la commune analysee doit porter
+  //      la ville de CETTE commune.
+  // ===========================================================================
+
+  /**
+   * Ou se trouve un POI, pour decider de quelle commune il releve.
+   *
+   * ⚠️⚠️ Regle posee par l'auteur : c'est le POINT D'ACCES PRINCIPAL qui compte,
+   * pas le centre du POI. Un batiment peut chevaucher deux communes alors que son
+   * entree — donc son adresse — n'est que d'un cote. L'API `app/Features` expose
+   * ces points dans `entryExitPoints` (releve le 26/07 : `{point, entry,
+   * primary}`), et 64 des 79 POI surfaciques de la commune testee en ont un.
+   *
+   * Ordre de preference, du plus fiable au dernier recours :
+   *   1. le point d'acces marque `primary` ;
+   *   2. n'importe quel point d'acces d'entree ;
+   *   3. la geometrie elle-meme si c'est un point ;
+   *   4. faute de mieux, la part de surface majoritaire — approchee par les
+   *      SOMMETS du contour, ce qui suffit a trancher « majoritairement dans » et
+   *      coute infiniment moins qu'une integration de surface.
+   * Rend `{ point, source }` — la source est DITE a l'editeur, parce qu'un
+   * verdict fonde sur une part de surface n'a pas la meme force qu'un point
+   * d'acces explicite.
+   */
+  function positionPoi(v) {
+    const pts = v.entryExitPoints || v.navigationPoints || [];
+    const coordDe = p => {
+      const g = p && (p.point || p.geometry || p);
+      const c = g && (g.coordinates || g);
+      return (Array.isArray(c) && typeof c[0] === 'number') ? c : null;
+    };
+    const principal = pts.find(p => p && p.primary);
+    if (principal && coordDe(principal)) return { point: coordDe(principal), source: 'accès principal' };
+    const entree = pts.find(p => p && p.entry !== false && coordDe(p));
+    if (entree) return { point: coordDe(entree), source: 'point d\'accès' };
+    const g = v.geometry;
+    if (g && g.type === 'Point' && Array.isArray(g.coordinates)) {
+      return { point: g.coordinates, source: 'position du lieu' };
+    }
+    return { point: null, source: 'part de surface' };
+  }
+
+  /** Sommets d'une geometrie, a plat. */
+  function sommetsDe(geom) {
+    const pts = [];
+    if (!geom || !geom.coordinates) return pts;
+    (function ap(c) { if (typeof c[0] === 'number') pts.push(c); else c.forEach(ap); })(geom.coordinates);
+    return pts;
+  }
+
+  /**
+   * Ce POI releve-t-il de la commune analysee ?
+   * Rend `{ dedans, source, part }` — `part` n'est renseignee que dans le cas du
+   * dernier recours, ou l'on a du peser une surface.
+   */
+  function poiDansCommune(v, commune) {
+    const pos = positionPoi(v);
+    if (pos.point) {
+      return { dedans: pointInGeom(pos.point[0], pos.point[1], commune.geom),
+               source: pos.source, part: null, point: pos.point };
+    }
+    // Dernier recours : la PART DE SURFACE, comme l'a demande l'auteur.
+    const pts = sommetsDe(v.geometry);
+    if (!pts.length) return { dedans: false, source: 'aucune géométrie', part: null, point: null };
+    const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length;
+    const cy = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+    // ⚠️⚠️ NE PAS approcher la surface par les SOMMETS (erreur que les tests ont
+    // attrapee) : un rectangle a cheval dont 5 % de la surface seulement est dans
+    // la commune peut avoir 3 sommets sur 5 dedans, soit « 60 % » — verdict
+    // inverse. Et l'anneau etant FERME, le premier sommet compte deux fois.
+    // On echantillonne donc une GRILLE sur la boite englobante, en ne retenant
+    // que les points qui tombent dans le POI : le rapport obtenu est bien une
+    // part de surface. ~144 tests de point par POI concerne, et seuls les
+    // surfaciques SANS point d'acces y passent (15 sur 79 mesures).
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+    const x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
+    const y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
+    const N = 12;
+    let dansPoi = 0, dansCommune = 0;
+    for (let i = 0; i < N; i++) {
+      for (let j = 0; j < N; j++) {
+        const x = x0 + (i + 0.5) * (x1 - x0) / N;
+        const y = y0 + (j + 0.5) * (y1 - y0) / N;
+        if (!pointInGeom(x, y, v.geometry)) continue;
+        dansPoi++;
+        if (pointInGeom(x, y, commune.geom)) dansCommune++;
+      }
+    }
+    // Polygone trop mince pour que la grille l'attrape : on tranche au centre.
+    if (!dansPoi) {
+      return { dedans: pointInGeom(cx, cy, commune.geom),
+               source: 'centre du lieu', part: null, point: [cx, cy] };
+    }
+    const part = dansCommune / dansPoi;
+    return { dedans: part > 0.5, source: 'part de surface', part, point: [cx, cy] };
+  }
+
+  /**
+   * Audite les adresses des VRAIS POI d'une commune.
+   *
+   * `venues` vient de l'API (`app/Features`), avec les dictionnaires `streets` et
+   * `cities` de la meme reponse : les noms se resolvent sans appel de plus.
+   * ⚠️ Les objets de l'API ne sont PAS dans le data model (cf. [[wme-sdk-pieges]]) :
+   * on ne cherche donc rien par identifiant, on fait circuler ce qu'on a lu.
+   */
+  function auditerPoi(venues, dicoRues, dicoVilles, commune, stats) {
+    const c = options.controles;
+    const out = [];
+    for (const v of venues) {
+      if (v.isResidential || v.residential) continue;         // les RPP ont leur propre onglet
+      const cats = v.categories || [];
+      // ⚠️ Elements du paysage : aucune adresse a reclamer (voir POI_CATEGORIES_NATURELLES).
+      if (cats.some(x => POI_CATEGORIES_NATURELLES.has(x))) { stats.poiNaturels++; continue; }
+      const situation = poiDansCommune(v, commune);
+      if (!situation.dedans) { stats.poiHorsCommune++; continue; }
+      stats.poiAudites++;
+
+      const rue = v.streetID != null ? dicoRues[v.streetID] : null;
+      const nomRue = (rue && !rue.isEmpty && rue.name) ? String(rue.name).trim() : '';
+      const villeObj = rue ? dicoVilles[rue.cityID] : null;
+      const ville = (villeObj && !villeObj.isEmpty && villeObj.name) ? String(villeObj.name).trim() : '';
+      const numero = (v.houseNumber == null ? '' : String(v.houseNumber)).trim();
+      const nom = (v.name || '').trim();
+
+      const ecarts = [];
+      // ── 1. Adresse incomplete ────────────────────────────────────────────
+      if (c.poiAdresse) {
+        if (v.streetID == null) {
+          ecarts.push({ champ: 'adresse absente', avant: '—',
+            apres: 'renseigner la rue et la commune (' + esc(commune.nom) + ')' });
+        } else {
+          if (!nomRue) ecarts.push({ champ: 'rue absente', avant: '—',
+            apres: 'renseigner le nom de la voie' });
+          if (!ville) ecarts.push({ champ: 'commune absente', avant: '—',
+            apres: 'renseigner ' + esc(commune.nom) });
+        }
+      }
+      // ── 2. Numero : controle A PART, decoche par defaut ──────────────────
+      if (c.poiNumero && v.streetID != null && !numero) {
+        ecarts.push({ champ: 'numéro absent', avant: '—',
+          apres: 'renseigner le numéro de rue' });
+      }
+      // ── 3. Ville differente de la commune INSEE ───────────────────────────
+      // ⚠️ Presente comme A VERIFIER, pas comme une faute : le cas mesure a
+      // Saint-Laurent-des-Arbres (« Guinguette la Grange ») est sur le CHEMIN DE
+      // LA PLANQUE, voie MITOYENNE des deux communes — l'adresse postale peut
+      // parfaitement etre celle de la voisine. Meme prudence que pour les RPP en
+      // agglomeration (v1.86). On DIT donc pourquoi le doute existe.
+      if (c.poiVilleCommune && ville && ville !== commune.nom) {
+        const p = situation.point;
+        const d = p ? distanceALaLimite(p[0], p[1], commune) : Infinity;
+        const pres = isFinite(d) && d <= 60;
+        ecarts.push({ champ: 'commune à vérifier', avant: ville,
+          apres: pres
+            ? esc(commune.nom) + ' ? — à ' + Math.round(d) + ' m de la limite communale, ' +
+              'l\'adresse de la commune voisine peut être la bonne'
+            : esc(commune.nom) + ' — le lieu est dans le contour de ' + esc(commune.nom) +
+              (isFinite(d) ? ', à ' + Math.round(d) + ' m de la limite' : '') });
+      }
+
+      if (!ecarts.length) { stats.poiConformes++; continue; }
+      out.push({
+        poi: true, cas: 'POI', segId: 'v' + v.id, venueId: String(v.id),
+        // ⚠️ Un POI SANS NOM doit rester retrouvable : on met sa categorie en
+        // clair a la place du nom, sinon la liste affiche dix lignes identiques
+        // « ‹POI sans nom› » et l'editeur ne sait pas laquelle il regarde
+        // (constate en live : 10 batiments commerciaux sans nom a
+        // Saint-Laurent-des-Arbres).
+        libelle: (nom || '‹sans nom : ' + libelleCategorie(cats[0]) + '›') +
+                 ' — ' + (nomRue || '‹sans rue›') +
+                 ' / ' + (ville || '‹sans commune›') + (numero ? ' n° ' + numero : ''),
+        categorie: cats[0] || '',
+        centre: situation.point ? { lon: situation.point[0], lat: situation.point[1] } : null,
+        geom: v.geometry, ecarts, editable: true,
+        // La provenance de la position est DITE : un verdict fonde sur une part de
+        // surface n'a pas la meme force qu'un point d'acces explicite.
+        doute: situation.source === 'part de surface'
+          ? 'position deduite de la surface (' + Math.round((situation.part || 0) * 100) +
+            ' % dans la commune) : ce POI n\'a pas de point d\'accès'
+          : (situation.source !== 'accès principal'
+              ? 'position prise sur : ' + situation.source : null)
+      });
+    }
+    return out;
+  }
+
   /** La commune INSEE qui contient ce point, d'apres les contours charges. */
   function communeDuPoint(lon, lat) {
     for (const c of communes) {
@@ -3770,12 +4005,22 @@
     }));
     const venues = (j.venues && j.venues.objects || []).map(v => ({
       id: v.id, isResidential: !!v.residential, geometry: v.geometry,
+      // ⚠️ Champs necessaires a l'audit des VRAIS POI (v2.15) : sans eux, seuls
+      // les RPP etaient exploitables. `entryExitPoints` porte le point d'acces,
+      // et c'est LUI qui dit de quelle commune releve un POI surfacique.
+      name: v.name || '', streetID: v.streetID != null ? v.streetID : null,
+      houseNumber: v.houseNumber == null ? '' : v.houseNumber,
+      categories: v.categories || [],
+      entryExitPoints: v.entryExitPoints || [],
       _adr: { houseNumber: v.houseNumber || '',
               street: rues[v.streetID] ? { name: rues[v.streetID].name } : null,
               city: (rues[v.streetID] && villes[rues[v.streetID].cityID])
                 ? { name: villes[rues[v.streetID].cityID].name } : null }
     }));
-    return { segments, venues };
+    // Les dictionnaires suivent : `auditerPoi` en a besoin pour resoudre rue et
+    // commune sans un appel de plus (et les objets de l'API ne sont pas dans le
+    // data model, donc rien ne se retrouve par identifiant).
+    return { segments, venues, rues, villes };
   }
 
   const ZOOM_BALAYAGE = 16;
@@ -4208,6 +4453,12 @@
     // Les adresses sont analysees a part : lecture serveur, et objets ponctuels.
     const statsAdr = { hnLus: 0, hnHorsAgglo: 0, hnHorsCommune: 0, poiLus: 0,
                        poiAgglo: 0, hnErreur: null, calquesActives: [], hnVus: new Set(), poiVus: new Set() };
+    // Les VRAIS POI (pas les RPP) ont leur propre onglet et leurs propres comptes.
+    // ⚠️ `poiNaturels` est compte pour qu'on VOIE que le script les a ecartes
+    // exprès (rivieres, forets…), plutot que de les passer sous silence.
+    const statsPoi = { poiAudites: 0, poiHorsCommune: 0, poiNaturels: 0,
+                       poiConformes: 0, erreur: null, indisponible: null };
+    let poiFindings = [];
 
     // Une analyse dure de quelques secondes (lecture directe) a plus d'une
     // minute (balayage) : elle se montre, et elle s'interrompt.
@@ -4255,6 +4506,21 @@
       try {
         await analyserAdresses([], listeAgglos, statsAdr, { hn: false, poi: true }, donneesApi.venues, prog);
       } catch (e) { if (e && e.annulation) throw e; log('analyse des POI impossible', e); }
+      // --- Les VRAIS POI (pas les RPP) : audit de leur adresse (v2.15) -------
+      // ⚠️ Ne marche QU'EN VOIE RAPIDE : le point d'acces (`entryExitPoints`) et
+      // les categories viennent de l'API. Le balayage par la carte ne les livre
+      // pas, et on le DIT plutot que de rendre un onglet vide sans explication.
+      if (c.poiAdresse || c.poiVilleCommune || c.poiNumero) {
+        try {
+          prog.etape('Audit des POI', 0);
+          await prog.respirer(true);
+          poiFindings = auditerPoi(donneesApi.venues, donneesApi.rues, donneesApi.villes,
+                                   communeActive, statsPoi);
+        } catch (e) {
+          if (e && e.annulation) throw e;
+          log('audit des POI impossible', e); statsPoi.erreur = e.message || String(e);
+        }
+      }
       statsAdr.segmentsLus = donneesApi.segments.length;
     } else {
     // --- REPLI : balayage de la commune, cellule par cellule ---------------
@@ -4311,6 +4577,14 @@
       statsAdr.cellulesPoi = cellulesPoi.length;
     }
     statsAdr.cellules = cellules.length;
+    // ⚠️ En mode BALAYAGE, l'audit des VRAIS POI n'est pas possible : le point
+    // d'accès et les catégories ne viennent que de l'API. On le DIT, plutôt que
+    // de rendre un onglet vide que l'éditeur croirait « sans écart » (v2.15).
+    if (c.poiAdresse || c.poiVilleCommune || c.poiNumero) {
+      statsPoi.indisponible = 'lecture directe indisponible — l\'audit des POI a ' +
+        'besoin des points d\'accès et des catégories, que le balayage de la carte ' +
+        'ne fournit pas. Relance quand la lecture directe remarchera.';
+    }
     }   // fin du repli par balayage
 
     prog.etape('Mise en forme des résultats', 0);
@@ -4323,7 +4597,12 @@
     const cartFindings = cartouchesPrincipal();
     zones.cartouche += cartFindings.length;
     findings = findings.concat(cartFindings);
-    lastScan = { analyses: zones.agglo + zones.hors + zones.cheval + zones.limCom, skipped, zones,
+    // Les reports POI rejoignent la meme liste : tout le rendu, le marquage
+    // « traite » et la navigation fonctionnent deja dessus. Ils s'en distinguent
+    // par `f.poi`, lu par `vueDe()` — un seul endroit decide de la famille.
+    findings = findings.concat(poiFindings);
+    lastScan = { poi: poiFindings, statsPoi,
+                 analyses: zones.agglo + zones.hors + zones.cheval + zones.limCom, skipped, zones,
                  ecarts: nbSegmentsEnEcart, lignes: findings.length, nbAgglos: listeAgglos.length,
                  adr: statsAdr, interrompu: false };
     renderResults();
@@ -4338,7 +4617,8 @@
       // Interrompue : le recensement cartouche est forcement partiel (tous les
       // segments d'une voie n'ont pas ete vus), donc on ne conclut PAS dessus —
       // une voie jugee « eligible » sur un echantillon serait un faux positif.
-      lastScan = { analyses: zones.agglo + zones.hors + zones.cheval + zones.limCom, skipped, zones,
+      lastScan = { poi: poiFindings, statsPoi,
+                 analyses: zones.agglo + zones.hors + zones.cheval + zones.limCom, skipped, zones,
                    ecarts: nbSegmentsEnEcart, lignes: findings.length, nbAgglos: listeAgglos.length,
                    adr: statsAdr, interrompu: true };
       renderResults();
@@ -5493,7 +5773,12 @@
     // Les controles disponibles dependent du referentiel : on active par defaut
     // ceux qu'il declare et que l'utilisateur n'a pas deja regles.
     REF.controles.forEach(ct => {
-      if (options.controles[ct.cle] === undefined) options.controles[ct.cle] = true;
+      // ⚠️ Un controle peut demander a etre DECOCHE au depart (`defaut: false`) :
+      // c'est le cas du numero de rue manquant sur les POI, qui concerne la
+      // moitie d'entre eux et noierait le reste (arbitrage de l'auteur, 26/07).
+      if (options.controles[ct.cle] === undefined) {
+        options.controles[ct.cle] = ct.defaut !== undefined ? ct.defaut : true;
+      }
     });
 
     const o = el(`
@@ -5508,6 +5793,7 @@
           <button id="agn-donnees" title="Contours, commune, agglomération">☰</button>
           <button class="agn-tab" data-vue="segments" title="Les écarts de nommage des segments (agglomération, cartouches, rédaction)">Segments <span class="agn-tab-n"></span></button>
           <button class="agn-tab" data-vue="adresses" title="Les écarts de numérotation : numéros de rue et POI résidentiels">Numérotation <span class="agn-tab-n"></span></button>
+          <button class="agn-tab" data-vue="poi" title="Les écarts d'adresse sur les vrais POI (hors POI résidentiels)">POI <span class="agn-tab-n"></span></button>
         </div>
         <div id="agn-corps">
           <!-- Garde-fou territorial (v2.03) : en tete du corps, AVANT le bouton
@@ -5810,9 +6096,18 @@
    * deux familles rendent la liste illisible (contrainte de l'auteur). Une
    * seule analyse alimente les deux vues : changer d'onglet ne relance rien.
    */
+  // ⚠️ TROIS familles de reports depuis la v2.15, et un seul endroit qui en
+  // decide : `familleDe`. Les tests en cascade `f.adresse ? … : …` ne tenaient
+  // plus a trois, et c'est exactement le genre de duplication qui a produit le
+  // defaut des giratoires (deux endroits decidant de la meme chose).
+  const VUES = ['segments', 'adresses', 'poi'];
+  const CASE_TABLE = { segments: 'segTable', adresses: 'adrTable', poi: 'poiTable' };
+  const CASE_CARTE = { segments: 'segCarte', adresses: 'adrCarte', poi: 'poiCarte' };
+  const vueDe = f => f.poi ? 'poi' : (f.adresse ? 'adresses' : 'segments');
+
   let vueCourante = 'segments';
   function choisirVue(vue) {
-    vueCourante = (vue === 'adresses') ? 'adresses' : 'segments';
+    vueCourante = VUES.includes(vue) ? vue : 'segments';
     ui.onglets.forEach(t => t.classList.toggle('agn-tab-on', t.dataset.vue === vueCourante));
     saveUI();
     renderResults();
@@ -5820,35 +6115,35 @@
   }
 
   /** Les reports de l'onglet courant (le TABLEAU). */
-  const findingsVisibles = () =>
-    findings.filter(f => (vueCourante === 'adresses') === !!f.adresse);
+  const findingsVisibles = () => findings.filter(f => vueDe(f) === vueCourante);
 
   /** Les reports a peindre sur la CARTE — reglage independant de l'onglet. */
   const findingsCarte = () =>
-    findings.filter(f => f.adresse ? options.vue.adrCarte : options.vue.segCarte);
+    findings.filter(f => options.vue[CASE_CARTE[vueDe(f)]]);
 
   /**
-   * Un onglet decoche disparait de la barre. ⚠️ On ne peut pas les masquer tous
-   * les deux : la fenetre n'aurait plus rien a montrer. Le dernier reste, et
-   * sa case se recoche toute seule (`majOnglets` est aussi appele apres coup).
+   * Un onglet decoche disparait de la barre. ⚠️ On ne peut pas les masquer TOUS :
+   * la fenetre n'aurait plus rien a montrer. Le premier reste, et sa case se
+   * recoche toute seule (`majOnglets` est aussi appele apres coup).
    */
   function majOnglets() {
     if (!ui.onglets) return;
-    if (!options.vue.segTable && !options.vue.adrTable) options.vue.segTable = true;
+    if (!VUES.some(v => options.vue[CASE_TABLE[v]])) options.vue.segTable = true;
     ui.onglets.forEach(t => {
-      const montre = t.dataset.vue === 'adresses' ? options.vue.adrTable : options.vue.segTable;
+      const montre = !!options.vue[CASE_TABLE[t.dataset.vue]];
       t.style.display = montre ? '' : 'none';
     });
-    // L'onglet actif vient d'etre masque : on bascule sur celui qui reste.
-    const actifMontre = vueCourante === 'adresses' ? options.vue.adrTable : options.vue.segTable;
-    if (!actifMontre) choisirVue(vueCourante === 'adresses' ? 'segments' : 'adresses');
+    // L'onglet actif vient d'etre masque : on bascule sur le premier qui reste.
+    if (!options.vue[CASE_TABLE[vueCourante]]) {
+      choisirVue(VUES.find(v => options.vue[CASE_TABLE[v]]) || 'segments');
+    }
   }
 
   /** Chaque onglet annonce son nombre de reports, meme quand il n'est pas actif. */
   function majCompteursOnglets() {
     if (!ui.onglets) return;
-    const n = { segments: 0, adresses: 0 };
-    findings.forEach(f => { n[f.adresse ? 'adresses' : 'segments']++; });
+    const n = { segments: 0, adresses: 0, poi: 0 };
+    findings.forEach(f => { n[vueDe(f)]++; });
     ui.onglets.forEach(t => {
       const c = t.querySelector('.agn-tab-n');
       if (c) c.textContent = n[t.dataset.vue] || '0';
@@ -5957,6 +6252,9 @@
             <div class="agn-sb-oc"><b>Adresses</b>
               <label class="agn-sb-c"><input type="checkbox" id="agn-r-adrtable" title="Lister les écarts d'adressage dans l'onglet Numérotation"> tableau</label>
               <label class="agn-sb-c"><input type="checkbox" id="agn-r-adrcarte" title="Marquer les numéros de rue et POI en écart sur la carte : disque plein pour un numéro hors agglomération, anneau pour un RPP en agglomération"> carte</label></div>
+            <div class="agn-sb-oc"><b>POI</b>
+              <label class="agn-sb-c"><input type="checkbox" id="agn-r-poitable" title="Lister les écarts d'adresse des vrais POI dans l'onglet POI"> tableau</label>
+              <label class="agn-sb-c"><input type="checkbox" id="agn-r-poicarte" title="Marquer sur la carte les POI dont l'adresse est en écart"> carte</label></div>
             <div class="agn-sb-oc"><b>Panneaux</b>
               <label class="agn-sb-c"><input type="checkbox" id="agn-r-pancarte" title="Afficher les panneaux d'entrée et de sortie d'agglomération relevés : vert dans un polygone, rouge dehors, gris si aucun polygone n'est tracé"> carte</label></div>`)}
           ${sect('surlignage', 'Surlignage sur la carte', `
@@ -6059,6 +6357,7 @@
     // racine : `coche` ne sait pas les atteindre.
     const CASES_VUE = { '#agn-r-segtable': 'segTable', '#agn-r-adrtable': 'adrTable',
                         '#agn-r-segcarte': 'segCarte', '#agn-r-adrcarte': 'adrCarte',
+                        '#agn-r-poitable': 'poiTable', '#agn-r-poicarte': 'poiCarte',
                         '#agn-r-pancarte': 'panCarte' };
     // ⚠️ Relire l'etat APRES coup, sur les quatre : `majOnglets` peut avoir
     // recoche « Segments / tableau » de force (on ne masque pas les deux
@@ -7029,6 +7328,54 @@
       '</div>';
   }
 
+  /**
+   * Libelle FRANCAIS d'une categorie de POI, lu dans les traductions de WME.
+   * ⚠️ `I18n` n'est lu qu'ICI, au moment du rendu — donc bien apres les gardes
+   * d'attente de WME. Le lire au niveau racine leverait un `ReferenceError`
+   * (piege connu, voir [[wme-sdk-pieges]]).
+   * Sans traduction, on rend la cle brute plutot que rien : « SHOPPING_AND_SERVICES »
+   * reste plus parlant qu'un vide.
+   */
+  function libelleCategorie(cle) {
+    if (!cle) return 'POI';
+    try {
+      const I = hote.I18n || window.I18n;
+      const t = I && I.translations && I.translations[I.locale];
+      const v = t && t.venues && t.venues.categories && t.venues.categories[cle];
+      if (typeof v === 'string' && v) return v;
+    } catch (e) { /* traductions indisponibles : on garde la cle */ }
+    return cle;
+  }
+
+  /**
+   * Bilan de l'onglet POI. ⚠️ On DIT ce qui a ete ecarte volontairement (elements
+   * du paysage, POI hors du contour) : un compteur muet laisserait croire que le
+   * script n'a rien vu, alors qu'il a decide de ne rien dire.
+   */
+  function bilanPoi() {
+    const s = lastScan, p = s && s.statsPoi;
+    if (!p) return '<div class="agn-stat">Analyse non lancée.</div>';
+    if (p.indisponible) {
+      return '<div class="agn-alerte-bloc">⚠️ <b>Audit des POI indisponible.</b><br>' +
+        esc(p.indisponible) + '</div>';
+    }
+    const n = (s.poi || []).length;
+    return '<div class="agn-stat">' +
+      '<b>' + n + '</b> POI en écart sur <b>' + p.poiAudites + '</b> audité(s) à ' +
+      esc(communeActive.nom) + '.<br>' +
+      p.poiConformes + ' conforme(s)' +
+      (p.poiHorsCommune ? ' · ' + p.poiHorsCommune + ' hors du contour communal' : '') +
+      (p.poiNaturels
+        ? ' · <span title="Rivière, fleuve, mer, lac, étang, île, forêt, plantation, canal, marais, plage : ces lieux décrivent le paysage et n\'ont pas d\'adresse postale. Ils sont écartés volontairement.">' +
+          p.poiNaturels + ' élément(s) naturel(s) écarté(s)</span>' : '') + '.' +
+      (options.controles.poiNumero ? ''
+        : '<br><span style="opacity:.8">Le contrôle « numéro de rue manquant » est ' +
+          'décoché : il concerne environ la moitié des POI. Coche-le dans les réglages ' +
+          'quand tu veux t\'y attaquer.</span>') +
+      (p.erreur ? '<br><span class="agn-alerte">Audit des POI : ' + esc(p.erreur) + '</span>' : '') +
+      '</div>' + bandeauInterrompu() + bandeauSource();
+  }
+
   function renderResults() {
     const s = lastScan;
     // Ce que l'editeur avait marque « traite » (memorise, meme d'un autre poste)
@@ -7040,7 +7387,9 @@
     majCompteursOnglets();
     if (s && communeActive) {
       const z = s.zones;
-      ui.stats.innerHTML = vueCourante === 'segments'
+      ui.stats.innerHTML = vueCourante === 'poi'
+        ? bilanPoi()
+        : vueCourante === 'segments'
         ? `<div class="agn-stat">
         <b>${s.ecarts}</b> segment(s) en écart sur <b>${s.analyses}</b> analyses a ${esc(communeActive.nom)}${
           s.lignes && s.lignes !== s.ecarts ? ', regroupes en <b>' + s.lignes + '</b> report(s)' : ''}.<br>
@@ -7068,7 +7417,7 @@
     indexCourant = -1;
     if (!liste.length) {
       ui.results.innerHTML = '<div class="agn-empty">' + (findings.length
-        ? 'Aucun écart dans cet onglet — regarde l\'autre.'
+        ? 'Aucun écart dans cet onglet — regarde les autres.'
         : 'Aucun écart détecté.') + '</div>';
       return;
     }
@@ -7140,10 +7489,14 @@
                 ? '<button class="agn-fix-btn" title="Appliquer la correction (sans enregistrer)">⚡</button>' : ''}
               <button class="agn-ok-btn" title="Marquer comme traite">✓</button>
               <span class="agn-cas">${f.cas}</span></div>
-            <div class="agn-note">${f.adresse
-              ? (f.sousType === 'hn' ? 'Numéros de rue' : 'POI résidentiel')
-              : (ROADTYPE_LABEL[f.roadType] || f.roadType)} · ${
-              f.adresse
+            <div class="agn-note">${f.poi
+              ? esc(libelleCategorie(f.categorie))
+              : f.adresse
+                ? (f.sousType === 'hn' ? 'Numéros de rue' : 'POI résidentiel')
+                : (ROADTYPE_LABEL[f.roadType] || f.roadType)} · ${
+              f.poi
+                ? 'POI ' + esc(String(f.venueId || '').slice(-8))
+                : f.adresse
                 ? (f.sousType === 'hn'
                     ? '<b class="agn-nb">' + f.nb + ' numero' + (f.nb > 1 ? 's' : '') + '</b> · #' + f.segId
                     : 'POI ' + f.segId)
