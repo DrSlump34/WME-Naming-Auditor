@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.03
+// @version      2.04
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les regles d'edition francaises (agglomeration / hors agglomeration, contours communaux INSEE). D'autres pays sont prevus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -275,7 +275,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '2.03';
+    return '2.04';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -756,22 +756,66 @@
    * `{ ok, ajoutPoly, ajoutSans }` ou `{ ok:false, raison }` (jamais d'exception,
    * et rien n'est ecrit en cas de rejet — meme discipline que WMEPrefs).
    */
+  /** Un code INSEE : 5 caracteres, chiffres, ou 2A/2B pour la Corse. */
+  const codeInseeValide = c => typeof c === 'string' && /^(\d{5}|2[AB]\d{3})$/.test(c);
+
+  /**
+   * Un polygone d'agglomeration importe est-il exploitable ?
+   *
+   * ⚠️⚠️ CONTROLE INDISPENSABLE, et pas seulement pour la solidite de l'affichage :
+   * un fichier de partage vient d'un TIERS. Un anneau absent fait lever
+   * `a.ring.length` en pleine `renderAgglos` (volet casse), et surtout des
+   * coordonnees non numeriques produisent un zonage en NaN — donc des ecarts
+   * FAUX, donc des corrections a l'envers. C'est exactement le risque contre
+   * lequel tout le reste du script se blinde ; l'import ne peut pas etre la
+   * seule porte ouverte. Les outils du depot de partage valident deja, mais
+   * c'est au CLIENT de se proteger : rien ne garantit d'ou vient le fichier.
+   */
+  function polygoneImporteValide(a) {
+    if (!a || typeof a !== 'object') return false;
+    if (!Array.isArray(a.ring) || a.ring.length < 4) return false;   // 3 sommets + fermeture
+    for (const p of a.ring) {
+      if (!Array.isArray(p) || p.length < 2) return false;
+      const lon = p[0], lat = p[1];
+      if (typeof lon !== 'number' || typeof lat !== 'number') return false;
+      if (!isFinite(lon) || !isFinite(lat)) return false;            // NaN / Infinity
+      if (lon < -180 || lon > 180 || lat < -90 || lat > 90) return false;
+    }
+    // L'anneau doit etre FERME : le zonage suppose une surface, pas une ligne.
+    const d = a.ring[0], f = a.ring[a.ring.length - 1];
+    return d[0] === f[0] && d[1] === f[1];
+  }
+
   function fusionnerPartage(texte) {
     const info = prefs.inspect(texte);
     if (!info.ok) return info;                 // { ok:false, raison, script?, format? }
     const p = info.payload || {};
-    let ajoutPoly = 0, ajoutSans = 0;
+    let ajoutPoly = 0, ajoutSans = 0, rejetes = 0;
     for (const [insee, liste] of Object.entries(p.agglos || {})) {
+      if (!codeInseeValide(insee) || !Array.isArray(liste) || !liste.length) { rejetes++; continue; }
+      // On ne garde que les polygones exploitables, et on n'accepte la commune
+      // que s'il en reste au moins un : mieux vaut aucune donnee qu'un zonage
+      // partiel, qui ferait passer pour « hors agglo » ce qui est en agglo.
+      const propres = liste.filter(polygoneImporteValide);
+      if (propres.length !== liste.length) rejetes += liste.length - propres.length;
+      if (!propres.length) continue;
       // « n'ajouter que les absentes » : une commune deja tracee est intouchee.
-      if ((!agglos[insee] || !agglos[insee].length) && Array.isArray(liste) && liste.length) {
-        agglos[insee] = liste; ajoutPoly++;
+      if (!agglos[insee] || !agglos[insee].length) {
+        agglos[insee] = propres.map(a => ({
+          // On RECONSTRUIT l'objet : un fichier tiers n'impose pas ses champs.
+          label: typeof a.label === 'string' ? a.label.slice(0, 120) : '',
+          rattache: !!a.rattache,
+          ring: a.ring.map(pt => [pt[0], pt[1]])
+        }));
+        ajoutPoly++;
       }
     }
     for (const insee of Object.keys(p.sansAgglo || {})) {
+      if (!codeInseeValide(insee)) { rejetes++; continue; }
       if (!sansAgglo[insee]) { sansAgglo[insee] = true; ajoutSans++; }
     }
     if (ajoutPoly || ajoutSans) { saveAgglos(); saveSansAgglo(); }
-    return { ok: true, ajoutPoly, ajoutSans };
+    return { ok: true, ajoutPoly, ajoutSans, rejetes };
   }
 
   function importerPartageFichier(fichier) {
@@ -784,8 +828,16 @@
   }
 
   async function importerPartageURL(url) {
+    // ⚠️ On refuse tout ce qui n'est pas du HTTPS : `file://`, `javascript:` ou
+    // `data:` n'ont rien a faire ici, et du HTTP simple exposerait le zonage a
+    // une alteration en transit. Le controle est ici plutot que dans l'UI : une
+    // verification qui vit dans le bouton se contourne en appelant la fonction.
+    let u;
+    try { u = new URL(String(url || '').trim()); }
+    catch (e) { return { ok: false, raison: 'url-invalide' }; }
+    if (u.protocol !== 'https:') return { ok: false, raison: 'url-non-https' };
     let texte;
-    try { texte = await telecharger(url); }
+    try { texte = await telecharger(u.href); }
     catch (e) { return { ok: false, raison: 'reseau', message: e.message }; }
     return fusionnerPartage(texte);
   }
@@ -4958,7 +5010,17 @@
     o.style.left = Math.round(px) + 'px';
     o.style.top = Math.round(py) + 'px';
   }
-  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  /**
+   * Echappement HTML. ⚠️ Les cinq caracteres, pas trois : `>` et `'` manquaient.
+   * Aucun cas exploitable n'existe aujourd'hui (nos attributs sont tous
+   * delimites par des guillemets doubles), mais un `esc` incomplet est une mine
+   * posee pour la prochaine fois qu'on ecrira un attribut entre apostrophes —
+   * et les noms de rues, de POI et les etiquettes de polygones viennent de
+   * Waze ou d'un fichier de partage TIERS, donc de l'exterieur.
+   */
+  const esc = s => String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
   function buildOverlay() {
     const style = document.createElement('style'); style.textContent = CSS; document.head.appendChild(style);
@@ -5365,6 +5427,30 @@
    * (restauration des contours, rendu, abonnement carte) ne tournait plus.
    */
   function buildReglages(pane) {
+    // ⚠️⚠️ COUPURE A DROITE DU PANNEAU — cause racine, mesuree en live le 26/07.
+    // WME pose `width: 330px` EN DUR sur le `tab-pane` qu'il nous donne, mais
+    // son conteneur (`.tabContent--…`, `overflow-y:auto` + `overflow-x:hidden`)
+    // n'offre que **315 px** utiles des que la barre de defilement verticale
+    // apparait — c'est-a-dire des qu'un onglet est un peu long. Le contenu,
+    // cale sur 330, depassait alors de 13 px et se faisait couper SANS barre
+    // horizontale : « objets et texte coupes, selon les onglets ».
+    // `width:auto` rend la largeur FLUIDE : le bloc se cale sur la place
+    // reellement disponible (315 avec barre, 330 sans), donc plus jamais de
+    // coupure et aucune oscillation a gerer.
+    // ⚠️ Ne PAS remplacer par `max-width:100%` sur notre conteneur : le parent
+    // mesure deja 330, un pourcentage s'y resout et ne corrige rien (essaye).
+    // ⚠️⚠️ Et surtout : le poser sur le SEUL `pane` NE SUFFIT PAS — mesure faite.
+    // `registerScriptTab()` rend un DIV **interne** au `section.tab-pane`, et
+    // c'est la SECTION au-dessus qui porte le 330 px. On remonte donc jusqu'au
+    // conteneur qui coupe (exclu) en liberant la largeur de chaque ancetre : on
+    // ne sait pas lequel WME choisira de contraindre demain.
+    try {
+      for (let n = pane; n && n !== document.body; n = n.parentElement) {
+        if (getComputedStyle(n).overflowX !== 'visible') break;   // le coupeur : on n'y touche pas
+        n.style.width = 'auto';
+        n.style.maxWidth = '100%';
+      }
+    } catch (e) { /* structure de WME differente : on laisse tel quel */ }
     /**
      * Une section repliable. Le titre porte le repli, le corps le contenu.
      * `cle` sert a memoriser l'etat : elle doit rester stable d'une version a
@@ -5602,15 +5688,21 @@
       'autre-script': 'ce fichier vient d\'un autre script.',
       'contenu-absent': 'fichier vide.',
       'lecture-impossible': 'lecture du fichier impossible.',
-      'reseau': 'téléchargement impossible (URL joignable ? domaine autorisé ?).'
+      'reseau': 'téléchargement impossible (URL joignable ? domaine autorisé ?).',
+      'url-invalide': 'cette adresse n\'est pas une URL valide.',
+      'url-non-https': 'seules les adresses https:// sont acceptées.'
     };
     const apresImport = r => {
       if (!r.ok) { dire('Import refusé : ' + (RAISONS[r.raison] || r.raison), true); return; }
+      // ⚠️ Un rejet ne doit JAMAIS être silencieux : un import qui n'a pris que
+      // la moitié du fichier, sans le dire, laisse croire à un zonage complet.
+      const rejet = r.rejetes ? ' ⚠️ ' + r.rejetes + ' entrée(s) écartée(s) : code INSEE ou ' +
+        'polygone invalide (le fichier est peut-être abîmé).' : '';
       if (!r.ajoutPoly && !r.ajoutSans) {
-        dire('Rien de nouveau : les communes du fichier étaient déjà chez toi.');
+        dire('Rien de nouveau : les communes du fichier étaient déjà chez toi.' + rejet, !!r.rejetes);
       } else {
         dire(r.ajoutPoly + ' commune(s) avec polygone et ' + r.ajoutSans +
-          ' « sans agglo » ajoutée(s). Tes communes existantes n\'ont pas été touchées.');
+          ' « sans agglo » ajoutée(s). Tes communes existantes n\'ont pas été touchées.' + rejet);
       }
       // Rafraichir ce que l'editeur voit : liste des communes, agglos, carte.
       rafraichirCommunesDeLaVue(); renderAgglos(); redrawAgglos();
