@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.10
+// @version      2.11
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -275,7 +275,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '2.10';
+    return '2.11';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -2499,6 +2499,34 @@
   const isRoute = e => !!e.name && (RE_ROUTE.test(e.name.trim()) || (!!e.signText && e.signText.trim() === e.name.trim()));
   const isCommunale = e => !!e.name && RE_COMMUNALE.test(e.name.trim());
 
+  /**
+   * Ville a appliquer dans une agglomeration.
+   *
+   * /!\ La ville de reference est le nom de la COMMUNE INSEE, jamais le libelle
+   * du polygone : celui-ci n'est qu'une etiquette de travail, et s'en servir
+   * propagerait une faute de saisie sur toute la commune. Seul le village
+   * rattache fait exception, et son nom se lit alors sur la City deja portee par
+   * le segment — pas sur le polygone non plus.
+   *
+   * ⚠️⚠️ EXTRAITE de `expectedNaming` en v2.11 pour etre PARTAGEE avec les
+   * GIRATOIRES, qui appliquaient `communeActive.nom` en dur et ignoraient donc
+   * les villages rattaches. Mesure a Gruissan : 22 giratoires portaient
+   * correctement « Les Ayguades (Gruissan) » ou « Gruissan-Plage (Gruissan) » et
+   * le script reclamait de les remplacer par « Gruissan » — il DEGRADAIT 22
+   * nommages justes. Deux endroits qui decident de la meme chose doivent
+   * partager le meme code.
+   */
+  function villeAgglo(nam, agglo, nomCommune) {
+    if (!agglo || !agglo.rattache) return { ville: nomCommune, doute: null };
+    const villeSeg = nam.primary.cityName ||
+                     (nam.alts.find(a => a.cityName) || {}).cityName || '';
+    // la ville du segment peut deja etre au format « Village (Commune) »
+    const village = (villeSeg.match(/^\s*(.+?)\s*\(/) || [null, villeSeg])[1].trim();
+    if (village) return { ville: village + ' (' + nomCommune + ')', doute: null };
+    return { ville: nomCommune, doute: 'village rattaché : aucune ville sur le segment, ' +
+             'impossible d\'en déduire le nom du village' };
+  }
+
   function expectedNaming(nam, agglo, nomCommune) {
     const entries = [nam.primary, ...nam.alts].filter(e => e.name || e.cityName);
     const routes = entries.filter(isRoute);
@@ -2559,21 +2587,9 @@
     }
 
     if (agglo) {
-      // /!\ La ville de reference est le nom de la COMMUNE INSEE, jamais le
-      // libelle du polygone : celui-ci n'est qu'une etiquette de travail, et
-      // s'en servir propagerait une faute de saisie sur toute la commune.
-      // Seul le village rattache fait exception, et son nom se lit alors sur la
-      // City deja portee par le segment — pas sur le polygone non plus.
-      let v = nomCommune;
-      if (agglo.rattache) {
-        const villeSeg = nam.primary.cityName ||
-                         (nam.alts.find(a => a.cityName) || {}).cityName || '';
-        // la ville du segment peut deja etre au format « Village (Commune) »
-        const village = (villeSeg.match(/^\s*(.+?)\s*\(/) || [null, villeSeg])[1].trim();
-        if (village) v = village + ' (' + nomCommune + ')';
-        else doute = (doute ? doute + ' ; ' : '') +
-          'village rattache : aucune ville sur le segment, impossible d\'en deduire le nom du village';
-      }
+      const va = villeAgglo(nam, agglo, nomCommune);
+      const v = va.ville;
+      if (va.doute) doute = (doute ? doute + ' ; ' : '') + va.doute;
       const s = agglo.rattache ? 'R' : 'C';
       if (nomRue && route) return fin({ cas: s + '1', primary: P(nomRue.name, v), alts: [P(route.name, v)], doute });
       if (nomRue)          return fin({ cas: s + '2', primary: P(nomRue.name, v), alts: [], doute });
@@ -2745,6 +2761,9 @@
 
       // Etat cible du nommage selon la zone (le logigramme C/R/H).
       etatCible: expectedNaming,
+      // Partagee avec le traitement des giratoires : la ville d'une agglomeration
+      // se decide au meme endroit pour tout le monde (village rattache compris).
+      villeAgglo: villeAgglo,
 
       // Ou doit vivre une adresse, selon la zone. En France : numero de rue
       // (House Number) porte par le segment EN agglomeration, POI de type
@@ -3918,13 +3937,20 @@
 
       // --- Giratoire : reconnu par son junctionId, quelle que soit la zone ---
       if (seg.junctionId != null && c.giratoires) {
-        const enAggloG = enAgglo;
-        const villeG = enAggloG ? communeActive.nom : '';
+        // ⚠️⚠️ La ville passe par `REF.villeAgglo`, PAS par `communeActive.nom` en
+        // dur (corrige en v2.11) : dans un VILLAGE RATTACHE, la ville attendue est
+        // « Village (Commune) », comme pour les rues alentour. Mesure a Gruissan :
+        // 22 giratoires portaient deja correctement « Les Ayguades (Gruissan) » ou
+        // « Gruissan-Plage (Gruissan) », et le script reclamait « Gruissan » — il
+        // DEGRADAIT 22 nommages justes.
+        const va = enAgglo ? REF.villeAgglo(nam, loc.agglo, communeActive.nom)
+                           : { ville: '', doute: null };
+        const villeG = va.ville;
         const ecartsG = verifierGiratoire(nam, villeG).concat(forme);
         if (!ecartsG.length) continue;
         zones.giratoire++;
         findings.push(Object.assign({}, base, {
-          cas: 'GIR', ecarts: ecartsG, special: true, doute: null,
+          cas: 'GIR', ecarts: ecartsG, special: true, doute: va.doute,
           cible: { primary: { name: '', cityName: villeG }, alts: [] }
         }));
         continue;
