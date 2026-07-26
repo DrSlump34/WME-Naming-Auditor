@@ -14,3 +14,10 @@ Archives/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# rapports des outils d'accentuation (regeneres a la demande)
+tools/*-rapport.txt
+tools/ambigus-a-la-main.txt
+tools/a-isoles.txt
+tools/mots-restants.txt
+__pycache__/

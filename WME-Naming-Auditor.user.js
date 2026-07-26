@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.04
+// @version      2.05
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les regles d'edition francaises (agglomeration / hors agglomeration, contours communaux INSEE). D'autres pays sont prevus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -275,7 +275,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '2.04';
+    return '2.05';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -298,26 +298,26 @@
   // le trait est large et transparent pour se lire comme un halo DERRIERE le
   // segment plutot que comme un trait concurrent. Tout reste reglable.
   const FAMILLES = {
-    agglo: { libelle: 'En agglomeration (C / R)', defaut: '#00b0ff' },
-    hors: { libelle: 'Hors agglomeration (H)', defaut: '#d500f9' },
-    eb10: { libelle: 'A couper — entree agglo', defaut: '#ff1744' },
-    lim: { libelle: 'A couper — limite communale', defaut: '#1de9b6' },
+    agglo: { libelle: 'En agglomération (C / R)', defaut: '#00b0ff' },
+    hors: { libelle: 'Hors agglomération (H)', defaut: '#d500f9' },
+    eb10: { libelle: 'À couper — entrée agglo', defaut: '#ff1744' },
+    lim: { libelle: 'À couper — limite communale', defaut: '#1de9b6' },
     cartouche: { libelle: 'Cartouche seul (nommage bon)', defaut: '#7c4dff' },
-    forme: { libelle: 'Redaction du nom seule', defaut: '#76ff03' },
-    special: { libelle: 'Bretelle / voie ferree / rocade', defaut: '#ff4081' },
+    forme: { libelle: 'Rédaction du nom seule', defaut: '#76ff03' },
+    special: { libelle: 'Bretelle / voie ferrée / rocade', defaut: '#ff4081' },
     giratoire: { libelle: 'Giratoires', defaut: '#00e676' },
     // ⚠️ Les deux ecarts d'adressage sont de nature OPPOSEE et ne se lisent pas
     // pareil : le numero hors agglo est un defaut a corriger, le RPP en agglo
-    // est une question a trancher (l'entree peut donner sur une autre voie).
+    // est une question à trancher (l'entree peut donner sur une autre voie).
     // Ils partageaient couleur ET forme : indistinguables sur la carte alors
     // qu'ils s'y cotoient. Le numero reste un DISQUE cyan, le RPP devient un
     // ANNEAU orchidee — la teinte oppose les deux, la forme les separe meme
     // pour un daltonien.
-    adresse: { libelle: 'Numero de rue hors agglomeration', defaut: '#00e5ff' },
-    rpp: { libelle: 'RPP en agglomeration (a trancher)', defaut: '#e040fb' },
+    adresse: { libelle: 'Numéro de rue hors agglomération', defaut: '#00e5ff' },
+    rpp: { libelle: 'RPP en agglomération (à trancher)', defaut: '#e040fb' },
     // Les panneaux ne sont pas des ecarts : ils ne passent pas par `familleDe`,
     // mais leurs deux couleurs se reglent au meme endroit que les autres.
-    panneauNeutre: { libelle: 'Panneau releve (rien a confronter)', defaut: '#546e7a' },
+    panneauNeutre: { libelle: 'Panneau relevé (rien à confronter)', defaut: '#546e7a' },
     panneauOk: { libelle: 'Panneau dans un polygone', defaut: '#00e676' },
     panneauHors: { libelle: 'Panneau HORS polygone', defaut: '#ff1744' }
   };
@@ -374,7 +374,7 @@
   const ROADTYPE_LABEL = {
     1: 'Rue', 2: 'Route principale', 3: 'Autoroute', 4: 'Bretelle', 5: 'Sentier',
     6: 'Voie rapide', 7: 'Route secondaire', 8: 'Chemin de terre', 10: 'Chemin pietonnier',
-    15: 'Ferry', 16: 'Escalier', 17: 'Voie privee', 18: 'Voie ferree', 19: 'Piste',
+    15: 'Ferry', 16: 'Escalier', 17: 'Voie privée', 18: 'Voie ferrée', 19: 'Piste',
     20: 'Voie de parking', 22: 'Ruelle'
   };
 
@@ -423,7 +423,7 @@
   let findings = [];
   let lastScan = null;
   let ui = {};
-  // seuil : part de longueur (0-1) au-dela de laquelle un segment a cheval est
+  // seuil : part de longueur (0-1) au-delà de laquelle un segment a cheval est
   // rattache d'office a un cote. Entre (1 - seuil) et seuil = zone grise.
   let options = {
     sansAdresse: false, altEnTrop: false, seuil: 0.8,
@@ -463,7 +463,7 @@
 
   /** Levee par un point de controle quand l'editeur a clique « Annuler ». */
   class AnnulationDemandee extends Error {
-    constructor() { super('interrompu par l\'editeur'); this.annulation = true; }
+    constructor() { super('interrompu par l\'éditeur'); this.annulation = true; }
   }
 
   /**
@@ -560,7 +560,7 @@
       // Onglet en arriere-plan : Chrome ralentit tout. Le dire, plutot que de
       // laisser croire a un plantage.
       r.querySelector('.agn-prog-note').textContent = document.hidden
-        ? 'Onglet en arriere-plan : le navigateur ralentit le travail. Reviens sur cet onglet.' : '';
+        ? 'Onglet en arrière-plan : le navigateur ralentit le travail. Reviens sur cet onglet.' : '';
     }
 
     const api = {
@@ -713,7 +713,7 @@
       const a = lire(STORE_AGGLOS, null), sa = lire(STORE_SANS_AGGLO, null);
       if (a || sa) {
         data = { agglos: a || {}, sansAgglo: sa || {}, traites: {} };
-        try { await prefs.save(data); log('prefs : anciennes cles localStorage reprises'); }
+        try { await prefs.save(data); log('prefs : anciennes clés localStorage reprises'); }
         catch (e) { log('WMEPrefs migration', e); }
       }
     }
@@ -939,7 +939,7 @@
       if (!nom) { sansNom++; continue; }
       out.push({ code: code || nom, nom, geom: f.geometry, bbox: bboxOf(f.geometry) });
     }
-    if (!out.length) throw new Error('aucune commune exploitable (nom introuvable dans les proprietes)');
+    if (!out.length) throw new Error('aucune commune exploitable (nom introuvable dans les propriétés)');
     const depsNouveaux = new Set(out.map(c => depDuCode(c.code)));
     const gardees = communes.filter(c => !depsNouveaux.has(depDuCode(c.code)));
     communes = gardees.concat(out);
@@ -992,7 +992,7 @@
         prog.fin();
         rafraichirCommunesDeLaVue(); renderContours();
         replierSection('contours', false);     // etape faite : on rend la place
-        log(res.nb + ' commune(s) chargee(s)');
+        log(res.nb + ' commune(s) chargée(s)');
       } catch (e) {
         prog.fin();
         ui.statutContours.innerHTML = '<div class="agn-stat agn-alerte">Fichier illisible : ' + esc(e.message) + '</div>';
@@ -1018,8 +1018,8 @@
         const req = gm({ method: 'GET', url, timeout: 120000,
           onload: r => (r.status >= 200 && r.status < 300)
             ? resolve(r.responseText) : reject(new Error('HTTP ' + r.status)),
-          onerror: () => reject(new Error('appel refuse')),
-          ontimeout: () => reject(new Error('delai depasse')) });
+          onerror: () => reject(new Error('appel refusé')),
+          ontimeout: () => reject(new Error('délai dépassé')) });
         // ⚠️ Sans `abort()`, « Annuler » pendant un departement de 3 Mo
         // attendrait quand meme la fin du telechargement : l'editeur croirait
         // le bouton mort. Le handle de GM_xmlhttpRequest le fournit.
@@ -1035,7 +1035,7 @@
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.text();
     }).catch(e => {
-      throw new Error(e.message + ' — appel direct bloque par WME ; ' +
+      throw new Error(e.message + ' — appel direct bloqué par WME ; ' +
         'installe le script dans Tampermonkey pour utiliser cette source');
     });
   }
@@ -1043,21 +1043,21 @@
   const SOURCES = {
     fichier: { libelle: 'Fichier GeoJSON local' },
     gouv: {
-      libelle: 'API Decoupage administratif (geo.api.gouv.fr)',
+      libelle: 'API Découpage administratif (geo.api.gouv.fr)',
       // Contours Admin Express (IGN) + Code Officiel Geographique (INSEE).
       url: dep => 'https://geo.api.gouv.fr/departements/' + encodeURIComponent(dep) +
         '/communes?fields=nom,code,contour&format=geojson&geometry=contour',
-      aide: 'Numero de departement (01 a 95, 2A, 2B, 971…). ~3 Mo et ~10 s par departement.'
+      aide: 'Numéro de département (01 à 95, 2A, 2B, 971…). ~3 Mo et ~10 s par département.'
     },
     wazefrance: {
-      libelle: 'api.wazefrance.com — a ECARTER pour les contours',
+      libelle: 'api.wazefrance.com — à ÉCARTER pour les contours',
       // ⚠️ Tranche le 23/07 : son `/updates` nomme ses sources, et le decoupage
       // communal y est le « decoupage administratif issu d'OpenStreetMap »,
       // donc ODbL VIRAL. Admin Express (IGN) est en Licence Ouverte : on garde
       // `gouv`. Seuls les PANNEAUX de cette API sont exploitables (voir plus
       // bas), et pour une tout autre raison : ils viennent de l'Etat.
       indisponible: 'Ses contours de communes sont derives d\'OpenStreetMap (ODbL, ' +
-        'licence virale). La source « geo.api.gouv.fr » ci-dessus livre les memes ' +
+        'licence virale). La source « geo.api.gouv.fr » ci-dessus livre les mêmes ' +
         'communes en Licence Ouverte : c\'est elle qu\'il faut utiliser.'
     }
   };
@@ -1227,12 +1227,12 @@
    */
   async function chargerDepuisGouv(codes, prog) {
     const liste = (Array.isArray(codes) ? codes : [codes]).map(c => String(c).trim().toUpperCase());
-    if (!liste.length) throw new Error('aucun departement selectionne');
+    if (!liste.length) throw new Error('aucun département sélectionné');
     const features = [];
     const echecs = [];
     // ~3 Mo et ~10 s par departement : l'attente est reelle, et proportionnelle
     // au nombre de cases cochees.
-    if (prog) prog.etape('Telechargement des contours', liste.length);
+    if (prog) prog.etape('Téléchargement des contours', liste.length);
     for (let i = 0; i < liste.length; i++) {
       const d = liste[i];
       if (prog) { prog.verifier(); prog.fixer(i).sous('departement ' + d); await prog.respirer(true); }
@@ -1331,7 +1331,7 @@
         const r = await chargerDepuisGouv(manquants, prog);
         prog.fin();
         ui.statutContours.innerHTML = '<div class="agn-stat agn-ok">Contours de ' +
-          esc(noms.join(', ')) + ' charges automatiquement — <b>' + r.nb + '</b> commune(s).</div>';
+          esc(noms.join(', ')) + ' chargés automatiquement — <b>' + r.nb + '</b> commune(s).</div>';
         renderContours();
       } catch (e) {
         prog.fin();
@@ -1339,18 +1339,18 @@
         // de communes vide sans que l'editeur comprenne pourquoi.
         ui.statutContours.innerHTML = '<div class="agn-stat agn-alerte">Chargement automatique de ' +
           esc(noms.join(', ')) + ' impossible : ' + esc(e && e.annulation ? 'interrompu' : (e.message || String(e))) +
-          '. Tu peux le relancer a la main ci-dessus.</div>';
+          '. Tu peux le relancer à la main ci-dessus.</div>';
       }
     } catch (e) {
       // Le reseau ne repond pas du tout. On ne le repete pas a chaque
       // deplacement de carte — une fois suffit a comprendre.
-      log('detection du departement impossible', e);
+      log('detection du département impossible', e);
       if (!ui.autoDepPrevenu) {
         ui.autoDepPrevenu = true;
         ui.statutContours.innerHTML = '<div class="agn-stat agn-alerte">' +
           '<b>Chargement automatique indisponible.</b> ' + esc(e.message || String(e)) +
-          '<br>Charge les contours a la main (selecteur de departements ci-dessus), ' +
-          'ou decoche l\'option dans les reglages.</div>';
+          '<br>Charge les contours à la main (sélecteur de départements ci-dessus), ' +
+          'ou decoche l\'option dans les réglages.</div>';
       }
     } finally { autoEnCours = false; }
   }
@@ -1655,9 +1655,9 @@
       b = el('<div id="agn-err-save"></div>');
       ui.corps.insertBefore(b, ui.corps.firstChild);
     }
-    b.innerHTML = '<b>⛔ WME a refuse l\'enregistrement</b><div class="agn-err-msg">' +
+    b.innerHTML = '<b>⛔ WME a refusé l\'enregistrement</b><div class="agn-err-msg">' +
       esc(texte) + '</div><span class="agn-err-note">Message repris de WME (sa propre alerte est ' +
-      'cachee derriere cette fenetre). Il disparaitra quand l\'alerte de WME se fermera.</span>';
+      'cachee derrière cette fenêtre). Il disparaitra quand l\'alerte de WME se fermera.</span>';
     // Si la fenetre est repliee ou fermee, on la rouvre : sinon le bandeau
     // resterait invisible et on n'aurait rien gagne.
     if (ui.overlay) {
@@ -1700,7 +1700,7 @@
       `<div class="agn-b-t"><span class="agn-pastille" style="background:${
         options.couleurs[familleDe(f)] || '#888'}"></span>${esc(f.libelle)}
         <span class="agn-cas">${f.cas}</span></div>` +
-      (f.nb > 1 ? `<div class="agn-b-l"><b>${f.nb} segments</b> dans la meme situation</div>` : '') +
+      (f.nb > 1 ? `<div class="agn-b-l"><b>${f.nb} segments</b> dans la même situation</div>` : '') +
       f.ecarts.map(e => `<div class="agn-b-l"><b>${esc(e.champ)}</b> : ${esc(e.avant)} → ${esc(e.apres)}</div>`).join('') +
       (f.doute ? `<div class="agn-b-w">⚠ ${esc(f.doute)}</div>` : '') +
       (f.traite ? '<div class="agn-b-ok">✓ marque comme traite</div>' : '');
@@ -2072,7 +2072,7 @@
     // Total 0 = barre indeterminee : on ne sait pas d'avance combien de zones
     // il faudra interroger, le decoupage depend de ce que l'API repond.
     const prog = progression(ui.progPanneaux,
-      { titre: 'Panneaux d\'agglomeration', annulable: true }).etape('Interrogation de la source', 0);
+      { titre: 'Panneaux d\'agglomération', annulable: true }).etape('Interrogation de la source', 0);
     try {
       const r = await chargerPanneauxAgglo(communeActive.bbox, prog);
       panneaux = r.panneaux;
@@ -2085,9 +2085,9 @@
       panneaux = []; bilanPanneaux = null;
       redrawPanneaux();
       bilan.innerHTML = (e instanceof AnnulationDemandee)
-        ? 'Releve interrompu.'
+        ? 'Relevé interrompu.'
         : '⚠ ' + esc(e.message) +
-          '<br>Cette source exige Tampermonkey (la page de WME ne peut pas appeler l\'exterieur).';
+          '<br>Cette source exige Tampermonkey (la page de WME ne peut pas appeler l\'extérieur).';
     } finally {
       prog.fin();
       btn.disabled = !communeActive;
@@ -2103,15 +2103,15 @@
     if (!total) {
       // ⚠️ Ne JAMAIS traduire « aucun panneau » par « aucune agglomeration » :
       // 86 departements sur 101 sont couverts, et le releve peut etre muet.
-      z.innerHTML = '<b>Aucun panneau EB10 / EB20 releve dans cette commune.</b><br>' +
-        'Le jeu national ne couvre que 86 departements, et une commune couverte ' +
-        'peut n\'avoir aucun panneau saisi : cela ne dit RIEN sur son agglomeration.';
+      z.innerHTML = '<b>Aucun panneau EB10 / EB20 relevé dans cette commune.</b><br>' +
+        'Le jeu national ne couvre que 86 départements, et une commune couverte ' +
+        'peut n\'avoir aucun panneau saisi : cela ne dit RIEN sur son agglomération.';
       return;
     }
-    const lignes = ['<b>' + total + ' panneau(x) d\'agglomeration</b> dans la commune (' +
+    const lignes = ['<b>' + total + ' panneau(x) d\'agglomération</b> dans la commune (' +
       b.cellules + ' requete(s)).'];
     if (!b.zones) {
-      lignes.push('Aucun polygone trace : rien a confronter pour l\'instant.');
+      lignes.push('Aucun polygone tracé : rien à confronter pour l\'instant.');
     } else {
       // ⚠️ Le decompte « n dedans / n dehors » et les distances au bord ont ete
       // retires a la demande de l'auteur (23/07) : ils n'apprennent rien
@@ -2119,12 +2119,12 @@
       // PAR les panneaux — un point pile sur le bord bascule d'un cote ou de
       // l'autre selon l'arrondi, d'ou des « 0 m » absurdes. Ce qui compte,
       // c'est de regarder si le trace englobe le bati.
-      lignes.push('Verifie que le trace englobe bien les habitations de ' +
-        'l\'agglomeration, et ajuste-le aux poignees (✎) si besoin.');
+      lignes.push('Vérifie que le tracé englobe bien les habitations de ' +
+        'l\'agglomération, et ajuste-le aux poignees (✎) si besoin.');
     }
     if (b.tronque) {
-      lignes.push('⚠️ <b>Releve peut-etre incomplet</b> : une zone rendait le maximum ' +
-        'de resultats que l\'API accepte, meme decoupee au plus fin.');
+      lignes.push('⚠️ <b>Relevé peut-être incomplet</b> : une zone rendait le maximum ' +
+        'de résultats que l\'API accepte, même découpée au plus fin.');
     }
     z.innerHTML = lignes.join('<br>');
   }
@@ -2184,15 +2184,15 @@
           <div class="agn-modale-in">
             <div class="agn-modale-t">Polygone ${rang} / ${total} — quel nom ?</div>
             <div class="agn-modale-c">
-              Ce trace vient de <b>${prop.portes}</b> entree(s) d'agglomeration
+              Ce trace vient de <b>${prop.portes}</b> entrée(s) d'agglomération
               (${prop.panneaux} panneau(x)).
               <div class="agn-modale-geo">
                 <div class="agn-d">⚠️ <b>Trace grossier</b> : les panneaux ne sont
-                  poses que sur les routes. Entre deux entrees, la ligne est
-                  calculee, pas relevee — <b>a corriger aux poignees</b> ensuite.</div>
+                  poses que sur les routes. Entre deux entrées, la ligne est
+                  calculée, pas relevée — <b>à corriger aux poignées</b> ensuite.</div>
               </div>
-              L'etiquette sert de repere. Le format
-              <b>Village (Commune)</b> est le seul qui change la ville appliquee.
+              L'étiquette sert de repère. Le format
+              <b>Village (Commune)</b> est le seul qui change la ville appliquée.
             </div>
             <input type="text" class="agn-sel" id="agn-na-sel" list="agn-villes-wme"
                    value="${esc(commune)}" autocomplete="off"
@@ -2200,7 +2200,7 @@
             <div class="agn-note" id="agn-na-apercu"></div>
             <label class="agn-sb-c"><input type="checkbox" id="agn-na-rat">
               Village rattache (ville = « Village (Commune) »)</label>
-            <button class="agn-btn primary" id="agn-na-ok">Creer ce polygone</button>
+            <button class="agn-btn primary" id="agn-na-ok">Créer ce polygone</button>
             <button class="agn-btn" id="agn-na-skip">Passer celui-ci</button>
             <button class="agn-btn" id="agn-na-stop">Tout arreter</button>
           </div>
@@ -2227,8 +2227,8 @@
       };
       const maj = () => {
         apercu.textContent = rat.checked
-          ? 'Ville appliquee : ' + composer()
-          : 'Ville appliquee : ' + (sel.value.trim() || commune);
+          ? 'Ville appliquée : ' + composer()
+          : 'Ville appliquée : ' + (sel.value.trim() || commune);
       };
       // Un nom deja au format « X (Y) » coche la case tout seul.
       sel.oninput = () => { if (/\s\(.+\)\s*$/.test(sel.value)) rat.checked = true; maj(); };
@@ -2253,8 +2253,8 @@
     const cl = classerPanneaux();
     const fiches = cl ? [...cl.dedans, ...cl.dehors] : [];
     if (!fiches.length) {
-      ui.bilanPanneaux.innerHTML = 'Aucun panneau releve : rien a proposer. ' +
-        'Lance d\'abord « 🪧 Panneaux d\'agglomeration ».';
+      ui.bilanPanneaux.innerHTML = 'Aucun panneau relevé : rien à proposer. ' +
+        'Lance d\'abord « 🪧 Panneaux d\'agglomération ».';
       return;
     }
     const tous = proposerPolygones(fiches);
@@ -2265,18 +2265,18 @@
     const nonTracables = tous.filter(p => !p.ring);
     const nManuels = nonTracables.reduce((s, p) => s + p.portes, 0);
     const phraseManuels = nManuels
-      ? ' <b>' + nManuels + ' entree(s)</b> supplementaire(s) sont trop isolees ou ' +
-        'alignees pour deviner un contour : trace-les a la main, les panneaux ' +
-        '(carres) restent affiches en repere.'
+      ? ' <b>' + nManuels + ' entrée(s)</b> supplementaire(s) sont trop isolees ou ' +
+        'alignées pour deviner un contour : trace-les à la main, les panneaux ' +
+        '(carres) restent affiches en repère.'
       : '';
 
     if (!props.length) {
       // Rien a proposer : c'est le cas Narbonne. On le dit clairement plutot
       // que de sortir des ronds arbitraires.
-      ui.bilanPanneaux.innerHTML = 'Les <b>' + fiches.length + '</b> panneau(x) releve(s) ' +
-        'ne forment <b>aucune surface exploitable</b> : leurs entrees sont eparpillees ' +
-        'ou alignees le long des routes.<br>Aucun trace propose — <b>trace les ' +
-        'agglomerations a la main</b> en t\'appuyant sur les panneaux affiches (carres).';
+      ui.bilanPanneaux.innerHTML = 'Les <b>' + fiches.length + '</b> panneau(x) relevé(s) ' +
+        'ne forment <b>aucune surface exploitable</b> : leurs entrées sont eparpillees ' +
+        'ou alignées le long des routes.<br>Aucun tracé proposé — <b>trace les ' +
+        'agglomérations à la main</b> en t\'appuyant sur les panneaux affiches (carres).';
       return;
     }
 
@@ -2307,11 +2307,11 @@
       redrawAgglos(); renderAgglos();
       try { sdk.Map.setMapCenter({ lonLat: vueAvant.centre, zoomLevel: vueAvant.zoom }); } catch (e) { /* */ }
       ui.bilanPanneaux.innerHTML = crees
-        ? '<b>' + crees + ' polygone(s) cree(s)</b> a partir de ' + props.length +
-          ' groupe(s) d\'entrees.<br>⚠️ <b>Ces traces sont grossiers</b> : ouvre chaque ' +
+        ? '<b>' + crees + ' polygone(s) créé(s)</b> à partir de ' + props.length +
+          ' groupe(s) d\'entrées.<br>⚠️ <b>Ces tracés sont grossiers</b> : ouvre chaque ' +
           'polygone (✎) et tire les poignees pour les ajuster au terrain avant d\'analyser.' +
           phraseManuels
-        : 'Aucun polygone cree.' + phraseManuels;
+        : 'Aucun polygone créé.' + phraseManuels;
     }
   }
 
@@ -2345,21 +2345,21 @@
   async function tracerAgglo() {
     if (!communeActive) return;
     ui.btnTracer.disabled = true;
-    ui.btnTracer.textContent = 'Trace en cours… (double-clic pour fermer)';
+    ui.btnTracer.textContent = 'Tracé en cours… (double-clic pour fermer)';
     const etaitReplie = ui.overlay.classList.contains('agn-replie');
     const voletEtaitOuvert = ui.volet && ui.volet.classList.contains('agn-volet-ouvert');
     if (!etaitReplie) basculerRepli(true);   // ferme aussi le volet (voir basculerRepli)
     else basculerVolet(false);
     try {
       const ring = extractRing(await sdk.Map.drawPolygon());
-      if (!ring || ring.length < 4) throw new Error('trace inexploitable');
+      if (!ring || ring.length < 4) throw new Error('tracé inexploitable');
       const dedans = ring.filter(c => pointInGeom(c[0], c[1], communeActive.geom)).length;
-      if (dedans === 0 && !confirm('Le polygone trace est entierement HORS de ' +
-        communeActive.nom + '.\n\nL\'enregistrer quand meme ?')) return;
+      if (dedans === 0 && !confirm('Le polygone tracé est entièrement HORS de ' +
+        communeActive.nom + '.\n\nL\'enregistrer quand même ?')) return;
       if (!agglos[communeActive.code]) agglos[communeActive.code] = [];
       agglos[communeActive.code].push({ id: 'a' + Date.now(), label: communeActive.nom, rattache: false, ring });
       saveAgglos(); redrawAgglos(); renderAgglos();
-    } catch (e) { log('trace annule ou echoue', e); }
+    } catch (e) { log('tracé annulé ou échoué', e); }
     finally {
       if (!etaitReplie) basculerRepli(false);
       if (voletEtaitOuvert) basculerVolet(true);
@@ -2367,7 +2367,7 @@
       // vient de tracer : la deplier evite de la chercher.
       replierSection('agglo', true);
       ui.btnTracer.disabled = false;
-      ui.btnTracer.textContent = '＋ Tracer l\'agglomeration';
+      ui.btnTracer.textContent = '＋ Tracer l\'agglomération';
     }
   }
 
@@ -2420,7 +2420,7 @@
 
     pts.forEach((p, i) => {
       const q = px(p); if (!q) return;
-      const h = el('<div class="agn-poi agn-poi-s" title="Glisser pour deplacer, clic droit pour supprimer"></div>');
+      const h = el('<div class="agn-poi agn-poi-s" title="Glisser pour déplacer, clic droit pour supprimer"></div>');
       h.style.left = q.x + 'px'; h.style.top = q.y + 'px';
       h.onmousedown = e => { if (e.button === 0) demarrerDrag(e, i); };
       h.oncontextmenu = e => {
@@ -2506,7 +2506,7 @@
     const route = routes[0] || null, nomRue = noms[0] || null;
 
     let doute = null;
-    if (routes.length > 1) doute = 'plusieurs numeros de route sur le segment';
+    if (routes.length > 1) doute = 'plusieurs numéros de route sur le segment';
     else if (noms.length > 1) doute = 'plusieurs noms de rue — noms alternatifs reels ?';
 
     const P = (name, city) => ({ name: name || '', cityName: city || '' });
@@ -2660,7 +2660,7 @@
     // est admis — il sert la recherche dans l'application.
     if (nomPrincipalInterdit && nam.primary.name) {
       ecarts.push({ champ: 'nom principal interdit', avant: nam.primary.name,
-        apres: '‹sans nom› — a basculer en nom alternatif (utile a la recherche)' });
+        apres: '‹sans nom› — à basculer en nom alternatif (utile à la recherche)' });
     }
     return ecarts;
   }
@@ -2679,11 +2679,11 @@
       const ou = i === 0 ? '' : ' (alt)';
       if (c.abreviations && (RE_ABREV.test(nom) || RE_ABREV_SANS_POINT.test(nom))) {
         ecarts.push({ champ: 'abreviation' + ou, avant: nom,
-          apres: 'ecrire le type de voie en toutes lettres' });
+          apres: 'écrire le type de voie en toutes lettres' });
       }
       if (c.contractions && (RE_SAINT.test(nom) || initialeIsolee(nom))) {
         ecarts.push({ champ: 'contraction' + ou, avant: nom,
-          apres: 'ecrire le nom complet (contractions interdites)' });
+          apres: 'écrire le nom complet (contractions interdites)' });
       }
       if (c.majuscule && /^[a-zà-ÿ]/.test(nom)) {
         ecarts.push({ champ: 'majuscule' + ou, avant: nom,
@@ -2757,21 +2757,21 @@
       //   'type'    → propre a un type de voie, gere par le moteur
       //   'adresse' → porte sur les numeros et les POI, pas sur les segments
       controles: [
-        { cle: 'nommageZone', portee: 'zone', libelle: 'Nommage agglo / hors agglo (coeur)' },
+        { cle: 'nommageZone', portee: 'zone', libelle: 'Nommage agglo / hors agglo (cœur)' },
         { cle: 'cartouches', portee: 'segment', libelle: 'Cartouches des Dxxx / Nxxx / Cxxx',
           executer: verifierCartouches },
         { cle: 'bretelles', portee: 'type', libelle: 'Bretelles : jamais de ville' },
-        { cle: 'rails', portee: 'type', libelle: 'Voies ferrees, pistes, ferries : ni ville ni nom' },
-        { cle: 'rocades', portee: 'type', libelle: 'Rocades et peripheriques : jamais de ville' },
+        { cle: 'rails', portee: 'type', libelle: 'Voies ferrées, pistes, ferries : ni ville ni nom' },
+        { cle: 'rocades', portee: 'type', libelle: 'Rocades et périphériques : jamais de ville' },
         { cle: 'giratoires', portee: 'type', libelle: 'Giratoires : sans nom (ville selon la zone)' },
-        { cle: 'abreviations', portee: 'forme', libelle: 'Abreviations interdites (Av., Bd., Rte...)' },
+        { cle: 'abreviations', portee: 'forme', libelle: 'Abréviations interdites (Av., Bd., Rte...)' },
         { cle: 'contractions', portee: 'forme', libelle: 'Contractions interdites (St-, R. Poincare)' },
         { cle: 'majuscule', portee: 'forme', libelle: 'Nom commencant par une minuscule' },
         { cle: 'fonctionDirection', portee: 'forme', libelle: 'Fonction ou direction dans le nom' },
         { cle: 'hnHorsAgglo', portee: 'adresse',
-          libelle: 'Numeros de rue (HN) hors agglomeration' },
+          libelle: 'Numéros de rue (HN) hors agglomération' },
         { cle: 'poiAgglo', portee: 'adresse',
-          libelle: 'POI residentiels en agglomeration (a verifier)' }
+          libelle: 'POI résidentiels en agglomération (à vérifier)' }
       ],
       // Les controles de forme partagent une seule fonction, qui lit elle-meme
       // quelles cases sont cochees.
@@ -2813,16 +2813,16 @@
   const FR_CODES = new Set(['FR', 'GP', 'MQ', 'GF', 'RE', 'YT', 'MF', 'BL',
                             'PM', 'NC', 'PF', 'WF', 'TF']);
   const FR_NOMS = new Set([
-    'france', 'france metropolitaine', 'corse',
+    'france', 'france métropolitaine', 'corse',
     'guadeloupe', 'martinique',
-    'guyane', 'guyane francaise', 'french guiana',
+    'guyane', 'guyane française', 'french guiana',
     'la reunion', 'reunion', 'mayotte',
     'saint-martin', 'saint martin', 'saint-barthelemy', 'saint barthelemy',
     'saint-pierre-et-miquelon', 'saint pierre and miquelon',
     'nouvelle-caledonie', 'nouvelle caledonie', 'new caledonia',
-    'polynesie francaise', 'french polynesia',
+    'polynesie française', 'french polynesia',
     'wallis-et-futuna', 'wallis et futuna', 'wallis and futuna',
-    'terres australes et antarctiques francaises',
+    'terres australes et antarctiques françaises',
     'french southern and antarctic lands', 'french southern territories'
   ].map(n => normSansAccent(n)));
 
@@ -2921,18 +2921,18 @@
   /** Ce qu'on affiche a l'editeur quand l'outil se ferme. */
   function messagePays() {
     if (pays.etat === 'hors') {
-      return '<b>Hors de France : outil desactive.</b><br>' +
-        'Les regles de nommage de ce script sont francaises' +
+      return '<b>Hors de France : outil désactivé.</b><br>' +
+        'Les règles de nommage de ce script sont françaises' +
         (pays.nom ? ' et la carte est sur <b>' + esc(pays.nom) + '</b>' : '') +
-        '. Les appliquer ailleurs abimerait la carte.<br>' +
-        'La France metropolitaine, la Corse et l\'outre-mer sont acceptes.';
+        '. Les appliquer ailleurs abîmerait la carte.<br>' +
+        'La France métropolitaine, la Corse et l\'outre-mer sont acceptés.';
     }
     // ⚠️ Message ACTIONNABLE : la cause est presque toujours un zoom trop
     // faible (WME ne charge aucun segment avant le zoom 14, cf.
     // [[wme-sdk-pieges]]), pas un vrai probleme de territoire.
-    return '<b>Territoire indetermine : analyse en attente.</b><br>' +
-      'Zoome a 14 ou plus sur la commune : WME ne charge aucune donnee en dessous, ' +
-      'et le script a besoin de lire le pays avant d\'appliquer des regles francaises.';
+    return '<b>Territoire indéterminé : analyse en attente.</b><br>' +
+      'Zoome à 14 ou plus sur la commune : WME ne charge aucune donnée en dessous, ' +
+      'et le script a besoin de lire le pays avant d\'appliquer des règles françaises.';
   }
 
   // ---------------------------------------------------------------------------
@@ -3132,12 +3132,12 @@
     // Le cadrage est celui du clic sur la ligne — meme centre, meme zoom —
     // mais le zoom est IMPOSE ici : sous le 18, WME ne charge pas les numeros,
     // donc le reglage « zoomer au clic » ne peut pas s'y opposer.
-    if (p) p.sous('cadrage sur l\'ecart…');
+    if (p) p.sous('cadrage sur l\'écart…');
     cadrerSur(f, true);
     await new Promise(r => setTimeout(r, 700));      // la carte doit avoir bouge
     if (p) p.verifier();
     if (hnsManipulables(f).length === (f.hns || []).length) return f.hns.length;
-    if (p) p.sous('chargement des numeros de rue…');
+    if (p) p.sous('chargement des numéros de rue…');
     for (let essai = 0; essai < 8; essai++) {
       await new Promise(r => setTimeout(r, 500));
       if (p) p.verifier();          // 4 s d'attente : « Annuler » doit la rompre
@@ -3242,7 +3242,7 @@
       if (!e) continue;
       if (e.checked === false) { try { e.click(); actives.push(id); } catch (err) { /* */ } }
     }
-    if (actives.length) log('calques actives pour la numerotation : ' + actives.join(', '));
+    if (actives.length) log('calques activés pour la numérotation : ' + actives.join(', '));
     return actives;
   }
 
@@ -3254,7 +3254,7 @@
     // Avant toute chose : rendre visibles les objets qu'on va commenter.
     stats.calquesActives = activerCalquesNumerotation();
     if (stats.calquesActives.length) {
-      if (prog) prog.etape('Activation des calques de numerotation', 0);
+      if (prog) prog.etape('Activation des calques de numérotation', 0);
       await new Promise(r => setTimeout(r, 1200));
     }
     if (prog) prog.verifier();
@@ -3291,7 +3291,7 @@
         const tousIds = segs.map(s => s.id);
         const hns = [];
         const nbLots = Math.ceil(tousIds.length / TAILLE_LOT);
-        if (prog && nbLots > 1) prog.etape('Lecture des numeros de rue', nbLots);
+        if (prog && nbLots > 1) prog.etape('Lecture des numéros de rue', nbLots);
         for (let i = 0; i < tousIds.length; i += TAILLE_LOT) {
           if (prog) { prog.verifier(); if (nbLots > 1) prog.fixer(i / TAILLE_LOT + 1); }
           const lot = await sdk.DataModel.HouseNumbers.fetchHouseNumbers(
@@ -3313,7 +3313,7 @@
         }
       } catch (e) {
         if (e && e.annulation) throw e;      // une interruption n'est pas une panne
-        log('lecture des numeros de rue impossible', e);
+        log('lecture des numéros de rue impossible', e);
         stats.hnErreur = e.message || String(e);
       }
 
@@ -3346,25 +3346,25 @@
           geom: h.geometry,
           centre: (p => ({ lon: p[0], lat: p[1] }))(centreGeom(h.geometry)),
           rueCible: rue,
-          ecarts: [{ champ: 'numero hors agglo',
+          ecarts: [{ champ: 'numéro hors agglo',
                      avant: 'n° ' + h.number + ' porte par le segment',
-                     apres: !rue ? 'a passer en POI residentiel'
-                       : rue.saisieRequise ? 'a passer en POI residentiel — adresse a saisir a la conversion'
-                       : rue.ambigu ? 'a passer en POI residentiel — adresse a choisir a la conversion'
-                       : 'a passer en POI residentiel — ' + rue.nom + ' / ' + rue.ville }],
+                     apres: !rue ? 'à passer en POI résidentiel'
+                       : rue.saisieRequise ? 'à passer en POI résidentiel — adresse à saisir à la conversion'
+                       : rue.ambigu ? 'à passer en POI résidentiel — adresse à choisir à la conversion'
+                       : 'à passer en POI résidentiel — ' + rue.nom + ' / ' + rue.ville }],
           doute: !rue
-            ? 'aucune adresse exploitable sur ce segment : la rue du POI ne peut pas etre determinee'
+            ? 'aucune adresse exploitable sur ce segment : la rue du POI ne peut pas être determinee'
             : rue.saisieRequise
-              ? 'ce segment ne porte qu\'un numero de route : le nom du POI sera demande a la conversion'
+              ? 'ce segment ne porte qu\'un numéro de route : le nom du POI sera demandé à la conversion'
               : rue.plusieursNoms
               ? 'plusieurs noms de rue sur ce segment (' +
-                rue.candidats.map(c => c.nom).join(', ') + ') : le choix sera demande'
+                rue.candidats.map(c => c.nom).join(', ') + ') : le choix sera demandé'
               : rue.ambigu
                 ? 'voie en limite communale (' + rue.candidats[0].villes.join(', ') +
-                  ') : la commune de chaque numero sera demandee'
+                  ') : la commune de chaque numéro sera demandée'
                 : rue.villeSeg
                   ? 'le segment porte la ville « ' + rue.villeSeg + ' » alors que le contour donne « ' +
-                    communeActive.nom + ' » : c\'est la commune INSEE qui est appliquee au POI'
+                    communeActive.nom + ' » : c\'est la commune INSEE qui est appliquée au POI'
                   : null
         });
         }
@@ -3401,7 +3401,7 @@
         stats.poiAgglo++;
         findings.push({
           adresse: true, sousType: 'poi', cas: 'POI-C', segId: 'v' + v.id,
-          libelle: (v.name || 'POI residentiel') + (num ? ' — n° ' + num : ''),
+          libelle: (v.name || 'POI résidentiel') + (num ? ' — n° ' + num : ''),
           roadType: null, nbPoints: 1,
           geom: { type: 'Point', coordinates: p },
           centre: { lon: p[0], lat: p[1] }, venueId: String(v.id),
@@ -3409,9 +3409,9 @@
           // en agglomeration le numero va sur le segment, sauf si l'entree
           // donne sur une autre voie. Ecrire « a passer sur le segment »
           // ferait corriger a tort les cas ou le POI a justement raison.
-          ecarts: [{ champ: 'POI residentiel en agglo',
-                     avant: num ? 'n° ' + num + ' porte par un POI residentiel' : 'POI residentiel sans numero',
-                     apres: 'a trancher : numero sur le segment, ou entree sur une autre voie' }],
+          ecarts: [{ champ: 'POI résidentiel en agglo',
+                     avant: num ? 'n° ' + num + ' porte par un POI résidentiel' : 'POI résidentiel sans numéro',
+                     apres: 'à trancher : numéro sur le segment, ou entrée sur une autre voie' }],
           // ⚠️⚠️ CE REPORT N'EST PAS UN DEFAUT A CORRIGER : c'est une question a
           // trancher sur place, et les deux reponses sont bonnes.
           // ⚠️ LA raison qui justifie de garder le POI (precisee par l'auteur le
@@ -3426,14 +3426,14 @@
           // et ses photos. On guide donc l'editeur au lieu de decider pour lui.
           aideTitre: 'Deux issues possibles — c\'est le terrain qui tranche',
           aide: [
-            'Si l\'entree (la boite aux lettres) donne bien sur ' +
+            'Si l\'entrée (la boite aux lettres) donne bien sur ' +
               (rueNom ? '« ' + rueNom + ' »' : 'la rue de l\'adresse') +
-              ' : le numero doit passer sur le segment. Selectionne la voie, ouvre ' +
-              '« Ajouter des numeros de rue », pose' + (num ? ' le n° ' + num : ' le numero') +
-              ' du bon cote, verifie qu\'il tombe devant l\'entree, puis supprime ce POI.',
-            'Si l\'entree donne sur une AUTRE voie que l\'adresse postale : laisse le POI en place. ' +
-              'C\'est precisement ce qu\'il sert a dire, et un numero sur segment ne saurait pas ' +
-              'l\'exprimer. Marque la ligne comme traitee (✓) pour ne pas la revoir.'
+              ' : le numéro doit passer sur le segment. Sélectionné la voie, ouvre ' +
+              '« Ajouter des numéros de rue », pose' + (num ? ' le n° ' + num : ' le numéro') +
+              ' du bon côté, vérifie qu\'il tombe devant l\'entrée, puis supprime ce POI.',
+            'Si l\'entrée donne sur une AUTRE voie que l\'adresse postale : laisse le POI en place. ' +
+              'C\'est précisément ce qu\'il sert à dire, et un numéro sur segment ne saurait pas ' +
+              'l\'exprimer. Marque la ligne comme traitée (✓) pour ne pas la revoir.'
           ],
           doute: null
         });
@@ -3539,7 +3539,7 @@
   function cellulesPourAgglos(listeAgglos) {
     const v = sdk.Map.getMapExtent();
     // A zoom egal la vue depend de la fenetre : on deduit la taille d'une
-    // cellule de zoom 17 a partir de la vue courante, puis on l'ajuste.
+    // cellule de zoom 17 à partir de la vue courante, puis on l'ajuste.
     const facteur = Math.pow(2, sdk.Map.getZoomLevel() - ZOOM_POI);
     const largeur = (v[2] - v[0]) * facteur * RECOUVREMENT;
     const hauteur = (v[3] - v[1]) * facteur * RECOUVREMENT;
@@ -3655,11 +3655,11 @@
     // Il faut donc un choix EXPLICITE et memorise, commune par commune.
     if (!listeAgglos.length && !sansAgglo[communeActive.code]) {
       ui.stats.innerHTML = `<div class="agn-stat agn-alerte">
-        <b>Aucune agglomeration tracee pour ${esc(communeActive.nom)}.</b><br>
-        Sans polygone, toute la commune serait tenue pour hors agglomeration et
-        l'analyse remonterait des ecarts qui n'existent pas.<br>
-        Trace l'agglomeration (bouton ci-dessus), ou coche
-        <b>« commune sans agglomeration »</b> si elle n'en a reellement aucune.</div>`;
+        <b>Aucune agglomération tracée pour ${esc(communeActive.nom)}.</b><br>
+        Sans polygone, toute la commune serait tenue pour hors agglomération et
+        l'analyse remonterait des écarts qui n'existent pas.<br>
+        Trace l'agglomération (bouton ci-dessus), ou coche
+        <b>« commune sans agglomération »</b> si elle n'en a réellement aucune.</div>`;
       ui.results.innerHTML = '';
       replierSection('agglo', true);
       return;
@@ -3757,7 +3757,7 @@
           cas: estRail ? 'RAIL' : estBretelle ? 'BRET' : 'ROC', ecarts, special: true,
           cible: { primary: { name: estRail ? '' : nam.primary.name, cityName: '' },
                    alts: nam.alts.map(a => ({ name: a.name, cityName: '' })) },
-          doute: estRocade ? 'identifiee comme rocade d\'apres son nom' : null }));
+          doute: estRocade ? 'identifiée comme rocade d\'après son nom' : null }));
         continue;
       }
 
@@ -3773,7 +3773,7 @@
         findings.push(Object.assign({}, base, { cas: 'LIM', doute: null, ecarts: [{
           champ: 'limite communale',
           avant: pourcent(loc.partCommune) + ' dans ' + communeActive.nom,
-          apres: 'a couper sur la limite communale' }] }));
+          apres: 'à couper sur la limite communale' }] }));
         continue;
       }
 
@@ -3782,8 +3782,8 @@
         zones.cheval++;
         findings.push(Object.assign({}, base, { cas: 'EB10', doute: null, ecarts: [{
           champ: 'limite d\'agglo',
-          avant: pourcent(loc.partAgglo) + ' dans l\'agglomeration',
-          apres: 'a couper au panneau d\'entree d\'agglomeration (EB10)' }] }));
+          avant: pourcent(loc.partAgglo) + ' dans l\'agglomération',
+          apres: 'à couper au panneau d\'entrée d\'agglomération (EB10)' }] }));
         continue;
       }
 
@@ -3823,11 +3823,11 @@
       if (exp.candidatsPrincipal && exp.candidatsPrincipal.length > 1) {
         notes.push('plusieurs noms possibles en principal (' +
           exp.candidatsPrincipal.map(c => c.nom).join(', ') +
-          ') : le choix sera demande a la correction');
+          ') : le choix sera demandé à la correction');
       }
       if (loc.partCommune < 1) notes.push('deborde de ' + pourcent(1 - loc.partCommune) + ' sur la commune voisine');
-      if (enAgglo && loc.partAgglo < 1) notes.push('deborde de ' + pourcent(1 - loc.partAgglo) + ' hors de l\'agglomeration');
-      if (!enAgglo && loc.partAgglo > 0) notes.push('mord de ' + pourcent(loc.partAgglo) + ' sur l\'agglomeration');
+      if (enAgglo && loc.partAgglo < 1) notes.push('deborde de ' + pourcent(1 - loc.partAgglo) + ' hors de l\'agglomération');
+      if (!enAgglo && loc.partAgglo > 0) notes.push('mord de ' + pourcent(loc.partAgglo) + ' sur l\'agglomération');
       if (loc.partCommune < 1 || (enAgglo ? loc.partAgglo < 1 : loc.partAgglo > 0)) zones.limitrophe++;
 
       findings.push(Object.assign({}, base, { cas: exp.cas, ecarts, cible: exp,
@@ -3894,7 +3894,7 @@
           ecarts: [{ champ: 'cartouche (principal)',
                      avant: g.name + ' sans cartouche',
                      apres: 'poser le cartouche ' + sh.signText + ' sur le nom principal' }],
-          doute: 's\'applique a toute la voie « ' + g.name + ' » (' + g.segs.length +
+          doute: 's\'applique à toute la voie « ' + g.name + ' » (' + g.segs.length +
                  ' segment' + (g.segs.length > 1 ? 's' : '') + ') : le cartouche est porte par la rue, pas par un segment'
         });
       }
@@ -3946,7 +3946,7 @@
                                listeAgglos, statsAdr, { hn: true, poi: false }, null, prog);
       } catch (e) {
         if (e && e.annulation) throw e;
-        log('analyse des numeros impossible', e); statsAdr.hnErreur = e.message || String(e);
+        log('analyse des numéros impossible', e); statsAdr.hnErreur = e.message || String(e);
       }
       try {
         await analyserAdresses([], listeAgglos, statsAdr, { hn: false, poi: true }, donneesApi.venues, prog);
@@ -3961,7 +3961,7 @@
     prog.etape('Preparation du balayage', 0);
     const cellules = await preparerBalayage();
     prog.etape('Balayage de ' + communeActive.nom, cellules.length);
-    prog.info('La carte se deplace le temps du balayage, puis revient a sa vue.');
+    prog.info('La carte se déplace le temps du balayage, puis revient à sa vue.');
     let n = 0;
     for (const cel of cellules) {
       n++;
@@ -3992,7 +3992,7 @@
     // ------------------------------------------------------------------
     if (options.controles.poiAgglo && listeAgglos.length) {
       const cellulesPoi = cellulesPourAgglos(listeAgglos);
-      prog.etape('POI residentiels', cellulesPoi.length);
+      prog.etape('POI résidentiels', cellulesPoi.length);
       let m = 0;
       for (const cel of cellulesPoi) {
         m++;
@@ -4009,7 +4009,7 @@
     statsAdr.cellules = cellules.length;
     }   // fin du repli par balayage
 
-    prog.etape('Mise en forme des resultats', 0);
+    prog.etape('Mise en forme des résultats', 0);
     await prog.respirer(true);
     const nbSegmentsEnEcart = findings.length;
     findings = regrouperFindings(findings);
@@ -4164,7 +4164,7 @@
       // refuse donc la correction — le message remonte a l'editeur via le
       // try/catch de `appliquerCorrection`. (Auparavant : `addCity` de repli.)
       if (!city) throw new Error('commune « ' + nomVille + ' » absente de Waze : ' +
-        'le script ne cree pas de commune. Verifie ou cree-la a la main, puis relance.');
+        'le script ne crée pas de commune. Vérifie ou crée-la à la main, puis relance.');
     } else {
       city = villeVide();
     }
@@ -4314,7 +4314,7 @@
     // Le NOM vient du choix de l'editeur quand il y avait ambiguite, sinon de
     // l'unique adresse portee par le segment.
     const nomRue = (choix && choix.nom) || f.rueCible.nom;
-    if (!nomRue) throw new Error('nom de rue indetermine');
+    if (!nomRue) throw new Error('nom de rue indéterminé');
     // Contexte administratif du segment porteur : le POI est cree a cote, donc
     // il partage son Etat et son pays.
     const ctx = contexteAdresse(f.segId);
@@ -4351,7 +4351,7 @@
         // ⚠️ Le POI existe mais le numero resiste : on RETIRE le POI, sinon
         // l'adresse serait en double — pire que l'ecart de depart.
         try { DM.Venues.deleteVenue({ venueId }); } catch (e2) { /* */ }
-        echecs.push(hn.number + ' : numero non retirable, POI annule (' + (e.message || e) + ')');
+        echecs.push(hn.number + ' : numéro non retirable, POI annule (' + (e.message || e) + ')');
       }
     }
     return { faits, echecs, laisses, villes: [...villesUtilisees] };
@@ -4392,7 +4392,7 @@
         const villes = c.villes.length ? c.villes : [communeActive.nom];
         if (c.villes.length > 1) {
           options.push({ mode: 'geo', nom: c.nom,
-            libelle: esc(c.nom) + ' — <b>selon la position</b> de chaque numero', fort: true });
+            libelle: esc(c.nom) + ' — <b>selon la position</b> de chaque numéro', fort: true });
         }
         villes.forEach(v => options.push({ mode: 'fixe', nom: c.nom, ville: v,
           libelle: esc(c.nom) + ' / ' + esc(v) }));
@@ -4410,20 +4410,20 @@
               : r.plusieursNoms ? 'Plusieurs adresses sur ce segment' : 'Voie en limite communale'}</div>
             <div class="agn-modale-c">
               ${r.saisieRequise
-                ? 'Ce segment ne porte qu\'un numero de route, qui ne fait pas une adresse. ' +
-                  'Saisis le nom a donner ' + (f.hns.length > 1
-                    ? 'aux <b>' + f.hns.length + '</b> numeros' : 'au numero <b>' + esc(f.hns[0].number) + '</b>') + '.'
+                ? 'Ce segment ne porte qu\'un numéro de route, qui ne fait pas une adresse. ' +
+                  'Saisis le nom à donner ' + (f.hns.length > 1
+                    ? 'aux <b>' + f.hns.length + '</b> numéros' : 'au numéro <b>' + esc(f.hns[0].number) + '</b>') + '.'
                 : 'Quelle adresse donner ' + (f.hns.length > 1
-                    ? 'aux <b>' + f.hns.length + '</b> numeros' : 'au numero <b>' + esc(f.hns[0].number) + '</b>') + ' ?'}
-              <div class="agn-modale-geo">D'apres les contours INSEE :${
-                detail || '<div class="agn-d">indeterminable</div>'}</div>
+                    ? 'aux <b>' + f.hns.length + '</b> numéros' : 'au numéro <b>' + esc(f.hns[0].number) + '</b>') + ' ?'}
+              <div class="agn-modale-geo">D'après les contours INSEE :${
+                detail || '<div class="agn-d">indéterminable</div>'}</div>
             </div>
             ${options.map((o, i) => `<button class="agn-btn ${o.fort ? 'primary' : ''}" data-i="${i}">${o.libelle}</button>`).join('')}
             <div class="agn-modale-saisie">
               <div class="agn-note">${r.saisieRequise ? 'Nom de la rue' : 'Ou saisir une autre adresse'}</div>
               <input type="text" id="agn-saisie-nom" placeholder="Nom de la rue…" autocomplete="off">
               <select class="agn-sel" id="agn-saisie-ville">
-                <option value="">Commune selon la position de chaque numero</option>
+                <option value="">Commune selon la position de chaque numéro</option>
                 ${villesSaisie.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('')}
               </select>
               <button class="agn-btn ${r.saisieRequise ? 'primary' : ''}" id="agn-saisie-ok" disabled>Utiliser cette adresse</button>
@@ -4529,8 +4529,8 @@
     if (evaluerPays().etat !== 'fr') {
       return { ok: false, motif: pays.etat === 'hors'
         ? 'hors de France (' + (pays.nom || pays.code || 'territoire inconnu') +
-          ') : ce script n\'applique que les regles francaises'
-        : 'territoire indetermine : impossible de garantir que la carte est en France' };
+          ') : ce script n\'applique que les règles françaises'
+        : 'territoire indéterminé : impossible de garantir que la carte est en France' };
     }
     const plan = planDeCorrection(f);
     if (!plan) return { ok: false, motif: 'rien d\'automatisable' };
@@ -4548,24 +4548,24 @@
       // fait charger plutot que de renvoyer l'editeur a un reglage de carte.
       const dispo = await chargerNumeros(f);
       if (!dispo) {
-        return { ok: false, motif: 'numeros non charges par WME malgre le cadrage — ' +
-          'reessaie apres avoir zoome sur la zone' };
+        return { ok: false, motif: 'numéros non chargés par WME malgré le cadrage — ' +
+          'réessaie après avoir zoome sur la zone' };
       }
       // Adresse ambigue (limite communale, ou plusieurs noms de rue) : on
       // demande, on ne choisit pas a la place de l'editeur.
       let choix = null;
       if (f.rueCible.ambigu) {
         choix = await demanderAdresse(f);
-        if (!choix) return { ok: false, motif: 'conversion annulee' };
+        if (!choix) return { ok: false, motif: 'conversion annulée' };
       }
       try {
         const r = convertirHnEnPoi(f, choix);
-        if (!r.faits) return { ok: false, motif: r.echecs[0] || 'aucun numero converti' };
+        if (!r.faits) return { ok: false, motif: r.echecs[0] || 'aucun numéro converti' };
         // Converti partiellement : la ligne reste a traiter, on ne la barre pas.
         return { ok: true, nb: r.faits, ops: r.faits, bloques: 0,
                  partiel: (r.echecs.length + (r.laisses || 0)) > 0,
                  avertissement: (r.echecs.length + (r.laisses || 0)) +
-                   ' numero(s) laisses de cote' };
+                   ' numéro(s) laisses de cote' };
       } catch (e) {
         log('conversion impossible', e);
         return { ok: false, motif: e.message || String(e) };
@@ -4592,7 +4592,7 @@
     }
     if (!ids.length) {
       return { ok: false, motif: absents.length
-        ? 'segment(s) non charge(s) par WME malgre le cadrage — reessaie'
+        ? 'segment(s) non chargé(s) par WME malgré le cadrage — réessaie'
         : 'segment(s) verrouille(s) au-dessus de ton niveau' };
     }
     const bloques = tous.length - ids.length;
@@ -4602,7 +4602,7 @@
           // Cartouche pose sur la Street principale (voie entiere). Ecriture par
           // l'action interne : le SDK ne sait pas le faire.
           if (!ecrireCartouche(op.streetId, op.signText, op.signType)) {
-            throw new Error('cartouche : la rue n\'est pas encore chargee — reessaie');
+            throw new Error('cartouche : la rue n\'est pas encore chargée — réessaie');
           }
         } else if (op.type === 'principal') {
           // Nom principal : ecriture BRUTE (SDK v2.359). Plus besoin de resoudre
@@ -4639,23 +4639,23 @@
   // ---------------------------------------------------------------------------
 
   const CSS = `
-  /* Une hauteur par defaut est necessaire : sans elle la fenetre grandit avec
+  /* Une hauteur par defaut est nécessaire : sans elle la fenêtre grandit avec
      la liste et deborde par le bas de l'ecran au lieu de faire defiler. */
-  /* La fenetre descend desormais bas dans l'ecran : la liste des ecarts est
+  /* La fenêtre descend desormais bas dans l'ecran : la liste des écarts est
      longue, et chaque pixel gagne en hauteur est un coup d'ascenseur en moins. */
-  /* ⚠️ Hauteur fixee en JS d'apres les bornes MESUREES de la carte : un
+  /* ⚠️ Hauteur fixee en JS d'après les bornes MESUREES de la carte : un
      calc(100vh - …) ignore le pied de page de WME (« Conditions | Mentions
-     legales | … », 20 px) et la fenetre passait dessus. */
+     legales | … », 20 px) et la fenêtre passait dessus. */
   #agn-overlay{position:fixed;z-index:9000;width:400px;min-width:300px;min-height:200px;
     background:#fff;border:1px solid #b0bec5;border-radius:8px;
     box-shadow:0 6px 26px rgba(0,0,0,.28);display:flex;flex-direction:column;
     font:12px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1f2933;
     resize:both;overflow:hidden}
   #agn-main{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;overflow:hidden;border-radius:7px}
-  /* Repliee, la fenetre se limite a son en-tete : le min-height de travail
-     n'a plus lieu d'etre. */
+  /* Repliee, la fenêtre se limite a son en-tete : le min-height de travail
+     n'a plus lieu d'être. */
   #agn-overlay.agn-replie{min-height:0;height:auto}
-  /* Volet des donnees de reference : il se DEPLOIE VERS LA GAUCHE de la fenetre,
+  /* Volet des données de référence : il se DEPLOIE VERS LA GAUCHE de la fenêtre,
      pour ne pas lui voler de largeur. Il vit HORS de #agn-overlay, dans le
      body : un enfant debordant obligerait a mettre overflow:visible, et la
      poignee de redimensionnement cesse alors de fonctionner. Sa position est
@@ -4670,12 +4670,12 @@
     color:#546e7a;margin-bottom:8px;border-bottom:1px solid #eceff1;padding-bottom:5px}
   /* Le bouton du volet vit dans la barre d'onglets, PAS dans l'en-tete : la
      ligne de titre n'a pas la place et il la rendait illisible des que la
-     fenetre retrecissait (signale par l'auteur). */
-  #agn-donnees{flex:0 0 auto;width:30px;padding:7px 0;border:none;background:none;cursor:pointer;
+     fenêtre retrecissait (signale par l'auteur). */
+  #agn-données{flex:0 0 auto;width:30px;padding:7px 0;border:none;background:none;cursor:pointer;
     font-size:13px;color:#546e7a;border-right:1px solid #cfd8dc;border-bottom:2px solid transparent}
-  #agn-donnees:hover{background:#e3eaf0}
-  #agn-donnees.agn-on{background:#fff;color:#1565c0;border-bottom-color:#1e88e5}
-  /* Onglets : on ne montre JAMAIS les deux familles d'ecarts en meme temps —
+  #agn-données:hover{background:#e3eaf0}
+  #agn-données.agn-on{background:#fff;color:#1565c0;border-bottom-color:#1e88e5}
+  /* Onglets : on ne montre JAMAIS les deux familles d'écarts en même temps —
      melangees, la liste devient illisible (demande de l'auteur). */
   #agn-onglets{display:flex;gap:0;flex:0 0 auto;border-bottom:1px solid #cfd8dc;background:#eceff1}
   .agn-tab{flex:1;padding:7px 6px;border:none;border-bottom:2px solid transparent;background:none;
@@ -4696,8 +4696,8 @@
   #agn-tete button{background:rgba(255,255,255,.18);border:none;color:#fff;cursor:pointer;
     width:22px;height:22px;border-radius:4px;font-size:13px;line-height:1}
   #agn-tete button:hover{background:rgba(255,255,255,.34)}
-  /* min-height:0 est INDISPENSABLE : sans lui un element flex refuse de
-     descendre sous la hauteur de son contenu, donc il pousse la fenetre au
+  /* min-height:0 est INDISPENSABLE : sans lui un élément flex refuse de
+     descendre sous la hauteur de son contenu, donc il pousse la fenêtre au
      lieu de faire defiler la liste. */
   #agn-corps{padding:10px 12px 14px;overflow-y:auto;flex:1 1 auto;min-height:0}
   #agn-corps h3{font-size:11px;margin:13px 0 5px;text-transform:uppercase;letter-spacing:.05em;color:#607d8b}
@@ -4742,7 +4742,7 @@
   .agn-mini:hover{opacity:1}
   .agn-stat{background:#eceff1;border-radius:4px;padding:6px 8px;margin:6px 0;font-size:11px}
   /* Progression. Bleu franc : c'est du travail en cours, ni une alerte (orange)
-     ni un resultat (vert). Les chiffres en chasse fixe pour qu'ils ne dansent
+     ni un résultat (vert). Les chiffres en chasse fixe pour qu'ils ne dansent
      pas d'un rafraichissement a l'autre. */
   .agn-prog{background:#e3f2fd;border:1px solid #90caf9;border-radius:4px;padding:6px 8px;
     margin:6px 0;font-size:11px;color:#0d47a1}
@@ -4753,7 +4753,7 @@
   .agn-prog-bar{height:6px;background:#bbdefb;border-radius:3px;overflow:hidden;margin:4px 0 3px}
   .agn-prog-bar > i{display:block;height:100%;width:0;background:#1e88e5;border-radius:3px;
     transition:width .15s linear}
-  /* Attente de duree inconnue (appel reseau, lecture de fichier) : la barre
+  /* Attente de duree inconnue (appel réseau, lecture de fichier) : la barre
      glisse au lieu d'afficher un pourcentage invente. */
   .agn-prog-bar.agn-indet > i{width:35%;animation:agn-glisse 1.1s ease-in-out infinite}
   @keyframes agn-glisse{0%{margin-left:-35%}100%{margin-left:100%}}
@@ -4786,7 +4786,7 @@
     font-size:11px;padding:0;line-height:15px;flex:0 0 auto;width:20px;text-align:center}
   .agn-ok-btn:hover{background:#e8f5e9}
   .agn-item.agn-traite .agn-ok-btn{background:#2e7d32;color:#fff;border-color:#2e7d32}
-  /* Ligne traitee : plus d'eclair non plus — il ne ferait rien. */
+  /* Ligne traitée : plus d'eclair non plus — il ne ferait rien. */
   .agn-item.agn-traite .agn-fix-btn{display:none}
   .agn-traites{color:#2e7d32;font-weight:600}
   .agn-nb{color:#1565c0;font-weight:700}
@@ -4799,7 +4799,7 @@
   .agn-poi-s:hover{background:#ad1457;transform:translate(-50%,-50%) scale(1.25)}
   .agn-poi-m{width:9px;height:9px;background:rgba(255,255,255,.85);border:2px dashed #e91e63;cursor:copy}
   .agn-poi-m:hover{background:#fff;transform:translate(-50%,-50%) scale(1.3)}
-  .agn-poly.agn-en-edition{border-color:#e91e63;box-shadow:0 0 0 1px #e91e63}
+  .agn-poly.agn-en-édition{border-color:#e91e63;box-shadow:0 0 0 1px #e91e63}
   .agn-edit-barre{margin-top:6px;padding-top:6px;border-top:1px dashed #e0e0e0}
   .agn-edit-barre span{display:block;font-size:10px;color:#78909c;margin-bottom:4px}
   .agn-edit-barre button{display:inline-block;width:auto;margin-right:5px}
@@ -4815,12 +4815,12 @@
     white-space:nowrap;flex:0 0 auto;min-width:38px;text-align:center}
   .agn-item .agn-d{font-size:11px;margin-top:3px;opacity:.85}
   .agn-item .agn-warn{color:#c62828;font-size:11px;margin-top:3px}
-  /* Marche a suivre manuelle : ce n'est ni une alerte (rouge) ni un ecart —
+  /* Marche a suivre manuelle : ce n'est ni une alerte (rouge) ni un écart —
      c'est une consigne. Bleu discret, pour qu'elle se lise sans crier. */
   .agn-item .agn-aide{color:#0d47a1;background:#e8f2fd;border-left:3px solid #90caf9;
     border-radius:0 3px 3px 0;font-size:11px;margin-top:4px;padding:4px 6px;line-height:1.45}
-  /* Une issue par ligne, entree par une puce : les deux options doivent se
-     distinguer d'un coup d'oeil, l'editeur choisit, il ne lit pas un pave. */
+  /* Une issue par ligne, entrée par une puce : les deux options doivent se
+     distinguer d'un coup d'oeil, l'éditeur choisit, il ne lit pas un pave. */
   .agn-item .agn-aide-l{position:relative;padding-left:11px;margin-top:3px}
   .agn-item .agn-aide-l::before{content:'▸';position:absolute;left:0;opacity:.65}
   .agn-c1,.agn-c2,.agn-c3,.agn-c4,.agn-r1,.agn-r2,.agn-r3,.agn-r4{border-left-color:#1e88e5}
@@ -4868,7 +4868,7 @@
     border:1px solid #bbb;border-radius:4px;margin:3px 0}
   /* WCT reinsere son bouton en dernier dans le conteneur (il le surveille) :
      inutile de se battre dans le DOM, le conteneur est une grille, donc on se
-     place apres lui par l'ordre CSS. */
+     place après lui par l'ordre CSS. */
   #agn-fab-wrap{width:40px;height:40px;order:99}
   #agn-fab-btn{width:40px;height:40px;padding:0;border:none;border-radius:50%;cursor:pointer;
     background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.3);font-size:19px;line-height:1;
@@ -4878,7 +4878,7 @@
   /* ⚠️⚠️ Le panneau lateral de WME est ETROIT (~300 px) et sa largeur varie.
      Sans box-sizing:border-box, un bouton en width:100% mesure 100 % PLUS ses
      12 px de marge interne et ses 2 px de bordure : il sortait du panneau,
-     coupe a droite (signale par l'auteur le 26/07). La regle vaut pour TOUT ce
+     coupe a droite (signale par l'auteur le 26/07). La règle vaut pour TOUT ce
      qu'on met la-dedans, pas seulement les boutons — et min-width:0 autorise
      les libelles flex a retrecir au lieu de pousser la ligne dehors.
      ⚠️ Ce bloc CSS vit dans un template literal : PAS de backtick ici. */
@@ -4914,8 +4914,8 @@
   .agn-sb-onglets button.agn-sb-on{color:#1565c0;font-weight:700;border-bottom-color:#1e88e5}
   .agn-sb-vue{display:none}
   .agn-sb-vue.agn-sb-vue-on{display:block}
-  /* La premiere section d'un onglet n'a pas besoin de reprendre du champ : la
-     barre d'onglets fait deja la separation. */
+  /* La première section d'un onglet n'a pas besoin de reprendre du champ : la
+     barre d'onglets fait déjà la separation. */
   .agn-sb-vue > .agn-sb-sect:first-child > h4{margin-top:10px}
   .agn-sb-l{display:flex;align-items:center;gap:6px;margin:5px 0}
   .agn-sb-l span{flex:1;min-width:0}
@@ -4927,7 +4927,7 @@
   .agn-sb-n{font-size:11px;color:#e65100;min-height:14px;margin-top:4px;
     overflow-wrap:break-word;word-break:break-word}
   /* Alerte de zonage : elle doit se voir AVANT qu'on lise les reports, sinon
-     l'editeur corrige de travers sans savoir que le zonage est incomplet. */
+     l'éditeur corrige de travers sans savoir que le zonage est incomplet. */
   .agn-alerte-bloc{margin:6px 0;padding:8px 10px;border-radius:6px;font-size:12px;
     background:#fff3e0;border:1px solid #ffb74d;color:#5d4037;line-height:1.45}
   /* « Segments : ☑ tableau ☑ carte » sur une seule ligne : deux cases par
@@ -5051,13 +5051,13 @@
         <div id="agn-main">
         <div id="agn-tete">
           <b>🏙️ Naming Auditor</b><span class="agn-v">v${VERSION}</span><span class="agn-sp"></span>
-          <button id="agn-reduire" title="Reduire">–</button>
+          <button id="agn-reduire" title="Réduire">–</button>
           <button id="agn-fermer" title="Fermer">✕</button>
         </div>
         <div id="agn-onglets">
-          <button id="agn-donnees" title="Contours, commune, agglomeration">☰</button>
+          <button id="agn-donnees" title="Contours, commune, agglomération">☰</button>
           <button class="agn-tab" data-vue="segments">Segments <span class="agn-tab-n"></span></button>
-          <button class="agn-tab" data-vue="adresses">Numerotation <span class="agn-tab-n"></span></button>
+          <button class="agn-tab" data-vue="adresses">Numérotation <span class="agn-tab-n"></span></button>
         </div>
         <div id="agn-corps">
           <!-- Garde-fou territorial (v2.03) : en tete du corps, AVANT le bouton
@@ -5073,23 +5073,23 @@
         </div>
       </div>
       <div id="agn-volet"><div id="agn-volet-in">
-          <div class="agn-volet-t">Donnees de reference</div>
+          <div class="agn-volet-t">Données de référence</div>
           <div class="agn-sect" data-s="contours">
             <div class="agn-sect-t"><span class="agn-chev">▾</span><b>1. Contours communaux</b>
               <span class="agn-sect-r"></span></div>
             <div class="agn-sect-c">
               <select class="agn-sel" id="agn-source">
-                <option value="gouv">Telecharger (geo.api.gouv.fr)</option>
+                <option value="gouv">Télécharger (geo.api.gouv.fr)</option>
                 <option value="fichier">Charger un fichier GeoJSON</option>
                 <option value="wazefrance">api.wazefrance.com</option>
               </select>
               <div id="agn-src-gouv">
                 <div class="agn-row">
-                  <input type="search" id="agn-dep-filtre" placeholder="Filtrer un departement…" style="flex:1">
+                  <input type="search" id="agn-dep-filtre" placeholder="Filtrer un département…" style="flex:1">
                   <span class="agn-note" id="agn-dep-n">0</span>
                 </div>
                 <div class="agn-deps" id="agn-deps"></div>
-                <button class="agn-btn" id="agn-dep-go" disabled>Telecharger et charger</button>
+                <button class="agn-btn" id="agn-dep-go" disabled>Télécharger et charger</button>
               </div>
               <div id="agn-src-fichier" style="display:none">
                 <button class="agn-btn" id="agn-contours">Choisir un fichier GeoJSON</button>
@@ -5102,7 +5102,7 @@
           </div>
 
           <div class="agn-sect" data-s="commune">
-            <div class="agn-sect-t"><span class="agn-chev">▾</span><b>2. Commune a traiter</b>
+            <div class="agn-sect-t"><span class="agn-chev">▾</span><b>2. Commune à traiter</b>
               <span class="agn-sect-r"></span></div>
             <div class="agn-sect-c">
               <!-- Filtre (v2.03) : au zoom 12 la vue peut contenir 80 communes,
@@ -5115,14 +5115,14 @@
           </div>
 
           <div class="agn-sect" data-s="agglo">
-            <div class="agn-sect-t"><span class="agn-chev">▾</span><b>3. Agglomeration</b>
+            <div class="agn-sect-t"><span class="agn-chev">▾</span><b>3. Agglomération</b>
               <span class="agn-sect-r"></span></div>
             <div class="agn-sect-c">
-              <div class="agn-sb-n" id="agn-voies">Trois facons d'obtenir le zonage :
-                tracer a la main, regarder les panneaux, ou partir d'un trace propose.</div>
-              <button class="agn-btn" id="agn-tracer" disabled>＋ Tracer l'agglomeration</button>
-              <button class="agn-btn" id="agn-panneaux" disabled title="Recupere les panneaux EB10 / EB20 (entree et sortie d'agglomeration) et les confronte aux polygones traces.">🪧 Panneaux d'agglomeration</button>
-              <button class="agn-btn" id="agn-pretrace" disabled title="Fabrique un polygone par groupe d'entrees d'agglomeration. Trace grossier, a ajuster aux poignees.">✏️ Proposer un trace</button>
+              <div class="agn-sb-n" id="agn-voies">Trois façons d'obtenir le zonage :
+                tracer à la main, regarder les panneaux, ou partir d'un tracé proposé.</div>
+              <button class="agn-btn" id="agn-tracer" disabled>＋ Tracer l'agglomération</button>
+              <button class="agn-btn" id="agn-panneaux" disabled title="Récupère les panneaux EB10 / EB20 (entrée et sortie d'agglomération) et les confronte aux polygones traces.">🪧 Panneaux d'agglomération</button>
+              <button class="agn-btn" id="agn-pretrace" disabled title="Fabrique un polygone par groupe d'entrées d'agglomération. Tracé grossier, à ajuster aux poignées.">✏️ Proposer un tracé</button>
               <div id="agn-prog-panneaux"></div>
               <div id="agn-bilan-panneaux" class="agn-sb-n"></div>
               <div id="agn-agglos"></div>
@@ -5413,8 +5413,8 @@
     const n = communeActive ? (agglos[communeActive.code] || []).length : 0;
     mettre('agglo', !communeActive ? '—'
       : n ? n + ' polygone' + (n > 1 ? 's' : '')
-      : sansAgglo[communeActive.code] ? 'sans agglomeration (declare)'
-      : '⚠ a tracer');
+      : sansAgglo[communeActive.code] ? 'sans agglomération (déclarée)'
+      : '⚠ à tracer');
   }
 
   /**
@@ -5458,34 +5458,34 @@
      */
     const sect = (cle, titre, corps) => `
         <div class="agn-sb-sect" data-sect="${cle}">
-          <h4 class="agn-sb-h" title="Replier ou deplier cette section"><b>${titre}</b><span class="agn-sb-chev">▾</span></h4>
+          <h4 class="agn-sb-h" title="Replier ou déplier cette section"><b>${titre}</b><span class="agn-sb-chev">▾</span></h4>
           <div class="agn-sb-corps">${corps}</div>
         </div>`;
 
     pane.innerHTML = `
       <div class="agn-sb">
         <div class="agn-sb-t">${SCRIPT_NAME} <span>v${VERSION}</span></div>
-        <!-- ⚠️ Le bouton de la fenetre de travail reste HORS des onglets : c'est
+        <!-- ⚠️ Le bouton de la fenêtre de travail reste HORS des onglets : c'est
              le seul geste qu'on refait tout le temps, il n'a rien a faire cache
-             au fond d'un onglet de reglages (arbitrage auteur, 26/07). -->
-        <button class="agn-sb-b agn-sb-p" id="agn-rouvrir">Afficher la fenetre</button>
+             au fond d'un onglet de réglages (arbitrage auteur, 26/07). -->
+        <button class="agn-sb-b agn-sb-p" id="agn-rouvrir">Afficher la fenêtre</button>
 
         <div class="agn-sb-onglets">
           <button data-vue="analyse" title="Ce que l'analyse regarde">Analyse</button>
-          <button data-vue="affichage" title="Ou et comment les ecarts se voient">Affichage</button>
-          <button data-vue="donnees" title="Contours, sauvegarde et partage">Donnees</button>
+          <button data-vue="affichage" title="Où et comment les écarts se voient">Affichage</button>
+          <button data-vue="donnees" title="Contours, sauvegarde et partage">Données</button>
         </div>
 
         <div class="agn-sb-vue" data-vue="analyse">
           ${sect('analyse', 'Analyse', `
-            <label class="agn-sb-l" title="Part de longueur au-dela de laquelle un segment a cheval est rattache d'office a un cote. En dessous, il est signale comme a couper.">
+            <label class="agn-sb-l" title="Part de longueur au-delà de laquelle un segment à cheval est rattaché d'office à un côté. En dessous, il est signalé comme à couper.">
               <span>Seuil de rattachement</span>
               <input type="number" id="agn-r-seuil" min="50" max="100" step="5"> %</label>
             <label class="agn-sb-c"><input type="checkbox" id="agn-r-sansadresse">
-              Inclure parkings et voies privees</label>
+              Inclure parkings et voies privées</label>
             <label class="agn-sb-c"><input type="checkbox" id="agn-r-alt">
-              Signaler les noms alternatifs surnumeraires</label>`)}
-          ${sect('controles', 'Controles', `
+              Signaler les noms alternatifs surnuméraires</label>`)}
+          ${sect('controles', 'Contrôles', `
             <div id="agn-r-controles"></div>
             <div class="agn-sb-n" id="agn-r-relance"></div>`)}
           ${sect('correction', 'Correction', `
@@ -5493,9 +5493,9 @@
         </div>
 
         <div class="agn-sb-vue" data-vue="affichage">
-          ${sect('resultats', 'Ou voir les resultats', `
-            <div class="agn-sb-n">Tableau et carte se choisissent separement. La carte
-              ne suit plus l'onglet ouvert : on peut lister les numeros en gardant
+          ${sect('resultats', 'Où voir les résultats', `
+            <div class="agn-sb-n">Tableau et carte se choisissent séparément. La carte
+              ne suit plus l'onglet ouvert : on peut lister les numéros en gardant
               les segments surlignes.</div>
             <div class="agn-sb-oc"><b>Segments</b>
               <label class="agn-sb-c"><input type="checkbox" id="agn-r-segtable"> tableau</label>
@@ -5507,24 +5507,24 @@
               <label class="agn-sb-c"><input type="checkbox" id="agn-r-pancarte"> carte</label></div>`)}
           ${sect('surlignage', 'Surlignage sur la carte', `
             <label class="agn-sb-c"><input type="checkbox" id="agn-r-surligner">
-              Surligner les ecarts sur la carte</label>
-            <div class="agn-sb-n">Numero de rue hors agglo = disque plein ·
+              Surligner les écarts sur la carte</label>
+            <div class="agn-sb-n">Numéro de rue hors agglo = disque plein ·
               RPP en agglo = anneau.</div>
             <div id="agn-r-couleurs"></div>
             <button class="agn-sb-b" id="agn-r-reset">Couleurs par defaut</button>`)}
           ${sect('navigation', 'Navigation', `
             <label class="agn-sb-c"><input type="checkbox" id="agn-r-zoom">
               Cadrer sur le segment au clic</label>
-            <label class="agn-sb-l" title="Le zoom s'adapte a l'emprise des segments ; cette valeur en est le plafond.">
+            <label class="agn-sb-l" title="Le zoom s'adapte à l'emprise des segments ; cette valeur en est le plafond.">
               <span>Zoom maximal</span>
               <input type="number" id="agn-r-zoomniv" min="12" max="22" step="1"></label>`)}
         </div>
 
         <div class="agn-sb-vue" data-vue="donnees">
           ${sect('contours', 'Contours communaux', `
-            <label class="agn-sb-c" title="Interroge geo.api.gouv.fr pour savoir quel departement est sous les yeux, et telecharge ses contours s'ils manquent."><input type="checkbox" id="agn-r-autodep">
-              Charger tout seul le departement visible</label>
-            <div class="agn-sb-n">Les contours se cumulent : charger un departement n'efface pas les autres.</div>`)}
+            <label class="agn-sb-c" title="Interroge geo.api.gouv.fr pour savoir quel département est sous les yeux, et télécharge ses contours s'ils manquent."><input type="checkbox" id="agn-r-autodep">
+              Charger tout seul le département visible</label>
+            <div class="agn-sb-n">Les contours se cumulent : charger un département n'efface pas les autres.</div>`)}
           ${sect('partage', 'Sauvegarde &amp; partage', `
             <div class="agn-sb-n" id="agn-r-socle"></div>
             <div class="agn-sb-n">Polygones, communes « sans agglo » et coches « traité »
@@ -5659,10 +5659,10 @@
       const d = droits();
       zoneDroits.style.color = d.autorise ? '#2e7d32' : '#a34a00';
       zoneDroits.innerHTML = d.autorise
-        ? 'Correction activee — ' + esc(d.motifs.join(', ')) +
-          '.<br>Les corrections ne sont <b>jamais enregistrees</b> automatiquement.'
+        ? 'Correction activée — ' + esc(d.motifs.join(', ')) +
+          '.<br>Les corrections ne sont <b>jamais enregistrées</b> automatiquement.'
         : d.rangsLus
-          ? 'Correction desactivee : reservee aux L5, L6, Global Editors et staff (ton rang : ' +
+          ? 'Correction désactivée : réservée aux L5, L6, Global Editors et staff (ton rang : ' +
             esc(d.niveau) + ').'
           : 'Lecture du profil en cours…';
       return d.rangsLus > 0;
@@ -5772,7 +5772,7 @@
    * Bouton flottant dans la colonne d'icones de droite de WME, a la suite de
    * celui de WCT (meme conteneur `.overlay-buttons-container.top`, donc il
    * s'empile juste en dessous). Le conteneur n'existe pas forcement au
-   * demarrage : on reessaie tant qu'il n'est pas la.
+   * demarrage : on réessaie tant qu'il n'est pas la.
    */
   function installerFab() {
     const poser = () => {
@@ -5798,7 +5798,7 @@
     if (!b || !ui.overlay) return;
     const ouvert = ui.overlay.style.display !== 'none';
     b.classList.toggle('agn-fab-on', ouvert);
-    b.title = SCRIPT_NAME + (ouvert ? ' — masquer la fenetre' : ' — afficher la fenetre');
+    b.title = SCRIPT_NAME + (ouvert ? ' — masquer la fenêtre' : ' — afficher la fenêtre');
   }
 
   // ---------------------------------------------------------------------------
@@ -5846,7 +5846,7 @@
     go.onclick = async () => {
       go.disabled = true;
       const codes = [...choisis].sort();
-      const prog = progression(ui.progContours, { annulable: true, titre: 'Telechargement…' });
+      const prog = progression(ui.progContours, { annulable: true, titre: 'Téléchargement…' });
       try {
         const r = await chargerDepuisGouv(codes, prog);
         prog.fin();
@@ -5856,7 +5856,7 @@
         prog.fin();
         // Une interruption voulue n'est pas un echec : on ne la peint pas en orange.
         ui.statutContours.innerHTML = e && e.annulation
-          ? '<div class="agn-stat">Telechargement interrompu — rien n\'a ete modifie.</div>'
+          ? '<div class="agn-stat">Téléchargement interrompu — rien n\'a été modifié.</div>'
           : '<div class="agn-stat agn-alerte">' + esc(e.message) + '</div>';
       } finally { go.disabled = choisis.size === 0; }
     };
@@ -5864,10 +5864,10 @@
 
   function renderContours() {
     if (!metaContours || !communes.length) {
-      ui.statutContours.innerHTML = '<div class="agn-empty">Aucun contour charge. ' +
+      ui.statutContours.innerHTML = '<div class="agn-empty">Aucun contour chargé. ' +
         (options.autoDep
-          ? 'Deplace-toi sur ta zone : le departement se telecharge tout seul.'
-          : 'Coche un departement ci-dessus, ou charge un fichier GeoJSON.') + '</div>';
+          ? 'Déplace-toi sur ta zone : le département se télécharge tout seul.'
+          : 'Coche un département ci-dessus, ou charge un fichier GeoJSON.') + '</div>';
       return;
     }
     // On liste les DEPARTEMENTS en base, pas le dernier fichier charge : depuis
@@ -5879,12 +5879,12 @@
       return '<span class="agn-dep-chip" title="' + esc(dd ? dd.nom : d) + '">' + esc(d) + '</span>';
     }).join('');
     ui.statutContours.innerHTML = `<div class="agn-stat agn-ok">
-        <b>${communes.length}</b> commune(s) en base — ${deps.length} departement(s) : ${noms}</div>
+        <b>${communes.length}</b> commune(s) en base — ${deps.length} département(s) : ${noms}</div>
       <button class="agn-lien" id="agn-vider">tout vider</button>`;
     const v = ui.statutContours.querySelector('#agn-vider');
     if (v) v.onclick = () => {
       if (confirm('Vider tous les contours en base (' + communes.length + ' communes) ?\n\n' +
-        'Les agglomerations tracees, elles, sont conservees : elles sont rangees par code INSEE.')) viderContours();
+        'Les agglomérations tracées, elles, sont conservées : elles sont rangees par code INSEE.')) viderContours();
     };
   }
 
@@ -5947,9 +5947,9 @@
     if (!liste.length) {
       ui.listeAgglos.innerHTML = '';
       const bloc = el(`<div class="agn-empty">
-          Aucune agglomeration tracee pour <b>${esc(communeActive.nom)}</b>.<br>
+          Aucune agglomération tracée pour <b>${esc(communeActive.nom)}</b>.<br>
           <label class="agn-sansagglo"><input type="checkbox" ${declaree ? 'checked' : ''}>
-            cette commune n'a <b>aucune agglomeration</b> (tout est hors agglo)</label>
+            cette commune n'a <b>aucune agglomération</b> (tout est hors agglo)</label>
         </div>`);
       bloc.querySelector('input').onchange = e => {
         if (e.target.checked) sansAgglo[communeActive.code] = true;
@@ -5970,14 +5970,14 @@
         <div class="agn-poly">
           <input type="text" class="agn-label" list="agn-villes-wme"
                  title="Choisis dans les villes que WME connait, ou saisis librement."
-                 placeholder="Etiquette (reperage seul)" value="${esc(a.label)}">
+                 placeholder="Étiquette (repérage seul)" value="${esc(a.label)}">
           <div class="agn-row">
             <label><input type="checkbox" class="agn-ratt" ${a.rattache ? 'checked' : ''}> village rattache</label>
-            <button class="agn-mini agn-edit" title="Editer les sommets">✎</button>
+            <button class="agn-mini agn-edit" title="Éditer les sommets">✎</button>
             <button class="agn-mini agn-zoom" title="Centrer">◎</button>
             <button class="agn-mini agn-del" title="Supprimer">✕</button>
           </div>
-          <div class="agn-note">${a.ring.length - 1} sommets — ville appliquee : <b>${
+          <div class="agn-note">${a.ring.length - 1} sommets — ville appliquée : <b>${
             esc(a.rattache ? '‹ville du segment› (' + communeActive.nom + ')' : communeActive.nom)}</b></div>
         </div>`);
       node.querySelector('.agn-label').onchange = e => { a.label = e.target.value.trim(); saveAgglos(); redrawAgglos(); renderAgglos(); };
@@ -6115,7 +6115,7 @@
       // rien » d'une conversion tient a l'interieur d'`appliquerCorrection`).
       if (!(e && e.annulation)) { prog.fin(); throw e; }
       interrompu = true;
-      echecs.push('serie interrompue : ' + (liste.length - traites) + ' report(s) non traite(s)');
+      echecs.push('série interrompue : ' + (liste.length - traites) + ' report(s) non traite(s)');
     }
     prog.fin();
     redrawEcarts(null);
@@ -6126,7 +6126,7 @@
     // point d'entree.
     if (crees.length) {
       try { sdk.Editing.setSelection({ selection: { ids: crees.slice(), objectType: 'venue' } }); }
-      catch (e) { log('selection des POI creees impossible', e); }
+      catch (e) { log('sélection des POI créées impossible', e); }
       crees = [];
     }
   }
@@ -6137,12 +6137,12 @@
     if (!ok && (!echecs || !echecs.length)) { ui.bandeauFix.innerHTML = ''; return; }
     ui.bandeauFix.innerHTML =
       `<div class="agn-stat ${echecs.length ? 'agn-alerte' : 'agn-ok'}">
-        ${interrompu ? '<b>⚠ Serie interrompue.</b> ' : ''}
-        <b>${ok}</b> correction(s) appliquee(s) sur <b>${segments}</b> ${(unite || 'segment')}(s).
-        ${bloques ? '<b>' + bloques + '</b> segment(s) ignore(s), verrouille(s) au-dessus de ton niveau. ' : ''}
+        ${interrompu ? '<b>⚠ Série interrompue.</b> ' : ''}
+        <b>${ok}</b> correction(s) appliquée(s) sur <b>${segments}</b> ${(unite || 'segment')}(s).
+        ${bloques ? '<b>' + bloques + '</b> segment(s) ignoré(s), verrouillé(s) au-dessus de ton niveau. ' : ''}
         ${enAttente != null ? '<b>' + enAttente + '</b> modification(s) en attente dans WME — ' : ''}
         <b>rien n'est enregistre</b> : relis, puis clique sur Enregistrer dans WME.
-        ${echecs.length ? '<br>Echecs : ' + echecs.slice(0, 3).map(esc).join(' ; ') +
+        ${echecs.length ? '<br>Échecs : ' + echecs.slice(0, 3).map(esc).join(' ; ') +
           (echecs.length > 3 ? ' …' : '') : ''}
       </div>`;
   }
@@ -6179,7 +6179,7 @@
     // retente pas — il est deja charge puisqu'on vient de le lire.
     if (f.adresse && f.sousType === 'poi') {
       try { sdk.Editing.setSelection({ selection: { ids: [f.venueId], objectType: 'venue' } }); }
-      catch (e) { log('selection du POI impossible', e); }
+      catch (e) { log('sélection du POI impossible', e); }
       redrawEcarts(idx);
       return;
     }
@@ -6192,7 +6192,7 @@
       });
       if (!dispo.length) return false;
       try { sdk.Editing.setSelection({ selection: { ids: dispo, objectType: 'segment' } }); }
-      catch (e) { log('selection impossible', e); }
+      catch (e) { log('sélection impossible', e); }
       return dispo.length === f.segIds.length;
     };
     if (!selectionner()) {
@@ -6316,7 +6316,7 @@
       lent et peut manquer des objets en bordure.<br>
       <span style="opacity:.85">Motif : ${esc(sourceDonnees.raison || 'inconnu')}</span><br>
       Si ca se reproduit, l'API interne de WME a probablement change : c'est a
-      signaler, le script doit etre adapte.</div>`;
+      signaler, le script doit être adapte.</div>`;
   }
 
   /**
@@ -6344,8 +6344,8 @@
     return '<div class="agn-alerte-bloc">⚠️ <b>Il manque au moins un polygone.</b><br>' +
       manquantes.map(v => '« <b>' + esc(v.nom) + '</b> » est portee par ' + v.total +
         ' segment(s), dont <b>aucun</b> n\'est dans un polygone.').join('<br>') +
-      '<br>Ces segments se declarent en agglomeration, mais le zonage les place ' +
-      'dehors : <b>les ecarts les concernant sont faux, et les corrections proposees ' +
+      '<br>Ces segments se déclarent en agglomération, mais le zonage les place ' +
+      'dehors : <b>les écarts les concernant sont faux, et les corrections proposées ' +
       'iraient dans le mauvais sens</b>. Trace le polygone manquant, puis relance.</div>';
   }
 
@@ -6362,23 +6362,23 @@
       const z = s.zones;
       ui.stats.innerHTML = vueCourante === 'segments'
         ? `<div class="agn-stat">
-        <b>${s.ecarts}</b> segment(s) en ecart sur <b>${s.analyses}</b> analyses a ${esc(communeActive.nom)}${
+        <b>${s.ecarts}</b> segment(s) en écart sur <b>${s.analyses}</b> analyses a ${esc(communeActive.nom)}${
           s.lignes && s.lignes !== s.ecarts ? ', regroupes en <b>' + s.lignes + '</b> report(s)' : ''}.<br>
         ${z.agglo} en agglo · ${z.hors} hors agglo · ${z.cheval} a couper (agglo) · ${z.limCom} a couper (commune)${
           z.limitrophe ? ' · ' + z.limitrophe + ' debordent legerement' : ''}${
           z.cartouche ? ' · ' + z.cartouche + ' cartouche(s) a poser' : ''}${
-          z.special ? ' · ' + z.special + ' voie(s) a regle propre' : ''}${
+          z.special ? ' · ' + z.special + ' voie(s) a règle propre' : ''}${
           z.giratoire ? ' · ' + z.giratoire + ' giratoire(s)' : ''}.<br>
-        Ignores : ${s.skipped.horsCommune} hors commune, ${s.skipped.sansAdresse} sans adressage, ${s.skipped.horsRegle} regles propres.
+        Ignores : ${s.skipped.horsCommune} hors commune, ${s.skipped.sansAdresse} sans adressage, ${s.skipped.horsRegle} règles propres.
       </div>${bandeauVillesSansPolygone()}${bandeauInterrompu()}${bandeauSource()}`
         : `<div class="agn-stat">
-        ${s.adr ? '<b>' + s.adr.hnLus + '</b> numero(s) lu(s) a ' + esc(communeActive.nom) +
-            ', dont <b>' + s.adr.hnHorsAgglo + '</b> hors agglomeration.<br><b>' +
-            s.adr.poiLus + '</b> POI residentiel(s), dont <b>' + s.adr.poiAgglo + '</b> en agglomeration.' +
-            (s.adr.hnErreur ? '<br><span class="agn-alerte">Lecture des numeros : ' + esc(s.adr.hnErreur) + '</span>' : '') +
+        ${s.adr ? '<b>' + s.adr.hnLus + '</b> numéro(s) lu(s) a ' + esc(communeActive.nom) +
+            ', dont <b>' + s.adr.hnHorsAgglo + '</b> hors agglomération.<br><b>' +
+            s.adr.poiLus + '</b> POI résidentiel(s), dont <b>' + s.adr.poiAgglo + '</b> en agglomération.' +
+            (s.adr.hnErreur ? '<br><span class="agn-alerte">Lecture des numéros : ' + esc(s.adr.hnErreur) + '</span>' : '') +
             (s.adr.hnHorsAgglo
-              ? '<br><span style="opacity:.8">La conversion cadre elle-meme sur les numeros : ' +
-                'WME ne les charge qu\'a partir du zoom ' + ZOOM_NUMEROS + '.</span>' : '')
+              ? '<br><span style="opacity:.8">La conversion cadre elle-même sur les numéros : ' +
+                'WME ne les charge qu\'à partir du zoom ' + ZOOM_NUMEROS + '.</span>' : '')
           : 'Analyse non lancee.'}
       </div>${bandeauVillesSansPolygone()}${bandeauInterrompu()}${bandeauSource()}`;
     }
@@ -6386,16 +6386,16 @@
     indexCourant = -1;
     if (!liste.length) {
       ui.results.innerHTML = '<div class="agn-empty">' + (findings.length
-        ? 'Aucun ecart dans cet onglet — regarde l\'autre.'
-        : 'Aucun ecart detecte.') + '</div>';
+        ? 'Aucun écart dans cet onglet — regarde l\'autre.'
+        : 'Aucun écart détecté.') + '</div>';
       return;
     }
     const nav = el(`<div class="agn-nav">
-        <button class="agn-btn" id="agn-prec" style="width:auto">‹ Precedent</button>
+        <button class="agn-btn" id="agn-prec" style="width:auto">‹ Précédent</button>
         <button class="agn-btn" id="agn-suiv" style="width:auto">Suivant ›</button>
         <span id="agn-compteur">— / ${liste.length}</span>
         <span id="agn-traites" class="agn-traites"></span>
-        <button class="agn-lien" id="agn-tout">tout deplier</button></div>`);
+        <button class="agn-lien" id="agn-tout">tout déplier</button></div>`);
     ui.results.appendChild(nav);
     ui.compteur = nav.querySelector('#agn-compteur');
     ui.traites = nav.querySelector('#agn-traites');
@@ -6446,7 +6446,7 @@
         const aFaire = membres.filter(planDeCorrection);
         const nbSeg = aFaire.reduce((n, x) => n + (x.nb || 1), 0);
         if (!confirm('Appliquer ' + aFaire.length + ' correction(s) sur ' + nbSeg + ' segment(s) ?\n\n' +
-          'Rien ne sera enregistre : tu reliras dans WME avant de cliquer sur Enregistrer.')) return;
+          'Rien ne sera enregistré : tu reliras dans WME avant de cliquer sur Enregistrer.')) return;
         corriger(aFaire, aFaire.map(x => corps.querySelector('.agn-item[data-idx="' + findings.indexOf(x) + '"]')));
       };
 
@@ -6459,14 +6459,14 @@
               <button class="agn-ok-btn" title="Marquer comme traite">✓</button>
               <span class="agn-cas">${f.cas}</span></div>
             <div class="agn-note">${f.adresse
-              ? (f.sousType === 'hn' ? 'Numeros de rue' : 'POI residentiel')
+              ? (f.sousType === 'hn' ? 'Numéros de rue' : 'POI résidentiel')
               : (ROADTYPE_LABEL[f.roadType] || f.roadType)} · ${
               f.adresse
                 ? (f.sousType === 'hn'
                     ? '<b class="agn-nb">' + f.nb + ' numero' + (f.nb > 1 ? 's' : '') + '</b> · #' + f.segId
                     : 'POI ' + f.segId)
                 : f.nb > 1 ? '<b class="agn-nb">' + f.nb + ' segments</b>' : '#' + f.segId}${
-              f.verrouilles ? ' · <b class="agn-lock" title="Verrouilles au-dessus de ton niveau : non modifiables">🔒 ' +
+              f.verrouilles ? ' · <b class="agn-lock" title="Verrouillés au-dessus de ton niveau : non modifiables">🔒 ' +
                 f.verrouilles + '</b>' : ''}${
               f.disperse ? ' · <span class="agn-note" title="Troncons eloignes : la carte se pose sur le plus long">eparpilles</span>' : ''}</div>
             ${f.ecarts.map(e => `<div class="agn-d"><b>${e.champ}</b> : ${esc(e.avant)} → ${esc(e.apres)}</div>`).join('')}
@@ -6476,7 +6476,7 @@
             ${f.doute ? `<div class="agn-warn">⚠ ${esc(f.doute)}</div>` : ''}
             ${f.adresse && f.sousType === 'hn' && !f.rueCible
               ? '<div class="agn-warn">⚠ Nom de rue introuvable ou ambigu sur ce segment : ' +
-                'la conversion ne peut pas etre proposee.</div>'
+                'la conversion ne peut pas être proposée.</div>'
               : ''}
           </div>`);
         node.onclick = () => allerA([...ui.results.querySelectorAll('.agn-item')].indexOf(node));
@@ -6570,12 +6570,12 @@
           autoChargerDepartement().then(rafraichirCommunesDeLaVue);
         }, 700);
         dessinerPoignees(); } });
-    } catch (e) { log('abonnement au deplacement impossible', e); }
+    } catch (e) { log('abonnement au déplacement impossible', e); }
 
     // Au demarrage aussi : l'editeur arrive souvent deja pose sur sa zone.
     autoChargerDepartement().then(rafraichirCommunesDeLaVue);
 
-    log('v' + VERSION + ' pret — fenetre flottante — ' +
+    log('v' + VERSION + ' pret — fenêtre flottante — ' +
       (communes.length ? communes.length + ' commune(s)' : 'aucun contour'));
   }
 
