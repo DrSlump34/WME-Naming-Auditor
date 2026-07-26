@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.11
+// @version      2.12
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -275,7 +275,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '2.11';
+    return '2.12';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -5521,7 +5521,11 @@
       oublierPanneaux();
       redrawCommune(); redrawAgglos(); renderAgglos();
       if (communeActive) replierSection('commune', false);   // choix fait
-      if (communeActive) { try { sdk.Map.centerMapOnGeometry({ geometry: communeActive.geom }); } catch (e) { /* */ } }
+      // Cadrage sur la commune choisie, dans la zone reellement visible (v2.12).
+      if (communeActive) {
+        const em = empriseDeGeom(communeActive.geom);
+        if (em) centrerSurZoneVisible(em.centre, zoomPour(2 * em.rx, 2 * em.ry, em.centre.lat));
+      }
     };
 
     // Filtre des communes. `input` et non `change` : la liste doit se resserrer
@@ -6081,23 +6085,62 @@
    * s'empile juste en dessous). Le conteneur n'existe pas forcement au
    * demarrage : on réessaie tant qu'il n'est pas la.
    */
-  function installerFab() {
-    const poser = () => {
-      if (document.querySelector('#agn-fab-wrap')) return true;
-      const cont = document.querySelector('.overlay-buttons-container.top') ||
-                   document.querySelector('.overlay-buttons-container');
-      if (!cont) return false;
-      const wrap = el(`<div id="agn-fab-wrap"><button id="agn-fab-btn" type="button">🏙️</button></div>`);
-      cont.appendChild(wrap);
-      wrap.querySelector('button').onclick = () => {
-        if (ui.overlay.style.display === 'none') ouvrirOverlay(); else fermerOverlay();
-      };
-      majFab();
-      return true;
+  function poserFab() {
+    const cont = document.querySelector('.overlay-buttons-container.top') ||
+                 document.querySelector('.overlay-buttons-container');
+    if (!cont) return false;
+    // Deja en place DANS le conteneur courant ? (un wrap orphelin, detache par un
+    // re-rendu, ne compte pas — d'ou le test de contenance et non d'existence.)
+    if (cont.querySelector('#agn-fab-wrap')) return true;
+    const vieux = document.querySelector('#agn-fab-wrap');
+    if (vieux) vieux.remove();               // orphelin : on ne laisse pas de doublon
+    const wrap = el(`<div id="agn-fab-wrap"><button id="agn-fab-btn" type="button"
+        title="${esc(SCRIPT_NAME)}">🏙️</button></div>`);
+    cont.appendChild(wrap);
+    wrap.querySelector('button').onclick = () => {
+      if (ui.overlay.style.display === 'none') ouvrirOverlay(); else fermerOverlay();
     };
-    if (poser()) return;
-    let essais = 0;
-    const t = setInterval(() => { if (poser() || ++essais > 40) clearInterval(t); }, 500);
+    majFab();
+    return true;
+  }
+
+  /**
+   * Bouton flottant dans la colonne d'icones de droite de WME, a la suite de
+   * celui de WCT (meme conteneur `.overlay-buttons-container.top`, donc il
+   * s'empile juste en dessous — voir `order:99` dans le CSS).
+   *
+   * ⚠️⚠️ IL NE SUFFIT PAS DE LE POSER UNE FOIS (bug signale par l'auteur le
+   * 26/07 : « apres avoir fait pas mal de choses, puis en fermant l'overlay, le
+   * FAB a disparu »). WME est une application React : le conteneur d'icones est
+   * RE-RENDU quand l'interface change, et tout ce qu'un script y a ajoute a la
+   * main est detruit avec. L'ancienne version arretait sa boucle des que le
+   * bouton etait pose et ne regardait plus jamais — le FAB disparu, l'editeur
+   * n'avait plus AUCUN moyen de rouvrir la fenetre, sinon l'onglet lateral.
+   * C'est la meme famille que le retrait du FAB de WCT, qui lui SURVEILLE son
+   * conteneur (voir [[wct-closures-toolkit]]).
+   *
+   * ⚠️ SURVEILLANCE PAR INTERVALLE, PAS PAR `MutationObserver` — et c'est un choix
+   * mesure, pas de la paresse. J'avais d'abord mis un observateur sur le body
+   * (`childList` + `subtree`) : en live, il ne reposait PAS le bouton (c'est le
+   * filet periodique qui l'a fait), et dans une application aussi mouvante que
+   * WME il se declenche des dizaines de fois par seconde pour rien. Un
+   * `querySelector` sur un conteneur toutes les 2 s coute infiniment moins et
+   * fonctionne, lui. Le prix est de voir le bouton revenir en 2 s au pire —
+   * acceptable pour un raccourci de confort, l'onglet lateral restant disponible.
+   */
+  function installerFab() {
+    poserFab();
+    setInterval(poserFab, 2000);
+    // ⚠️ Chrome BRIDE les minuteries d'un onglet en arriere-plan : d'abord a
+    // 1 tour/seconde, puis a environ 1 tour/MINUTE au-dela de quelques minutes
+    // (mesure pendant ce test, et deja note dans [[wme-sdk-pieges]]). Un
+    // re-rendu survenu pendant que l'editeur etait sur un autre onglet laisserait
+    // donc le bouton absent jusqu'a une minute apres son retour. On verifie donc
+    // aussi au moment ou l'onglet redevient visible : c'est exactement l'instant
+    // ou l'editeur regarde l'ecran et cherche son bouton.
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) poserFab();
+    });
   }
 
   function majFab() {
@@ -6295,7 +6338,11 @@
         saveAgglos(); redrawAgglos(); renderAgglos();
       };
       node.querySelector('.agn-zoom').onclick = () => {
-        try { sdk.Map.centerMapOnGeometry({ geometry: { type: 'Polygon', coordinates: [a.ring] } }); } catch (e) { /* */ }
+        // ⚠️ Pas `centerMapOnGeometry` : il centre sur le canevas ENTIER, donc le
+        // polygone finit a moitie derriere la fenetre. On calcule l'emprise et on
+        // cadre sur la zone reellement visible (v2.12).
+        const em = emprise(a.ring);
+        centrerSurZoneVisible(em.centre, zoomPour(2 * em.rx, 2 * em.ry, em.centre.lat));
       };
       node.querySelector('.agn-edit').onclick = () => entrerEdition(a);
       if (edition && edition.agglo === a) {
@@ -6549,6 +6596,24 @@
   }
 
   /**
+   * Emprise d'une geometrie GeoJSON, quel que soit son type. Rend `null` si elle
+   * ne porte aucun point exploitable.
+   * ⚠️ Sert a remplacer `centerMapOnGeometry`, qui centre sur le canevas entier
+   * et pose donc l'objet a moitie derriere nos fenetres (v2.12). Au passage, il
+   * REJETTE les MultiLineString — celle-ci accepte tout.
+   */
+  function empriseDeGeom(geom) {
+    if (!geom || !geom.coordinates) return null;
+    const pts = [];
+    const aplatir = co => {
+      if (typeof co[0] === 'number') pts.push(co);
+      else co.forEach(aplatir);
+    };
+    aplatir(geom.coordinates);
+    return pts.length ? emprise(pts) : null;
+  }
+
+  /**
    * Cadre la carte sur un report.
    *
    * Un report peut couvrir des troncons CONTIGUS (une rue decoupee) ou
@@ -6559,6 +6624,117 @@
    * de travail, et sinon on se pose sur le troncon le plus long — les autres
    * restent surlignes sur la carte pour qu'on sache ou ils sont.
    */
+  // ===========================================================================
+  // CENTRER SUR CE QUI EST REELLEMENT VISIBLE (v2.12)
+  //
+  // ⚠️⚠️ Demande de l'auteur (26/07) : `setMapCenter` pose le point au centre
+  // GEOMETRIQUE du canevas — or ce centre est souvent CACHE. Le panneau lateral
+  // de WME mange la gauche, notre fenetre de travail et son volet mangent la
+  // droite : l'objet qu'on vient de cadrer peut se retrouver derriere une
+  // fenetre, et l'editeur doit deplacer la carte a la main pour le voir.
+  //
+  // On mesure donc la surface de carte qui reste VISIBLE, et on decale le centre
+  // pour que la cible tombe au milieu de CETTE surface. Le calcul se refait a
+  // chaque cadrage : fermer l'overlay ou replier le panneau agrandit la zone, et
+  // le centrage suit tout seul.
+  // ===========================================================================
+
+  /** Le rectangle du canevas de la carte, en pixels ecran. */
+  function rectCarte() {
+    const c = document.querySelector('#map') ||
+              document.querySelector('.olMapViewport') ||
+              document.querySelector('.wm-map') || document.body;
+    return c.getBoundingClientRect();
+  }
+
+  const estVisible = e => {
+    if (!e) return false;
+    if (e.style && e.style.display === 'none') return false;
+    const r = e.getBoundingClientRect();
+    return r.width > 1 && r.height > 1;
+  };
+
+  /**
+   * Surface de carte qui n'est masquee par rien. On retranche ce qui recouvre
+   * la carte SUR LES COTES ; un element qui la couvrirait en son milieu ne se
+   * retranche pas proprement, et ce cas ne se produit pas ici.
+   */
+  function zoneVisible() {
+    const rc = rectCarte();
+    let gauche = rc.left, droite = rc.right, haut = rc.top, bas = rc.bottom;
+    // --- le panneau lateral de WME (a gauche) ---
+    ['#sidebarContent', '.sidebar-layout', '#user-info'].forEach(sel => {
+      const e = document.querySelector(sel);
+      if (!estVisible(e)) return;
+      const r = e.getBoundingClientRect();
+      // il ne mord la carte que s'il la chevauche vraiment
+      if (r.right > gauche && r.left <= gauche + 2) gauche = Math.max(gauche, r.right);
+    });
+    // --- nos fenetres (a droite en general, mais on ne le suppose pas) ---
+    [ui.overlay, ui.volet].forEach(e => {
+      if (!estVisible(e)) return;
+      const r = e.getBoundingClientRect();
+      if (r.bottom < haut || r.top > bas) return;              // pas en travers
+      // On rogne du cote ou l'element laisse le PLUS de place.
+      if (r.left - gauche > droite - r.right) droite = Math.min(droite, r.left);
+      else gauche = Math.max(gauche, r.right);
+    });
+    // --- la barre d'outils du bas (Toolbox, barre d'edition de WME) ---
+    ['.WMEToolbox', '#toolbox', '.edit-buttons', '.footer'].forEach(sel => {
+      const e = document.querySelector(sel);
+      if (!estVisible(e)) return;
+      const r = e.getBoundingClientRect();
+      if (r.top < bas && r.bottom >= bas - 4) bas = Math.min(bas, r.top);
+    });
+    // Garde-fou : si les retranchements se croisent (fenetres tres larges sur un
+    // petit ecran), on rend le canevas entier plutot qu'une zone absurde.
+    if (droite - gauche < 80 || bas - haut < 80) {
+      return { gauche: rc.left, droite: rc.right, haut: rc.top, bas: rc.bottom, rc, complet: true };
+    }
+    return { gauche, droite, haut, bas, rc, complet: false };
+  }
+
+  /**
+   * Centre la carte pour que `lonLat` tombe au milieu de la zone VISIBLE.
+   *
+   * ⚠️ Le decalage se calcule pour le zoom d'ARRIVEE : a chaque niveau de zoom
+   * l'echelle double, donc on extrapole depuis l'emprise courante plutot que de
+   * faire un aller-retour (zoomer, attendre le rendu, puis recentrer) qui se
+   * verrait a l'ecran.
+   */
+  function centrerSurZoneVisible(lonLat, zoomCible) {
+    if (!lonLat) return;
+    try {
+      const z = zoneVisible();
+      const ext = sdk.Map.getMapExtent();
+      const zoomActuel = sdk.Map.getZoomLevel();
+      if (!z.complet && ext && ext.length === 4 && z.rc.width > 0 && z.rc.height > 0) {
+        // degres par pixel au zoom courant, puis mis a l'echelle du zoom cible
+        const f = (zoomCible == null || zoomCible === zoomActuel)
+          ? 1 : Math.pow(2, zoomActuel - zoomCible);
+        const dpxLon = ((ext[2] - ext[0]) / z.rc.width) * f;
+        const dpxLat = ((ext[3] - ext[1]) / z.rc.height) * f;
+        // ecart, en pixels, entre le centre du canevas et celui de la zone visible
+        const dx = ((z.gauche + z.droite) / 2) - ((z.rc.left + z.rc.right) / 2);
+        const dy = ((z.haut + z.bas) / 2) - ((z.rc.top + z.rc.bottom) / 2);
+        // Pour que la cible apparaisse au centre VISIBLE, le centre de la carte
+        // doit s'en ecarter en sens inverse. ⚠️ L'axe Y de l'ecran descend, la
+        // latitude monte : le signe s'inverse.
+        lonLat = { lon: lonLat.lon - dx * dpxLon, lat: lonLat.lat + dy * dpxLat };
+      }
+      if (zoomCible == null) sdk.Map.setMapCenter({ lonLat });
+      else sdk.Map.setMapCenter({ lonLat, zoomLevel: zoomCible });
+    } catch (e) {
+      // Jamais d'echec silencieux qui laisse la carte immobile : on retombe sur
+      // le centrage brut, quitte a ce que la cible soit derriere une fenetre.
+      log('centrage sur la zone visible impossible', e);
+      try {
+        if (zoomCible == null) sdk.Map.setMapCenter({ lonLat });
+        else sdk.Map.setMapCenter({ lonLat, zoomLevel: zoomCible });
+      } catch (e2) { /* */ }
+    }
+  }
+
   /**
    * Amene la carte sur un report. `forcerZoom` passe outre le reglage
    * « zoomer au clic » : une conversion de numero EXIGE le zoom 18 pour que WME
@@ -6567,7 +6743,7 @@
   function cadrerSur(f, forcerZoom) {
     const geoms = (f.geoms || [f.geom]).filter(g => g && g.coordinates && g.coordinates.length);
     if (!geoms.length) {
-      if (f.centre) { try { sdk.Map.setMapCenter({ lonLat: f.centre }); } catch (e) { /* */ } }
+      if (f.centre) centrerSurZoneVisible(f.centre, null);
       return;
     }
     // ⚠️ Un Point porte `coordinates: [lon, lat]`, une ligne `[[lon,lat], ...]` :
@@ -6593,10 +6769,11 @@
     // Un report d'ADRESSE se regarde de pres : sous le zoom 18, WME n'affiche
     // meme pas les numeros dont on parle (et ne les charge pas non plus).
     if (f.adresse) z = Math.max(z, ZOOM_NUMEROS);
-    try {
-      sdk.Map.setMapCenter({ lonLat: e.centre });
-      if (options.zoomClic || forcerZoom) sdk.Map.setZoomLevel({ zoomLevel: z });
-    } catch (err) { log('cadrage impossible', err); }
+    // ⚠️ Le zoom est passe a `centrerSurZoneVisible` plutot qu'applique apres :
+    // le decalage depend de l'echelle d'ARRIVEE, et zoomer ensuite le rendrait
+    // faux (l'objet reviendrait sous une fenetre).
+    const zoomVoulu = (options.zoomClic || forcerZoom) ? z : null;
+    centrerSurZoneVisible(e.centre, zoomVoulu);
   }
 
   /**
