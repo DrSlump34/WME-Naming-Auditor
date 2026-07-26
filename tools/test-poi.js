@@ -389,15 +389,51 @@ const NUMS = [
     _nam: { primary: { name: 'D121', cityName: '' },
             alts: [{ name: 'D121', cityName: 'Saint-Laurent-des-Arbres' },
                    { name: 'Route de Laudun', cityName: 'Saint-Laurent-des-Arbres' }] } };
-  const poi = POI({ name: 'Camp Militaire', streetID: null, houseNumber: '',
+  // ⚠️ Le POI porte REELLEMENT « D121 » comme rue, et aucune commune : c'est
+  // l'etat exact du camp militaire dans Waze. Le reproduire avec `streetID:
+  // null` ratait le cas — c'est ce qui m'a fait ecrire un test qui passait a
+  // cote la premiere fois.
+  RUES[14] = { id: 14, name: 'D121', cityID: 102 };      // cityID 102 = ville vide
+  const poi = POI({ name: 'Camp Militaire', streetID: 14, houseNumber: '',
                     geometry: { type: 'Point', coordinates: [4.710, 44.06015] } });
   const out = monter(DEFAUT).auditerPoi([poi], RUES, VILLES, COMMUNE, stats, [D121], []);
   const p = out[0].propositionAdresse;
+  // ⚠️⚠️ CONTRAT DE RENDU — le defaut qui a fait dire a l'auteur « aucune
+  // evolution visible » : les reports POI ne passent PAS par
+  // `regrouperFindings`, donc personne ne leur pose `nb` ni `verrouilles`. Le
+  // rendu du bouton ⚡ teste `f.verrouilles !== f.nb` : avec deux `undefined`,
+  // la comparaison est fausse et le bouton n'est JAMAIS dessine. Tout le calcul
+  // etait juste, seul le bouton manquait — et aucun test ne regardait ca.
+  verifier('35. ⚠️ le report porte `nb` et `verrouilles` (sans quoi le ⚡ n\'est pas dessiné)',
+    [out[0].nb, out[0].verrouilles], [1, 0]);
+  verifier('35. … et la comparaison du rendu autorise bien le bouton',
+    out[0].verrouilles !== out[0].nb, true);
   verifier('35. ⭐ le nom ALTERNATIF est proposé, pas le numéro de route', p.rue, 'Route de Laudun');
   verifier('35. le numéro de route reste proposable, mais en dernier',
     p.candidats.map(c => c.nom + (c.estRoute ? ' (route)' : '')),
     ['Route de Laudun', 'D121 (route)']);
   verifier('35. et le ⚡ ouvre la liste au lieu d\'écrire', p.direct, false);
+  const e = out[0].ecarts.find(x => x.champ === 'rue = numéro de route');
+  verifier('35. l\'écart DIT que « D121 » n\'est pas une adresse', !!e, true);
+  verifier('35. … en montrant la valeur fautive', e.avant, 'D121');
+}
+{
+  // ⚠️⚠️ NE JAMAIS ECRASER UNE RUE DEJA JUSTE. Un POI qui porte un vrai nom de
+  // voie mais pas de commune ne doit PAS voir sa rue remplacee par la
+  // proposition : seule la commune manque.
+  const stats = { poiAudites: 0, poiHorsCommune: 0, poiNaturels: 0, poiBati: 0, poiConformes: 0 };
+  // streetID 13 = « Rue sans ville » : nom de rue valable, commune vide.
+  const poi = POI({ streetID: 13, houseNumber: '',
+                    geometry: { type: 'Point', coordinates: [4.710, 44.0601] } });
+  const out = monter(DEFAUT).auditerPoi([poi], RUES, VILLES, COMMUNE, stats, RESEAU, []);
+  const p = out[0].propositionAdresse;
+  verifier('36. ⚠️ la rue existante est CONSERVEE, pas remplacée', p.rue, 'Rue sans ville');
+  verifier('36. la commune INSEE est appliquée', p.ville, 'Saint-Laurent-des-Arbres');
+  verifier('36. et rien n\'est à choisir : le ⚡ applique directement', p.direct, true);
+  const e = out[0].ecarts.find(x => x.champ === 'commune absente');
+  verifier('36. la ligne dit que la rue est conservée', /est conservée/.test(e.apres), true);
+  verifier('36. aucun écart « numéro de route » sur une rue valable',
+    !out[0].ecarts.some(x => x.champ === 'rue = numéro de route'), true);
 }
 {
   // ── Le NUMERO absent : c'est la que la proposition sert le plus (43 cas

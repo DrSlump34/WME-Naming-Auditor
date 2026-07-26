@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.19
+// @version      2.20
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -3944,6 +3944,10 @@
       // controles ci-dessous. La ville proposee est toujours la commune INSEE —
       // doctrine du projet — et jamais celle lue sur le segment, qui peut etre
       // fausse (meme piege que l'etiquette de polygone, v1.10).
+      // ⚠️ « Deja bonne » = un vrai nom de voie. Un NUMERO DE ROUTE n'en est pas
+      // un (doctrine de `rueDuPoi`) : le camp militaire porte « D121 », et c'est
+      // precisement ce qu'il faut remplacer par « Route de Laudun ».
+      const rueDejaBonne = !!nomRue && !RE_ROUTE.test(nomRue);
       const propose = (c.poiAdresse && (v.streetID == null || !nomRue || !ville))
         ? proposerAdressePoi(situation.point, segs, numeros) : null;
       const commePhrase = p => p.rue + ' / ' + commune.nom +
@@ -3977,8 +3981,16 @@
         } else {
           if (!nomRue) ecarts.push({ champ: 'rue absente', avant: '—',
             apres: suite || 'renseigner le nom de la voie' });
+          // ⚠️ La rue du POI est un NUMERO DE ROUTE : ce n'est pas une adresse
+          // postale, et c'est le cas qui a servi d'exemple a l'auteur (« D121 »
+          // au camp militaire). On le DIT, avec ce que le script propose a la
+          // place — sinon la ligne se lit « il manque la commune », alors que
+          // c'est l'adresse entiere qui est a revoir.
+          if (nomRue && !rueDejaBonne) ecarts.push({ champ: 'rue = numéro de route', avant: nomRue,
+            apres: suite || 'un numéro de route n\'est pas une adresse : renseigner le nom de la voie' });
           if (!ville) ecarts.push({ champ: 'commune absente', avant: '—',
-            apres: 'renseigner ' + commune.nom });
+            apres: 'renseigner ' + commune.nom +
+              (rueDejaBonne && propose ? ' (la rue « ' + nomRue +' » est conservée)' : '') });
         }
       }
       // ── 2. Numero : controle A PART, decoche par defaut ──────────────────
@@ -4030,6 +4042,15 @@
         categorie: cats[0] || '',
         centre: situation.point ? { lon: situation.point[0], lat: situation.point[1] } : null,
         geom: v.geometry, ecarts, editable: true,
+        // ⚠️⚠️ `nb` ET `verrouilles` SONT OBLIGATOIRES, meme sur un objet unique :
+        // les reports POI ne passent PAS par `regrouperFindings` (ils sont
+        // concatenes tels quels), donc personne ne les pose pour eux. Le rendu du
+        // bouton ⚡ teste `f.verrouilles !== f.nb` — avec deux `undefined` la
+        // comparaison est FAUSSE et le bouton n'est jamais dessine. C'est ce qui
+        // a fait dire a l'auteur « aucune evolution visible » sur la v2.19 : tout
+        // le calcul etait juste, seul le bouton manquait. ⚠️ Un POI n'a pas de
+        // verrou de segment : rien ne bloque son adresse.
+        nb: 1, verrouilles: 0,
         // ⚡ LE BOUTON APPARAIT DES QU'IL Y A QUELQUE CHOSE DE CONCRET A PROPOSER
         // (l'auteur, 26/07) — pas seulement quand c'est net. Quand plusieurs
         // noms sont possibles, ou qu'aucun ne se detache, le clic n'applique
@@ -4038,13 +4059,19 @@
         // ses responsabilites » : on ne lui impose rien, on lui epargne la
         // recherche.
         propositionAdresse: (propose && propose.candidats.length) ? {
-          rue: propose.rue, ville: commune.nom, segId: propose.segId,
+          // ⚠️⚠️ NE JAMAIS ECRASER UNE RUE DEJA JUSTE. Quand seule la commune
+          // manque, le POI porte souvent un nom de voie parfaitement valable :
+          // appliquer la proposition a sa place remplacerait une bonne adresse
+          // par une deduction. Le cas se voit sur le camp militaire, qui porte
+          // « D121 » — un numero de route, donc PAS une adresse (doctrine de
+          // `rueDuPoi`) : celui-la, on le remplace.
+          rue: rueDejaBonne ? nomRue : propose.rue, ville: commune.nom, segId: propose.segId,
           candidats: propose.candidats.map(c => ({
             nom: c.nom, ville: commune.nom, dist: c.dist != null ? c.dist : c.d,
             d: c.d, estRoute: c.estRoute, segId: c.segId })),
-          // Un seul vrai nom de rue, net, et rien d'autre a proposer : inutile
-          // d'ouvrir une boite pour un choix unique.
-          direct: !!propose.fiable && propose.candidats.length === 1,
+          // Rien a choisir ⇒ pas de boite : soit la rue est deja bonne et seule
+          // la commune manque, soit un unique nom de rue se detache.
+          direct: rueDejaBonne || (!!propose.fiable && propose.candidats.length === 1),
           // Le numero n'est JAMAIS applique (arbitrage de l'auteur, 26/07) : a
           // 30 m ce peut etre celui du voisin, et une adresse fausse posee d'un
           // clic est pire que l'adresse manquante qu'on corrige.
