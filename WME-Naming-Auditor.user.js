@@ -3766,6 +3766,119 @@
     return { dedans: part > 0.5, source: 'part de surface', part, point: [cx, cy] };
   }
 
+  // ===========================================================================
+  // PROPOSER UNE ADRESSE A UN POI QUI N'EN A PAS (v2.19)
+  //
+  // Demande de l'auteur (26/07) : « proposer adresse et numero, base sur le
+  // point d'entree et le segment le plus proche. Si pas de point d'entree,
+  // proposer le nom du segment le plus proche ; pour le numero, le numero HN ou
+  // RPP le plus proche. Si on voit qu'il n'y a pas de match pertinent, on laisse
+  // l'utilisateur prendre ses responsabilites. »
+  //
+  // ⚠️⚠️ C'est ce dernier point qui commande tout le reste : une proposition
+  // fausse est PIRE que pas de proposition, parce qu'elle sera appliquee d'un
+  // clic. On ne propose donc que ce qui est NET, et on affiche les distances qui
+  // ont servi a conclure — l'editeur doit pouvoir refaire le raisonnement.
+  //
+  // ⚡ MESURE (Saint-Laurent-des-Arbres, 26/07, 10 POI a adresse incomplete) :
+  //   - une voie NOMMEE existe a moins de 150 m pour les 10, mais a des
+  //     distances de 2 a 115 m — proposer sans seuil aurait donne des adresses
+  //     absurdes (la « ZAC de Tesan-Nord » a 115 m de la premiere rue nommee) ;
+  //   - le segment le plus proche est SOUVENT ANONYME (parking, allee de
+  //     desserte) : il ne fournit aucune adresse, il faut la voie NOMMEE ;
+  //   - un seul POI sur dix a un numero plausible a moins de 30 m.
+  // ===========================================================================
+
+  /**
+   * Distance maximale a la voie proposee. Au-dela, le lien entre le lieu et la
+   * rue n'est plus une evidence (mesure : 55 m pour un chateau au bout de son
+   * chemin — encore credible ; 115 m pour une ZAC — plus du tout).
+   */
+  const POI_PORTEE_VOIE_M = 60;
+  /**
+   * Meme notion que `RPP_MARGE_VOIE_M`, et volontairement LA MEME VALEUR : deux
+   * voies trop proches l'une de l'autre pour qu'on puisse trancher. ⚠️ On la
+   * derive au lieu de la recopier — deux valeurs jumelles finissent toujours par
+   * diverger, et le sens colle exactement (contrairement au piege de la v2.10,
+   * ou j'avais branche un seuil qui n'avait rien a voir).
+   */
+  const POI_MARGE_VOIE_M = RPP_MARGE_VOIE_M;
+  /**
+   * Distance maximale d'un numero repris comme proposition. ⚠️ Volontairement
+   * courte : a 30 m, un numero peut deja etre celui du VOISIN. C'est pourquoi il
+   * est propose SANS jamais etre applique automatiquement.
+   */
+  const POI_PORTEE_NUM_M = 30;
+
+  /**
+   * L'adresse la plus probable pour un POI qui n'en a pas.
+   *
+   * `point` est la position retenue (point d'acces principal si le POI en a un,
+   * sinon sa geometrie — c'est `positionPoi` qui l'a choisie, et sa PROVENANCE
+   * est affichee a l'editeur). `numeros` est la liste des numeros lus, chacun
+   * avec sa position et sa rue.
+   *
+   * Rend `{ rue, ville, dist, autre, segId, numero, fiable }` ou `null`.
+   * `fiable` distingue « je propose » de « regarde toi-meme » : c'est lui qui
+   * commande l'apparition du bouton.
+   */
+  function proposerAdressePoi(point, segs, numeros) {
+    if (!point) return null;
+    const candidats = [];
+    for (const s of segs || []) {
+      const co = s && s.geometry && s.geometry.coordinates;
+      if (!co || !co.length) continue;
+      let nam = null; try { nam = readNaming(s); } catch (e) { /* hors modele */ }
+      // ⚠️ Une voie SANS NOM ne fournit pas d'adresse : le POI est tres souvent
+      // colle a une allee de desserte anonyme, qui n'apprend rien.
+      const nom = nam && nam.primary && (nam.primary.name || '').trim();
+      if (!nom) continue;
+      // ⚠️⚠️ UN NUMERO DE ROUTE N'EST PAS UNE ADRESSE — c'est deja la doctrine de
+      // `rueDuPoi` (« 43 D981 » ne s'ecrit pas). Sans ce filtre, le releve du
+      // 26/07 proposait « D121 » comme rue au camp militaire de Saint-Laurent.
+      if (RE_ROUTE.test(nom)) continue;
+      const d = distanceAuTrace(point[0], point[1], co);
+      if (d > POI_PORTEE_VOIE_M) continue;
+      candidats.push({ d, nom, ville: (nam.primary.cityName || '').trim(), segId: s.id });
+    }
+    if (!candidats.length) return null;
+    candidats.sort((a, b) => a.d - b.d);
+    const best = candidats[0];
+    const autre = candidats.find(c => c.nom !== best.nom);
+    const dAutre = autre ? autre.d : Infinity;
+    return { rue: best.nom, ville: best.ville, dist: best.d, autre: dAutre,
+             segId: best.segId, numero: numeroLePlusProche(point, best.nom, numeros),
+             // Net = la voie est proche ET aucune autre ne se la dispute.
+             fiable: dAutre - best.d >= POI_MARGE_VOIE_M };
+  }
+
+  /**
+   * Le numero deja pose le plus proche, SUR LA VOIE DONNEE.
+   *
+   * ⚠️ Un numero d'une autre rue ne dit rien de ce lieu, meme s'il est plus
+   * pres : c'est une adresse sur une autre voie. Et meme sur la bonne voie, ce
+   * n'est qu'une PISTE — a 30 m ce peut deja etre le voisin —, ce qui est
+   * pourquoi il n'est jamais applique automatiquement.
+   *
+   * ⚡ Seuil cale sur mesure (Saint-Laurent-des-Arbres, 26/07) : pour les 30 POI
+   * sans numero dont la voie est identifiable, le numero le plus proche est a
+   * 5 m … 527 m, mediane 24 m. Sous 30 m on en propose 19 sur 30 ; a 50 m on
+   * monterait a 25, mais un numero a 45 m de distance n'a plus de rapport avec
+   * le lieu qu'on regarde.
+   */
+  function numeroLePlusProche(point, rue, numeros) {
+    if (!point || !rue) return null;
+    let best = null;
+    for (const n of numeros || []) {
+      if (!n || !n.p || !n.num || n.rue !== rue) continue;
+      const d = distanceM(point, n.p);
+      if (d <= POI_PORTEE_NUM_M && (!best || d < best.dist)) {
+        best = { num: String(n.num), dist: d, source: n.src || 'numéro' };
+      }
+    }
+    return best;
+  }
+
   /**
    * Audite les adresses des VRAIS POI d'une commune.
    *
@@ -3774,7 +3887,7 @@
    * ⚠️ Les objets de l'API ne sont PAS dans le data model (cf. [[wme-sdk-pieges]]) :
    * on ne cherche donc rien par identifiant, on fait circuler ce qu'on a lu.
    */
-  function auditerPoi(venues, dicoRues, dicoVilles, commune, stats) {
+  function auditerPoi(venues, dicoRues, dicoVilles, commune, stats, segs, numeros) {
     const c = options.controles;
     const out = [];
     for (const v of venues) {
@@ -3806,22 +3919,49 @@
       const nom = (v.name || '').trim();
 
       const ecarts = [];
+      // Proposition d'adresse (v2.19) : calculee UNE fois, servie aux deux
+      // controles ci-dessous. La ville proposee est toujours la commune INSEE —
+      // doctrine du projet — et jamais celle lue sur le segment, qui peut etre
+      // fausse (meme piege que l'etiquette de polygone, v1.10).
+      const propose = (c.poiAdresse && (v.streetID == null || !nomRue || !ville))
+        ? proposerAdressePoi(situation.point, segs, numeros) : null;
+      const commePhrase = p => p.rue + ' / ' + commune.nom +
+        (p.numero ? ' — n° ' + p.numero.num + ' ?' : '') +
+        ' (voie à ' + Math.round(p.dist) + ' m' +
+        (isFinite(p.autre) ? ', la suivante à ' + Math.round(p.autre) + ' m' : '') +
+        (p.numero ? ', numéro à ' + Math.round(p.numero.dist) + ' m' : '') + ')';
       // ── 1. Adresse incomplete ────────────────────────────────────────────
       if (c.poiAdresse) {
+        // ⚠️ On ne propose QUE si c'est net (`fiable`). Sinon on montre quand
+        // meme la piste, en disant qu'elle n'en est qu'une : « pas de match
+        // pertinent ⇒ l'editeur prend ses responsabilites » (auteur, 26/07).
+        const suite = !propose
+          ? null
+          : propose.fiable
+            ? 'proposition : ' + commePhrase(propose)
+            : 'aucune voie ne se détache — piste : ' + commePhrase(propose) + ', à vérifier';
         if (v.streetID == null) {
           ecarts.push({ champ: 'adresse absente', avant: '—',
-            apres: 'renseigner la rue et la commune (' + esc(commune.nom) + ')' });
+            apres: suite || 'renseigner la rue et la commune (' + commune.nom + ')' });
         } else {
           if (!nomRue) ecarts.push({ champ: 'rue absente', avant: '—',
-            apres: 'renseigner le nom de la voie' });
+            apres: suite || 'renseigner le nom de la voie' });
           if (!ville) ecarts.push({ champ: 'commune absente', avant: '—',
-            apres: 'renseigner ' + esc(commune.nom) });
+            apres: 'renseigner ' + commune.nom });
         }
       }
       // ── 2. Numero : controle A PART, decoche par defaut ──────────────────
       if (c.poiNumero && v.streetID != null && !numero) {
+        // ⚠️ Le numero se cherche sur la rue que le POI porte DEJA — pas sur une
+        // voie proposee : ici l'adresse existe, il n'y manque que le numero.
+        // ⚡ C'est le cas ou la proposition sert le plus (43 POI a
+        // Saint-Laurent-des-Arbres, contre 10 pour l'adresse incomplete).
+        const n = nomRue ? numeroLePlusProche(situation.point, nomRue, numeros) : null;
         ecarts.push({ champ: 'numéro absent', avant: '—',
-          apres: 'renseigner le numéro de rue' });
+          apres: n
+            ? 'n° ' + n.num + ' ? — c\'est le point d\'adresse le plus proche sur « ' + nomRue +
+              ' » (' + Math.round(n.dist) + ' m, ' + n.source + '), à vérifier avant de saisir'
+            : 'renseigner le numéro de rue' });
       }
       // ── 3. Ville differente de la commune INSEE ───────────────────────────
       // ⚠️ Presente comme A VERIFIER, pas comme une faute : le cas mesure a
@@ -3833,11 +3973,15 @@
         const p = situation.point;
         const d = p ? distanceALaLimite(p[0], p[1], commune) : Infinity;
         const pres = isFinite(d) && d <= 60;
+        // ⚠️ PAS d'`esc()` ici : le rendu echappe deja `e.apres` (liste ET
+        // infobulle). Echapper deux fois affichait « L&#39;Isle-sur-la-Sorgue »
+        // au lieu de « L'Isle-sur-la-Sorgue » — visible sur toute commune a
+        // apostrophe (defaut trouve au passage, v2.19).
         ecarts.push({ champ: 'commune à vérifier', avant: ville,
           apres: pres
-            ? esc(commune.nom) + ' ? — à ' + Math.round(d) + ' m de la limite communale, ' +
+            ? commune.nom + ' ? — à ' + Math.round(d) + ' m de la limite communale, ' +
               'l\'adresse de la commune voisine peut être la bonne'
-            : esc(commune.nom) + ' — le lieu est dans le contour de ' + esc(commune.nom) +
+            : commune.nom + ' — le lieu est dans le contour de ' + commune.nom +
               (isFinite(d) ? ', à ' + Math.round(d) + ' m de la limite' : '') });
       }
 
@@ -3855,6 +3999,35 @@
         categorie: cats[0] || '',
         centre: situation.point ? { lon: situation.point[0], lat: situation.point[1] } : null,
         geom: v.geometry, ecarts, editable: true,
+        // ⚠️ Seule une proposition NETTE devient applicable d'un clic : c'est
+        // `planDeCorrection` qui lit ce champ, et il n'y a pas de bouton sans
+        // lui. Une piste incertaine reste affichee, sans bouton.
+        propositionAdresse: (propose && propose.fiable) ? {
+          rue: propose.rue, ville: commune.nom, segId: propose.segId,
+          // Le numero n'est JAMAIS applique (arbitrage de l'auteur, 26/07) : a
+          // 30 m ce peut etre celui du voisin, et une adresse fausse posee d'un
+          // clic est pire que l'adresse manquante qu'on corrige.
+          numeroPropose: propose.numero ? propose.numero.num : null
+        } : null,
+        aideTitre: propose ? 'D\'où vient cette proposition' : null,
+        aide: propose ? [
+          'Voie nommée la plus proche du ' +
+            (situation.source === 'accès principal' || situation.source === 'point d\'accès'
+              ? 'point d\'accès' : 'lieu') + ' : « ' + propose.rue + ' », à ' +
+            Math.round(propose.dist) + ' m' +
+            (isFinite(propose.autre)
+              ? ', la voie suivante étant à ' + Math.round(propose.autre) + ' m.'
+              : ', et aucune autre voie nommée à moins de ' + POI_PORTEE_VOIE_M + ' m.'),
+          propose.numero
+            ? '⚠️ Numéro n° ' + propose.numero.num + ' relevé à ' + Math.round(propose.numero.dist) +
+              ' m sur cette voie : c\'est le point d\'adresse le plus proche, PAS une certitude — ' +
+              'à cette distance ce peut être celui du voisin. Le script ne l\'applique jamais.'
+            : 'Aucun numéro à moins de ' + POI_PORTEE_NUM_M + ' m sur cette voie : à saisir à la main.',
+          propose.fiable
+            ? 'La commune appliquée est celle du contour INSEE (' + commune.nom + '), pas celle du segment.'
+            : '⚠️ Deux voies se disputent ce lieu (moins de ' + POI_MARGE_VOIE_M + ' m d\'écart) : ' +
+              'le script ne tranche pas, c\'est à toi de voir sur la carte.'
+        ] : null,
         // La provenance de la position est DITE : un verdict fonde sur une part de
         // surface n'a pas la meme force qu'un point d'acces explicite.
         doute: situation.source === 'part de surface'
@@ -4014,7 +4187,14 @@
         // detecter les ecarts sur les voies privees, on inhibe juste la
         // correction auto »). C'est la CORRECTION qui est fermee sur ces types,
         // pas la detection — voir `planDeCorrection`.
-        const tousIds = segs.map(s => s.id);
+        // ⚡ `hasHNs` (donne par l'API) dit quels segments portent des numeros :
+        // quand l'information est la, on n'interroge QUE ceux-la. ⚠️ Verifie sur
+        // Saint-Laurent-des-Arbres avant d'y toucher : 335 porteurs sur 927
+        // segments rendent **1371 numeros, exactement comme la lecture complete
+        // — 0 manquant** — en deux fois moins de temps (580 ms contre 1156 ms).
+        // En balayage la propriete n'existe pas : on retombe sur tout.
+        const porteurs = segs.filter(s => s.hasHNs);
+        const tousIds = (porteurs.length ? porteurs : segs).map(s => s.id);
         const hns = [];
         const nbLots = Math.ceil(tousIds.length / TAILLE_LOT);
         if (prog && nbLots > 1) prog.etape('Lecture des numéros de rue', nbLots);
@@ -4036,22 +4216,28 @@
     // Index « rue|numero » → positions des numeros deja poses : c'est lui qui
     // dit qu'un RPP fait doublon. ⚠️ Accumule dans `stats` : en balayage la
     // commune arrive par cellules, un index local ne verrait que la derniere.
-    if (fairePoi) {
-      if (!stats.hnIndex) { stats.hnIndex = new Map(); stats.hnIndexVus = new Set(); }
-      for (const hn of tousHn) {
-        if (stats.hnIndexVus.has(hn.id)) continue;    // cellules qui se recouvrent
-        stats.hnIndexVus.add(hn.id);
-        const p = hn.geometry && hn.geometry.coordinates;
-        if (!p) continue;
-        const seg = segmentDe(hn.segmentId);
-        let nam = null; try { nam = seg ? readNaming(seg) : null; } catch (e) { /* hors modele */ }
-        // Un numero appartient a son segment : il est donc « sur » n'importe
-        // lequel des noms que ce segment porte, principal comme alternatif.
-        for (const nom of nomsDeVoie(nam)) {
-          const cle = cleNumeroRue(nom, hn.number);
-          if (!stats.hnIndex.has(cle)) stats.hnIndex.set(cle, []);
-          stats.hnIndex.get(cle).push({ p, numero: hn.number });
-        }
+    // ⚠️ La LISTE `stats.numeros` sert a un tout autre usage : proposer une
+    // adresse aux VRAIS POI qui n'en ont pas (`proposerAdressePoi`). Elle est
+    // remplie meme quand le controle des RPP est decoche, parce que l'audit des
+    // POI est un onglet a part, avec ses propres cases.
+    if (!stats.numeros) stats.numeros = [];
+    if (!stats.hnIndexVus) stats.hnIndexVus = new Set();
+    if (fairePoi && !stats.hnIndex) stats.hnIndex = new Map();
+    for (const hn of tousHn) {
+      if (stats.hnIndexVus.has(hn.id)) continue;      // cellules qui se recouvrent
+      stats.hnIndexVus.add(hn.id);
+      const p = hn.geometry && hn.geometry.coordinates;
+      if (!p) continue;
+      const seg = segmentDe(hn.segmentId);
+      let nam = null; try { nam = seg ? readNaming(seg) : null; } catch (e) { /* hors modele */ }
+      // Un numero appartient a son segment : il est donc « sur » n'importe
+      // lequel des noms que ce segment porte, principal comme alternatif.
+      for (const nom of nomsDeVoie(nam)) {
+        stats.numeros.push({ p, num: hn.number, rue: nom, src: 'numéro de rue' });
+        if (!stats.hnIndex) continue;
+        const cle = cleNumeroRue(nom, hn.number);
+        if (!stats.hnIndex.has(cle)) stats.hnIndex.set(cle, []);
+        stats.hnIndex.get(cle).push({ p, numero: hn.number });
       }
     }
 
@@ -4145,8 +4331,6 @@
         if (stats.poiVus) stats.poiVus.add(v.id);
         const p = centreGeom(v.geometry);
         if (!p) continue;
-        if (!dansCommune(p[0], p[1])) continue;
-        if (!dansAgglo(p[0], p[1])) continue;                  // a sa place
         let num = '', rueNom = '';
         if (v._adr) {
           num = v._adr.houseNumber || '';
@@ -4156,6 +4340,14 @@
                 num = (a && a.houseNumber) || '';
                 rueNom = (a && a.street && a.street.name) || ''; } catch (e) { /* */ }
         }
+        // ⚠️ Recense AVANT les filtres de zone : un RPP hors agglomeration porte
+        // un numero tout aussi utile pour proposer l'adresse d'un POI voisin
+        // (l'auteur, 26/07 : « le numero HN ou RPP le plus proche »).
+        if (num && rueNom && stats.numeros) {
+          stats.numeros.push({ p, num, rue: rueNom, src: 'POI résidentiel' });
+        }
+        if (!dansCommune(p[0], p[1])) continue;
+        if (!dansAgglo(p[0], p[1])) continue;                  // a sa place
         stats.poiAgglo++;
 
         // ── Les nuances de la v2.19 : ce RPP a-t-il une raison d'etre ? ──────
@@ -4856,7 +5048,15 @@
         log('analyse des numéros impossible', e); statsAdr.hnErreur = e.message || String(e);
       }
       try {
-        await analyserAdresses([], listeAgglos, statsAdr, { hn: false, poi: true }, donneesApi.venues, prog);
+        // ⚠️⚠️ LES SEGMENTS SONT INDISPENSABLES ICI DEPUIS LA v2.19 : la phase POI
+        // ne se contentait plus de regarder les POI, elle mesure QUELLE VOIE ils
+        // longent et quels numeros sont deja poses. Cet appel passait `[]` — les
+        // POI n'ayant pas besoin des segments jusque-la — et le verdict serait
+        // retombe sur « a trancher » pour TOUT LE MONDE, sans que rien ne le
+        // signale. Aucun test unitaire ne pouvait le voir : la faute etait dans
+        // le raccordement, pas dans les fonctions.
+        await analyserAdresses(donneesApi.segments, listeAgglos, statsAdr,
+                               { hn: false, poi: true }, donneesApi.venues, prog);
       } catch (e) { if (e && e.annulation) throw e; log('analyse des POI impossible', e); }
       // --- Les VRAIS POI (pas les RPP) : audit de leur adresse (v2.15) -------
       // ⚠️ Ne marche QU'EN VOIE RAPIDE : le point d'acces (`entryExitPoints`) et
@@ -4866,8 +5066,12 @@
         try {
           prog.etape('Audit des POI', 0);
           await prog.respirer(true);
+          // ⚠️ Les segments ET les numeros deja lus sont passes : c'est avec eux
+          // que se calcule la proposition d'adresse (v2.19). Sans segments, la
+          // proposition serait toujours vide — et rien ne le dirait.
           poiFindings = auditerPoi(donneesApi.venues, donneesApi.rues, donneesApi.villes,
-                                   communeActive, statsPoi);
+                                   communeActive, statsPoi,
+                                   donneesApi.segments, statsAdr.numeros || []);
         } catch (e) {
           if (e && e.annulation) throw e;
           log('audit des POI impossible', e); statsPoi.erreur = e.message || String(e);
@@ -5140,6 +5344,18 @@
    */
   function planDeCorrection(f) {
     if (f.traite) return null;
+    // --- POI : appliquer l'adresse PROPOSEE (v2.19) --------------------------
+    // ⚠️⚠️ Seul cas ou l'onglet POI ecrit quelque chose. La doctrine de la v2.15
+    // (« c'est un audit, aucune correction automatique ») tenait a ce qu'on
+    // n'avait rien de sur a proposer ; depuis qu'on sait mesurer la voie la plus
+    // proche, on propose — mais UNIQUEMENT quand aucune autre voie ne se la
+    // dispute, et JAMAIS le numero (il peut etre celui du voisin).
+    if (f.poi) {
+      if (!f.propositionAdresse || !f.propositionAdresse.rue) return null;
+      return [{ type: 'poiAdresse', venueId: f.venueId,
+                rue: f.propositionAdresse.rue, ville: f.propositionAdresse.ville,
+                segId: f.propositionAdresse.segId }];
+    }
     // --- Adressage : convertir des numeros en POI residentiels --------------
     // Regle TOUT OU RIEN : creer le POI sans retirer le numero laisserait
     // l'adresse en double, donc pire qu'avant. Si l'un des deux ne peut pas se
@@ -5572,6 +5788,42 @@
       if (!choix) return { ok: false, motif: 'choix du nom principal annule' };
       op.nom = choix.nom;
       if (choix.ville != null) op.ville = choix.ville;
+    }
+    // --- POI : ecrire l'adresse proposee (v2.19) -----------------------------
+    if (f.poi) {
+      const op = plan[0];
+      // ⚠️ Le POI et son segment doivent etre dans le modele : les objets lus
+      // par l'API n'y sont pas (cf. [[wme-sdk-pieges]]). On cadre donc d'abord,
+      // exactement comme pour les numeros, puis on laisse WME charger.
+      cadrerSur(f, true);
+      await new Promise(r => setTimeout(r, 900));
+      let ctx = {};
+      try { ctx = contexteAdresse(op.segId); }
+      catch (e) {
+        return { ok: false, motif: 'la voie « ' + op.rue + ' » n\'est pas chargée dans WME : ' +
+          'l\'État et le pays de l\'adresse ne peuvent pas être lus — réessaie, la carte vient d\'être cadrée' };
+      }
+      // ⚠️⚠️ `updateAddress` REFUSE une adresse brute sans `stateId` (erreur
+      // documentee en v2.09) : si le contexte est vide, on s'arrete AVANT
+      // d'ecrire, plutot que d'echouer a moitie.
+      if (!ctx || ctx.stateId == null) {
+        return { ok: false, motif: 'contexte administratif introuvable (État/pays) : ' +
+          'zoome sur la zone puis réessaie' };
+      }
+      try {
+        sdk.DataModel.Venues.updateAddress({ venueId: String(op.venueId),
+          addressData: Object.assign({ streetName: op.rue, cityName: op.ville }, ctx) });
+      } catch (e) {
+        return { ok: false, motif: 'adresse refusée par WME (' + (e.message || e) + ')' };
+      }
+      return { ok: true, nb: 1, ops: 1, bloques: 0,
+               // Le numero n'est jamais ecrit : on le RAPPELLE, sinon l'editeur
+               // croira l'adresse complete.
+               partiel: !!(f.propositionAdresse && f.propositionAdresse.numeroPropose),
+               avertissement: (f.propositionAdresse && f.propositionAdresse.numeroPropose)
+                 ? 'le n° ' + f.propositionAdresse.numeroPropose + ' est une piste, pas une certitude : ' +
+                   'saisis-le à la main après vérification'
+                 : '' };
     }
     if (f.adresse) {
       // Les numeros n'entrent dans le modele qu'a partir du zoom 18 : on les
@@ -7898,6 +8150,9 @@
 
     // ⚠️⚠️ PAS DE CORRECTION EN MASSE SUR LES ADRESSES (arbitrage de l'auteur,
     // 22/07) : la famille `adresse` n'a pas de bouton « ⚡ corriger » de groupe.
+    // ⚠️ `poiAdresse` en est exclue pour la meme raison depuis la v2.19 : une
+    // adresse PROPOSEE se regarde une par une, sur la carte. Appliquer vingt
+    // propositions d'un clic, c'est se priver du seul controle qui reste.
     // Convertir un numero en POI residentiel deplace la carte, cree un objet et
     // s'enchaine en general sur son point d'entree — ca se fait un par un, en
     // regardant. Le nommage des segments, lui, garde son bouton de groupe.
@@ -7927,7 +8182,8 @@
             <span class="agn-chev">▸</span>
             <span class="agn-pastille" style="background:${options.couleurs[cle] || fam.defaut}"></span>
             <b>${esc(fam.libelle)}</b>
-            ${_ft() && _fv() && cle !== 'adresse' && cle !== 'rpp' && membres.some(planDeCorrection)
+            ${_ft() && _fv() && cle !== 'adresse' && cle !== 'rpp' && cle !== 'poiAdresse' &&
+              membres.some(planDeCorrection)
               ? '<button class="agn-fix-grp" title="Appliquer toutes les corrections automatisables de ce groupe">⚡ corriger</button>' : ''}
             <span class="agn-grp-n">${membres.length}</span>
           </div>
@@ -7993,6 +8249,10 @@
         corps.appendChild(node);
       });
       ui.results.appendChild(grp);
+      // ⚠️ L'onglet POI s'ouvre DEPLIE (demande de l'auteur, 26/07). Les autres
+      // restent replies : ils comptent des centaines d'ecarts, et une liste a
+      // plat y est illisible — l'audit des POI, lui, en aligne une poignee.
+      if (vueCourante === 'poi') ouvrirGroupe(grp, true);
     }
     // Les coches restaurees d'une session precedente comptent : une thematique
     // deja finie doit s'afficher comme telle des le rendu.

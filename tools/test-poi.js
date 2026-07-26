@@ -58,14 +58,25 @@ function monter(controles) {
     relire('POI_CATEGORIES_NATURELLES'),
     'const options = { controles: ' + JSON.stringify(controles) + ' };',
     'const esc = s => String(s == null ? "" : s);',
+    // `readNaming` retombe sur le SDK quand un segment n'a pas de `_nam` ; nos
+    // segments de test en portent un, la doublure evite juste l'explosion.
+    'const sdk = { DataModel: { Segments: { getAddress(){ return null; } } } };',
     'const TOL_MITOYEN_M = 12; const DEG_PAR_M = 1 / 111320;',
     'let cacheCotes = { code: null, cotes: null };',
     extraire('pointInRing'), extraire('pointInRings'), extraire('pointInGeom'),
     extraire('cotesDuContour'), extraire('distanceALaLimite'),
     extraire('positionPoi'), extraire('sommetsDe'), extraire('poiDansCommune'),
     'function libelleCategorie(c){ return c || "POI"; }',
+    // v2.19 : `auditerPoi` propose desormais une adresse aux POI incomplets.
+    // ⚠️ Les constantes sont RELUES dans le source, jamais recopiees.
+    relire('RPP_MARGE_VOIE_M'), relire('POI_PORTEE_VOIE_M'),
+    relire('POI_MARGE_VOIE_M'), relire('POI_PORTEE_NUM_M'),
+    'const distanceM = (a, b) => Math.hypot((a[0]-b[0]) * 111320 * Math.cos((a[1]+b[1]) * Math.PI / 360), (a[1]-b[1]) * 110540);',
+    extraire('distPointSegment'), extraire('distanceAuTrace'), extraire('readNaming'),
+    relire('RE_ROUTE'),
+    extraire('numeroLePlusProche'), extraire('proposerAdressePoi'),
     extraire('auditerPoi'),
-    'return { auditerPoi, positionPoi, poiDansCommune };'
+    'return { auditerPoi, positionPoi, poiDansCommune, proposerAdressePoi };'
   ].join('\n');
   return new Function(code)();
 }
@@ -250,6 +261,139 @@ verifier('21. et il tombe au centre de la zone à ~50 m près',
 em = empriseDe({ type: 'MultiPolygon', coordinates: [ZONE.coordinates] });
 verifier('22. MultiPolygon — centre calculable aussi',
          [isFinite(em.centre.lon), Math.abs(em.centre.lat - 44.06) < 5e-4], [true, true]);
+
+// ===========================================================================
+// PROPOSER UNE ADRESSE A UN POI QUI N'EN A PAS (v2.19)
+//
+// ⚠️ Ce que ces tests protegent : la proposition sera appliquee d'un CLIC. Une
+// proposition fausse est donc pire que pas de proposition du tout. La regle
+// posee par l'auteur (26/07) est « pas de match pertinent ⇒ l'utilisateur prend
+// ses responsabilites » — c'est le drapeau `fiable` qui l'incarne.
+// ===========================================================================
+lignes.push('\n=== Proposition d\'adresse (v2.19) ===');
+const apiProp = api;
+const { proposerAdressePoi } = apiProp;
+
+// Deux rues paralleles a 110 m, comme dans test-rpp-agglo. 0,0001° lat = 11 m.
+const rue = (nom, lat, ville) => ({ id: nom,
+  geometry: { type: 'LineString', coordinates: [[4.700, lat], [4.720, lat]] },
+  _nam: { primary: { name: nom, cityName: ville || 'Saint-Laurent-des-Arbres' }, alts: [] } });
+const R_POSTE = rue('Rue de la Poste', 44.0600);
+const R_MOULIN = rue('Rue du Moulin', 44.0610);            // 110 m au nord
+const ALLEE = { id: 'a', geometry: { type: 'LineString', coordinates: [[4.700, 44.06002], [4.720, 44.06002]] },
+                _nam: { primary: { name: '', cityName: '' }, alts: [] } };
+const RESEAU = [R_POSTE, R_MOULIN];
+
+{
+  const p = proposerAdressePoi([4.710, 44.0601], RESEAU, []);
+  verifier('23. la voie nommée la plus proche est proposée', p.rue, 'Rue de la Poste');
+  verifier('23. et la proposition est nette', p.fiable, true);
+  verifier('23. la distance est rendue (11 m)', Math.round(p.dist), 11);
+}
+{
+  // POI a mi-chemin : les deux rues se le disputent ⇒ piste, pas proposition.
+  const p = proposerAdressePoi([4.710, 44.0605], RESEAU, []);
+  verifier('24. deux voies à égalité ⇒ pas fiable', p.fiable, false);
+  verifier('24. mais la piste est quand même rendue', !!p.rue, true);
+}
+{
+  // ⚠️ Le segment le PLUS PROCHE est une allee anonyme : elle ne fournit aucune
+  // adresse. Mesure a Saint-Laurent : c'est le cas le plus frequent.
+  const p = proposerAdressePoi([4.710, 44.06003], [ALLEE, R_POSTE, R_MOULIN], []);
+  verifier('25. une allée sans nom ne fournit pas d\'adresse', p.rue, 'Rue de la Poste');
+}
+verifier('26. aucune voie nommée à portée ⇒ aucune proposition',
+  proposerAdressePoi([4.710, 44.0640], RESEAU, []), null);
+{
+  // ⚠️⚠️ UN NUMERO DE ROUTE N'EST PAS UNE ADRESSE (doctrine de `rueDuPoi`).
+  // Releve du 26/07 : sans ce filtre, « D121 » etait propose comme rue au camp
+  // militaire de Saint-Laurent-des-Arbres.
+  const D121 = rue('D121', 44.06005);            // plus proche que la Rue de la Poste
+  const p = proposerAdressePoi([4.710, 44.0601], [D121, R_POSTE, R_MOULIN], []);
+  verifier('26bis. un numéro de route n\'est jamais proposé comme rue', p.rue, 'Rue de la Poste');
+  const seule = proposerAdressePoi([4.710, 44.0601], [D121], []);
+  verifier('26bis. et s\'il n\'y a que lui, on ne propose RIEN', seule, null);
+}
+verifier('27. sans position (POI sans géométrie exploitable) ⇒ rien',
+  proposerAdressePoi(null, RESEAU, []), null);
+
+// Le NUMERO : seulement s'il est sur la voie retenue ET tout pres.
+const NUMS = [
+  { p: [4.7101, 44.0600], num: '12', rue: 'Rue de la Poste', src: 'numéro de rue' },
+  { p: [4.7100, 44.0610], num: '99', rue: 'Rue du Moulin', src: 'POI résidentiel' }
+];
+{
+  const p = proposerAdressePoi([4.710, 44.0601], RESEAU, NUMS);
+  verifier('28. le numéro proche, sur la voie retenue, est proposé', p.numero.num, '12');
+  verifier('28. avec sa distance', p.numero.dist < 30, true);
+}
+{
+  // Le n° 99 est sur l'AUTRE rue : il ne dit rien de ce lieu, meme s'il existe.
+  const p = proposerAdressePoi([4.710, 44.0601], RESEAU, [NUMS[1]]);
+  verifier('29. un numéro d\'une autre rue n\'est jamais repris', p.numero, null);
+}
+{
+  const loin = [{ p: [4.7150, 44.0600], num: '80', rue: 'Rue de la Poste' }];
+  const p = proposerAdressePoi([4.710, 44.0601], RESEAU, loin);
+  verifier('30. un numéro trop loin sur la bonne rue n\'est pas repris', p.numero, null);
+}
+
+// ── Integration : ce que voit l'editeur ────────────────────────────────────
+{
+  const stats = { poiAudites: 0, poiHorsCommune: 0, poiNaturels: 0, poiBati: 0, poiConformes: 0 };
+  // POI sans rue du tout, pose le long de la Rue de la Poste.
+  const poi = POI({ streetID: null, houseNumber: '',
+                    geometry: { type: 'Point', coordinates: [4.710, 44.0601] } });
+  const out = apiProp.auditerPoi([poi], RUES, VILLES, COMMUNE, stats, RESEAU, NUMS);
+  const e = out[0].ecarts.find(x => x.champ === 'adresse absente');
+  verifier('31. l\'écart porte la proposition', /^proposition : Rue de la Poste/.test(e.apres), true);
+  verifier('31. la commune proposée est celle du contour INSEE',
+    /\/ Saint-Laurent-des-Arbres/.test(e.apres), true);
+  verifier('31. le numéro apparaît comme une QUESTION, pas comme un fait',
+    /n° 12 \?/.test(e.apres), true);
+  verifier('31. la proposition est applicable', !!out[0].propositionAdresse, true);
+  verifier('31. ⚠️ mais JAMAIS le numéro', out[0].propositionAdresse.numeroPropose, '12');
+  verifier('31. et l\'aide explique d\'où elle sort', out[0].aide.length > 0, true);
+}
+{
+  const stats = { poiAudites: 0, poiHorsCommune: 0, poiNaturels: 0, poiBati: 0, poiConformes: 0 };
+  // Le meme POI, mais a mi-chemin entre deux rues : rien d'applicable.
+  const poi = POI({ streetID: null, houseNumber: '',
+                    geometry: { type: 'Point', coordinates: [4.710, 44.0605] } });
+  const out = apiProp.auditerPoi([poi], RUES, VILLES, COMMUNE, stats, RESEAU, NUMS);
+  const e = out[0].ecarts.find(x => x.champ === 'adresse absente');
+  verifier('32. ⚠️ ambigu : le texte dit que rien ne se détache',
+    /^aucune voie ne se détache/.test(e.apres), true);
+  verifier('32. ⚠️ et AUCUN bouton n\'est proposé', out[0].propositionAdresse, null);
+}
+{
+  // ── Le NUMERO absent : c'est la que la proposition sert le plus (43 cas
+  // mesures a Saint-Laurent-des-Arbres, contre 10 d'adresse incomplete).
+  const stats = { poiAudites: 0, poiHorsCommune: 0, poiNaturels: 0, poiBati: 0, poiConformes: 0 };
+  const poi = POI({ streetID: 10, houseNumber: '',      // rue connue, numero absent
+                    geometry: { type: 'Point', coordinates: [4.7101, 44.0601] } });
+  const nums = [{ p: [4.7101, 44.0600], num: '12', rue: 'Rue de la Poste', src: 'numéro de rue' }];
+  const out = apiProp.auditerPoi([poi], RUES, VILLES, COMMUNE, stats, RESEAU, nums)
+    // ⚠️ le controle « numero » est decoche par defaut : on le coche ici.
+    ;
+  const outNum = monter(TOUS).auditerPoi([poi], RUES, VILLES, COMMUNE,
+    { poiAudites: 0, poiHorsCommune: 0, poiNaturels: 0, poiBati: 0, poiConformes: 0 }, RESEAU, nums);
+  const e = outNum[0].ecarts.find(x => x.champ === 'numéro absent');
+  verifier('34. le numéro le plus proche de SA rue est proposé', /^n° 12 \?/.test(e.apres), true);
+  verifier('34. avec sa distance et sa provenance', /m, numéro de rue\)/.test(e.apres), true);
+  verifier('34. contrôle décoché ⇒ pas d\'écart de numéro',
+    out.length ? !out[0].ecarts.some(x => x.champ === 'numéro absent') : true, true);
+}
+{
+  const stats = { poiAudites: 0, poiHorsCommune: 0, poiNaturels: 0, poiBati: 0, poiConformes: 0 };
+  // Sans segments (mode balayage) : on ne propose rien, on ne plante pas.
+  const poi = POI({ streetID: null, houseNumber: '',
+                    geometry: { type: 'Point', coordinates: [4.710, 44.0601] } });
+  const out = apiProp.auditerPoi([poi], RUES, VILLES, COMMUNE, stats, [], []);
+  const e = out[0].ecarts.find(x => x.champ === 'adresse absente');
+  verifier('33. sans segments : message d\'origine, aucun bouton',
+    [/renseigner la rue/.test(e.apres), out[0].propositionAdresse], [true, null]);
+}
 
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(66));
