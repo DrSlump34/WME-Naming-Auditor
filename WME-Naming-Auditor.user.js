@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.06
+// @version      2.07
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -275,7 +275,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '2.06';
+    return '2.07';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -2198,11 +2198,11 @@
                    value="${esc(commune)}" autocomplete="off"
                    placeholder="Choisis une ville, ou saisis un nom">
             <div class="agn-note" id="agn-na-apercu"></div>
-            <label class="agn-sb-c"><input type="checkbox" id="agn-na-rat">
+            <label class="agn-sb-c"><input type="checkbox" id="agn-na-rat" title="Village rattaché : le nom appliqué devient « Village (Commune) » au lieu du seul nom de la commune INSEE">
               Village rattache (ville = « Village (Commune) »)</label>
             <button class="agn-btn primary" id="agn-na-ok">Créer ce polygone</button>
             <button class="agn-btn" id="agn-na-skip">Passer celui-ci</button>
-            <button class="agn-btn" id="agn-na-stop">Tout arreter</button>
+            <button class="agn-btn" id="agn-na-stop">Tout arrêter</button>
           </div>
         </div>`);
       document.body.appendChild(boite);
@@ -2765,8 +2765,8 @@
         { cle: 'rocades', portee: 'type', libelle: 'Rocades et périphériques : jamais de ville' },
         { cle: 'giratoires', portee: 'type', libelle: 'Giratoires : sans nom (ville selon la zone)' },
         { cle: 'abreviations', portee: 'forme', libelle: 'Abréviations interdites (Av., Bd., Rte...)' },
-        { cle: 'contractions', portee: 'forme', libelle: 'Contractions interdites (St-, R. Poincare)' },
-        { cle: 'majuscule', portee: 'forme', libelle: 'Nom commencant par une minuscule' },
+        { cle: 'contractions', portee: 'forme', libelle: 'Contractions interdites (St-, R. Poincaré)' },
+        { cle: 'majuscule', portee: 'forme', libelle: 'Nom commençant par une minuscule' },
         { cle: 'fonctionDirection', portee: 'forme', libelle: 'Fonction ou direction dans le nom' },
         { cle: 'hnHorsAgglo', portee: 'adresse',
           libelle: 'Numéros de rue (HN) hors agglomération' },
@@ -4421,8 +4421,8 @@
             ${options.map((o, i) => `<button class="agn-btn ${o.fort ? 'primary' : ''}" data-i="${i}">${o.libelle}</button>`).join('')}
             <div class="agn-modale-saisie">
               <div class="agn-note">${r.saisieRequise ? 'Nom de la rue' : 'Ou saisir une autre adresse'}</div>
-              <input type="text" id="agn-saisie-nom" placeholder="Nom de la rue…" autocomplete="off">
-              <select class="agn-sel" id="agn-saisie-ville">
+              <input type="text" id="agn-saisie-nom" placeholder="Nom de la rue…" autocomplete="off" title="Le nom de voie à donner à cette adresse. Il sera écrit tel quel.">
+              <select class="agn-sel" id="agn-saisie-ville" title="Laisse vide pour que chaque numéro prenne la commune où il tombe géographiquement">
                 <option value="">Commune selon la position de chaque numéro</option>
                 ${villesSaisie.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('')}
               </select>
@@ -4638,7 +4638,23 @@
   // des qu'on selectionne un segment : inutilisable pour travailler)
   // ---------------------------------------------------------------------------
 
-  const CSS = `
+  const CSS = `  /* ─── Charte (v2.07) ────────────────────────────────────────────────────
+     Une echelle de 4 tailles (10/11/12/13) et de 4 rayons (3/4/6/8), et des
+     couleurs nommees. Avant : 8 tailles dont des demi-pixels arbitraires,
+     8 rayons, 61 couleurs en dur.
+     ⚠️ Definies sur :root parce que nos elements vivent dans TROIS racines
+     DOM distinctes (fenetre flottante, volet, panneau lateral de WME) : c'est
+     le seul point commun qui les fasse heriter.
+     ⚠️ Chaque usage porte son fallback — var(--agn-bleu, #1e88e5) — pour
+     qu'une variable manquante ne fasse jamais disparaitre une couleur. */
+  :root{
+    --agn-texte:#1f2933; --agn-gris:#546e7a; --agn-gris-clair:#78909c;
+    --agn-gris-titre:#607d8b; --agn-gris-pale:#b0bec5;
+    --agn-bord:#cfd8dc; --agn-fond-doux:#eceff1; --agn-fond-survol:#f5f7f9;
+    --agn-bleu:#1e88e5; --agn-bleu-fonce:#1565c0;
+    --agn-vert:#2e7d32; --agn-rouge:#c62828; --agn-orange:#e65100;
+    --agn-brun:#a34a00; --agn-ambre:#ffb300;
+  }
   /* Une hauteur par defaut est nécessaire : sans elle la fenêtre grandit avec
      la liste et deborde par le bas de l'ecran au lieu de faire defiler. */
   /* La fenêtre descend desormais bas dans l'ecran : la liste des écarts est
@@ -4647,11 +4663,11 @@
      calc(100vh - …) ignore le pied de page de WME (« Conditions | Mentions
      legales | … », 20 px) et la fenêtre passait dessus. */
   #agn-overlay{position:fixed;z-index:9000;width:400px;min-width:300px;min-height:200px;
-    background:#fff;border:1px solid #b0bec5;border-radius:8px;
+    background:#fff;border:1px solid var(--agn-gris-pale, #b0bec5);border-radius:8px;
     box-shadow:0 6px 26px rgba(0,0,0,.28);display:flex;flex-direction:column;
-    font:12px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1f2933;
+    font:12px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--agn-texte, #1f2933);
     resize:both;overflow:hidden}
-  #agn-main{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;overflow:hidden;border-radius:7px}
+  #agn-main{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;overflow:hidden;border-radius:6px}
   /* Repliee, la fenêtre se limite a son en-tete : le min-height de travail
      n'a plus lieu d'être. */
   #agn-overlay.agn-replie{min-height:0;height:auto}
@@ -4661,35 +4677,35 @@
      poignee de redimensionnement cesse alors de fonctionner. Sa position est
      donc calculee a la main (voir placerVolet). */
   #agn-volet{position:fixed;z-index:9001;width:300px;
-    background:#fff;border:1px solid #b0bec5;border-radius:8px;box-shadow:0 6px 26px rgba(0,0,0,.28);
+    background:#fff;border:1px solid var(--agn-gris-pale, #b0bec5);border-radius:8px;box-shadow:0 6px 26px rgba(0,0,0,.28);
     display:none;flex-direction:column;overflow:hidden;
-    font:12px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1f2933}
+    font:12px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--agn-texte, #1f2933)}
   #agn-volet.agn-volet-ouvert{display:flex}
   #agn-volet-in{padding:10px 12px 14px;overflow-y:auto;flex:1 1 auto;min-height:0}
   .agn-volet-t{font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.05em;
-    color:#546e7a;margin-bottom:8px;border-bottom:1px solid #eceff1;padding-bottom:5px}
+    color:var(--agn-gris, #546e7a);margin-bottom:8px;border-bottom:1px solid var(--agn-fond-doux, #eceff1);padding-bottom:5px}
   /* Le bouton du volet vit dans la barre d'onglets, PAS dans l'en-tete : la
      ligne de titre n'a pas la place et il la rendait illisible des que la
      fenêtre retrecissait (signale par l'auteur). */
   #agn-données{flex:0 0 auto;width:30px;padding:7px 0;border:none;background:none;cursor:pointer;
-    font-size:13px;color:#546e7a;border-right:1px solid #cfd8dc;border-bottom:2px solid transparent}
+    font-size:13px;color:var(--agn-gris, #546e7a);border-right:1px solid var(--agn-bord, #cfd8dc);border-bottom:2px solid transparent}
   #agn-données:hover{background:#e3eaf0}
-  #agn-données.agn-on{background:#fff;color:#1565c0;border-bottom-color:#1e88e5}
+  #agn-données.agn-on{background:#fff;color:var(--agn-bleu-fonce, #1565c0);border-bottom-color:var(--agn-bleu, #1e88e5)}
   /* Onglets : on ne montre JAMAIS les deux familles d'écarts en même temps —
      melangees, la liste devient illisible (demande de l'auteur). */
-  #agn-onglets{display:flex;gap:0;flex:0 0 auto;border-bottom:1px solid #cfd8dc;background:#eceff1}
+  #agn-onglets{display:flex;gap:0;flex:0 0 auto;border-bottom:1px solid var(--agn-bord, #cfd8dc);background:var(--agn-fond-doux, #eceff1)}
   .agn-tab{flex:1;padding:7px 6px;border:none;border-bottom:2px solid transparent;background:none;
-    cursor:pointer;font-size:11.5px;color:#546e7a;font-weight:600}
+    cursor:pointer;font-size:11px;color:var(--agn-gris, #546e7a);font-weight:600}
   .agn-tab:hover{background:#e3eaf0}
-  .agn-tab.agn-tab-on{background:#fff;color:#1565c0;border-bottom-color:#1e88e5}
-  .agn-tab-n{display:inline-block;min-width:16px;padding:0 5px;margin-left:3px;border-radius:9px;
-    background:#b0bec5;color:#fff;font-size:10px;font-weight:700}
-  .agn-tab.agn-tab-on .agn-tab-n{background:#1e88e5}
-  #agn-tete{display:flex;align-items:center;gap:8px;padding:7px 10px;background:#1e88e5;color:#fff;
-    border-radius:7px 7px 0 0;cursor:move;user-select:none;flex:0 0 auto;overflow:hidden}
+  .agn-tab.agn-tab-on{background:#fff;color:var(--agn-bleu-fonce, #1565c0);border-bottom-color:var(--agn-bleu, #1e88e5)}
+  .agn-tab-n{display:inline-block;min-width:16px;padding:0 5px;margin-left:3px;border-radius:8px;
+    background:var(--agn-gris-pale, #b0bec5);color:#fff;font-size:10px;font-weight:700}
+  .agn-tab.agn-tab-on .agn-tab-n{background:var(--agn-bleu, #1e88e5)}
+  #agn-tete{display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--agn-bleu, #1e88e5);color:#fff;
+    border-radius:6px 6px 0 0;cursor:move;user-select:none;flex:0 0 auto;overflow:hidden}
   #agn-tete button{flex:0 0 auto}
   /* Le titre cede la place plutot que de pousser les boutons hors de la vue. */
-  #agn-tete b{font-size:12.5px;flex:0 1 auto;min-width:0;overflow:hidden;
+  #agn-tete b{font-size:12px;flex:0 1 auto;min-width:0;overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap}
   #agn-tete .agn-v{opacity:.75;font-size:11px;flex:0 0 auto}
   #agn-tete .agn-sp{flex:1}
@@ -4700,15 +4716,15 @@
      descendre sous la hauteur de son contenu, donc il pousse la fenêtre au
      lieu de faire defiler la liste. */
   #agn-corps{padding:10px 12px 14px;overflow-y:auto;flex:1 1 auto;min-height:0}
-  #agn-corps h3{font-size:11px;margin:13px 0 5px;text-transform:uppercase;letter-spacing:.05em;color:#607d8b}
+  #agn-corps h3{font-size:11px;margin:13px 0 5px;text-transform:uppercase;letter-spacing:.05em;color:var(--agn-gris-titre, #607d8b)}
   #agn-corps h3:first-child{margin-top:0}
-  .agn-sect{border:1px solid #e3e7ea;border-radius:5px;margin-bottom:6px;overflow:hidden}
-  .agn-sect-t{display:flex;align-items:center;gap:7px;padding:6px 8px;background:#f5f7f9;
-    cursor:pointer;user-select:none;font-size:11.5px}
-  .agn-sect-t:hover{background:#eceff1}
-  .agn-sect-t .agn-chev{color:#78909c;width:9px;flex:0 0 auto}
-  .agn-sect-t b{flex:1;font-weight:600;text-transform:uppercase;letter-spacing:.03em;font-size:10.5px;color:#546e7a}
-  .agn-sect-r{font-size:11px;color:#1565c0;font-weight:600;max-width:180px;overflow:hidden;
+  .agn-sect{border:1px solid #e3e7ea;border-radius:4px;margin-bottom:6px;overflow:hidden}
+  .agn-sect-t{display:flex;align-items:center;gap:7px;padding:6px 8px;background:var(--agn-fond-survol, #f5f7f9);
+    cursor:pointer;user-select:none;font-size:11px}
+  .agn-sect-t:hover{background:var(--agn-fond-doux, #eceff1)}
+  .agn-sect-t .agn-chev{color:var(--agn-gris-clair, #78909c);width:9px;flex:0 0 auto}
+  .agn-sect-t b{flex:1;font-weight:600;text-transform:uppercase;letter-spacing:.03em;font-size:11px;color:var(--agn-gris, #546e7a)}
+  .agn-sect-r{font-size:11px;color:var(--agn-bleu-fonce, #1565c0);font-weight:600;max-width:180px;overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap}
   .agn-sect-c{padding:7px 8px 9px}
   .agn-sect.agn-ferme .agn-sect-t{background:#eef4fa}
@@ -4716,22 +4732,22 @@
     background:#fff;cursor:pointer;font-size:12px;color:inherit}
   .agn-btn:hover:not(:disabled){background:#f3f3f3}
   .agn-btn:disabled{opacity:.45;cursor:default}
-  .agn-btn.primary{background:#1e88e5;color:#fff;border-color:#1976d2;font-weight:600}
+  .agn-btn.primary{background:var(--agn-bleu, #1e88e5);color:#fff;border-color:#1976d2;font-weight:600}
   .agn-btn.primary:disabled{background:#9e9e9e;border-color:#9e9e9e}
   .agn-sel{width:100%;box-sizing:border-box;padding:5px;font-size:12px;margin:3px 0;
     border:1px solid #bbb;border-radius:4px;background:#fff}
-  .agn-sel optgroup{font-style:normal;font-weight:700;color:#546e7a}
+  .agn-sel optgroup{font-style:normal;font-weight:700;color:var(--agn-gris, #546e7a)}
   .agn-sel optgroup option{font-weight:400;color:initial}
   .agn-filtre{width:100%;box-sizing:border-box;padding:4px 6px;font-size:12px;margin:0 0 2px;
-    border:1px solid #cfd8dc;border-radius:4px}
-  .agn-filtre:focus{border-color:#1e88e5;outline:none}
-  .agn-note{font-size:10.5px;color:#78909c;margin:2px 0}
+    border:1px solid var(--agn-bord, #cfd8dc);border-radius:4px}
+  .agn-filtre:focus{border-color:var(--agn-bleu, #1e88e5);outline:none}
+  .agn-note{font-size:11px;color:var(--agn-gris-clair, #78909c);margin:2px 0}
   .agn-deps{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:0 6px;
     max-height:120px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:4px;margin:4px 0;background:#fafafa}
   .agn-dep{display:flex;align-items:center;gap:4px;font-size:11px;padding:1px 2px;cursor:pointer;border-radius:3px}
-  .agn-dep:hover{background:#eceff1}
-  .agn-dep code{color:#78909c;font-size:10px;min-width:20px}
-  .agn-dep-chip{display:inline-block;background:#2e7d32;color:#fff;border-radius:9px;
+  .agn-dep:hover{background:var(--agn-fond-doux, #eceff1)}
+  .agn-dep code{color:var(--agn-gris-clair, #78909c);font-size:10px;min-width:20px}
+  .agn-dep-chip{display:inline-block;background:var(--agn-vert, #2e7d32);color:#fff;border-radius:8px;
     padding:0 6px;margin:1px 2px 0 0;font-size:10px;font-weight:700}
   .agn-dep span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .agn-poly{border:1px solid #ddd;border-radius:4px;padding:6px;margin:5px 0;background:#fafafa}
@@ -4740,7 +4756,7 @@
   .agn-row label{flex:1;font-size:11px}
   .agn-mini{border:none;background:none;cursor:pointer;font-size:12px;padding:2px 4px;opacity:.7}
   .agn-mini:hover{opacity:1}
-  .agn-stat{background:#eceff1;border-radius:4px;padding:6px 8px;margin:6px 0;font-size:11px}
+  .agn-stat{background:var(--agn-fond-doux, #eceff1);border-radius:4px;padding:6px 8px;margin:6px 0;font-size:11px}
   /* Progression. Bleu franc : c'est du travail en cours, ni une alerte (orange)
      ni un résultat (vert). Les chiffres en chasse fixe pour qu'ils ne dansent
      pas d'un rafraichissement a l'autre. */
@@ -4751,7 +4767,7 @@
     text-overflow:ellipsis;white-space:nowrap}
   .agn-prog-pct{flex:0 0 auto;font-variant-numeric:tabular-nums}
   .agn-prog-bar{height:6px;background:#bbdefb;border-radius:3px;overflow:hidden;margin:4px 0 3px}
-  .agn-prog-bar > i{display:block;height:100%;width:0;background:#1e88e5;border-radius:3px;
+  .agn-prog-bar > i{display:block;height:100%;width:0;background:var(--agn-bleu, #1e88e5);border-radius:3px;
     transition:width .15s linear}
   /* Attente de duree inconnue (appel réseau, lecture de fichier) : la barre
      glisse au lieu d'afficher un pourcentage invente. */
@@ -4759,38 +4775,38 @@
   @keyframes agn-glisse{0%{margin-left:-35%}100%{margin-left:100%}}
   .agn-prog-b{display:flex;align-items:center;gap:6px}
   .agn-prog-d{flex:1 1 auto;opacity:.8;font-variant-numeric:tabular-nums}
-  .agn-prog-x{flex:0 0 auto;border:1px solid #ef9a9a;background:#fff;color:#c62828;border-radius:3px;
-    cursor:pointer;font-size:10.5px;padding:1px 7px}
+  .agn-prog-x{flex:0 0 auto;border:1px solid #ef9a9a;background:#fff;color:var(--agn-rouge, #c62828);border-radius:3px;
+    cursor:pointer;font-size:11px;padding:1px 7px}
   .agn-prog-x:hover:not(:disabled){background:#ffebee}
   .agn-prog-x:disabled{opacity:.6;cursor:default}
   .agn-prog-info{opacity:.75;margin-top:2px}
   .agn-prog-info:empty{display:none}
-  .agn-prog-note{color:#a34a00;font-weight:600;margin-top:3px}
+  .agn-prog-note{color:var(--agn-brun, #a34a00);font-weight:600;margin-top:3px}
   .agn-prog-note:empty{display:none}
-  .agn-alerte{background:#fff3e0;border:1px solid #ffb74d;color:#a34a00}
-  .agn-ok{background:#e8f5e9;border:1px solid #a5d6a7;color:#2e7d32}
+  .agn-alerte{background:#fff3e0;border:1px solid #ffb74d;color:var(--agn-brun, #a34a00)}
+  .agn-ok{background:#e8f5e9;border:1px solid #a5d6a7;color:var(--agn-vert, #2e7d32)}
   .agn-item{border:1px solid #e0e0e0;border-left-width:4px;border-radius:3px;padding:5px 7px;margin:4px 0;
     cursor:pointer;background:#fff}
   .agn-item:hover{background:#f6f9ff}
-  .agn-item.agn-actif{background:#fff8e1;border-color:#ffb300;border-left-color:#ff6f00;box-shadow:0 0 0 1px #ffb300}
+  .agn-item.agn-actif{background:#fff8e1;border-color:var(--agn-ambre, #ffb300);border-left-color:#ff6f00;box-shadow:0 0 0 1px var(--agn-ambre, #ffb300)}
   .agn-item.agn-traite{background:#e8f5e9;border-color:#a5d6a7}
   .agn-item.agn-traite .agn-h > span:first-child{text-decoration:line-through;opacity:.6}
   .agn-item.agn-traite .agn-d,.agn-item.agn-traite .agn-warn{opacity:.45}
-  .agn-fix-btn{border:1px solid #ffe082;background:#fffde7;color:#e65100;border-radius:3px;cursor:pointer;
+  .agn-fix-btn{border:1px solid #ffe082;background:#fffde7;color:var(--agn-orange, #e65100);border-radius:3px;cursor:pointer;
     font-size:11px;padding:0;line-height:15px;flex:0 0 auto;width:20px;text-align:center}
-  .agn-fix-btn:hover{background:#fff8e1;border-color:#ffb300}
-  .agn-fix-grp{border:1px solid #ffe082;background:#fffde7;color:#e65100;border-radius:3px;cursor:pointer;
+  .agn-fix-btn:hover{background:#fff8e1;border-color:var(--agn-ambre, #ffb300)}
+  .agn-fix-grp{border:1px solid #ffe082;background:#fffde7;color:var(--agn-orange, #e65100);border-radius:3px;cursor:pointer;
     font-size:10px;padding:1px 6px;flex:0 0 auto;margin-right:2px}
-  .agn-fix-grp:hover{background:#fff8e1;border-color:#ffb300}
-  .agn-ok-btn{border:1px solid #c8e6c9;background:#fff;color:#2e7d32;border-radius:3px;cursor:pointer;
+  .agn-fix-grp:hover{background:#fff8e1;border-color:var(--agn-ambre, #ffb300)}
+  .agn-ok-btn{border:1px solid #c8e6c9;background:#fff;color:var(--agn-vert, #2e7d32);border-radius:3px;cursor:pointer;
     font-size:11px;padding:0;line-height:15px;flex:0 0 auto;width:20px;text-align:center}
   .agn-ok-btn:hover{background:#e8f5e9}
-  .agn-item.agn-traite .agn-ok-btn{background:#2e7d32;color:#fff;border-color:#2e7d32}
+  .agn-item.agn-traite .agn-ok-btn{background:var(--agn-vert, #2e7d32);color:#fff;border-color:var(--agn-vert, #2e7d32)}
   /* Ligne traitée : plus d'eclair non plus — il ne ferait rien. */
   .agn-item.agn-traite .agn-fix-btn{display:none}
-  .agn-traites{color:#2e7d32;font-weight:600}
-  .agn-nb{color:#1565c0;font-weight:700}
-  .agn-lock{color:#c62828;font-weight:700}
+  .agn-traites{color:var(--agn-vert, #2e7d32);font-weight:600}
+  .agn-nb{color:var(--agn-bleu-fonce, #1565c0);font-weight:700}
+  .agn-lock{color:var(--agn-rouge, #c62828);font-weight:700}
   .agn-cartouche{border-left-color:#fbc02d}
   .agn-a{border-left-color:#8e24aa}
   #agn-poignees{position:fixed;inset:0;z-index:8500;pointer-events:none}
@@ -4801,10 +4817,10 @@
   .agn-poi-m:hover{background:#fff;transform:translate(-50%,-50%) scale(1.3)}
   .agn-poly.agn-en-édition{border-color:#e91e63;box-shadow:0 0 0 1px #e91e63}
   .agn-edit-barre{margin-top:6px;padding-top:6px;border-top:1px dashed #e0e0e0}
-  .agn-edit-barre span{display:block;font-size:10px;color:#78909c;margin-bottom:4px}
+  .agn-edit-barre span{display:block;font-size:10px;color:var(--agn-gris-clair, #78909c);margin-bottom:4px}
   .agn-edit-barre button{display:inline-block;width:auto;margin-right:5px}
   .agn-forme{border-left-color:#00acc1}
-  .agn-special{border-left-color:#546e7a}
+  .agn-special{border-left-color:var(--agn-gris, #546e7a)}
   .agn-giratoire{border-left-color:#00e676}
   /* Le libelle absorbe la largeur disponible et le badge a une largeur
      minimale : sans ca, la coche se decale selon la longueur du nom et la
@@ -4814,7 +4830,7 @@
   .agn-item .agn-cas{font-size:10px;background:#eee;border-radius:3px;padding:1px 5px;font-weight:600;
     white-space:nowrap;flex:0 0 auto;min-width:38px;text-align:center}
   .agn-item .agn-d{font-size:11px;margin-top:3px;opacity:.85}
-  .agn-item .agn-warn{color:#c62828;font-size:11px;margin-top:3px}
+  .agn-item .agn-warn{color:var(--agn-rouge, #c62828);font-size:11px;margin-top:3px}
   /* Marche a suivre manuelle : ce n'est ni une alerte (rouge) ni un écart —
      c'est une consigne. Bleu discret, pour qu'elle se lise sans crier. */
   .agn-item .agn-aide{color:#0d47a1;background:#e8f2fd;border-left:3px solid #90caf9;
@@ -4823,12 +4839,12 @@
      distinguer d'un coup d'oeil, l'éditeur choisit, il ne lit pas un pave. */
   .agn-item .agn-aide-l{position:relative;padding-left:11px;margin-top:3px}
   .agn-item .agn-aide-l::before{content:'▸';position:absolute;left:0;opacity:.65}
-  .agn-c1,.agn-c2,.agn-c3,.agn-c4,.agn-r1,.agn-r2,.agn-r3,.agn-r4{border-left-color:#1e88e5}
+  .agn-c1,.agn-c2,.agn-c3,.agn-c4,.agn-r1,.agn-r2,.agn-r3,.agn-r4{border-left-color:var(--agn-bleu, #1e88e5)}
   .agn-h5,.agn-h6,.agn-h7,.agn-h8,.agn-h9{border-left-color:#8e24aa}
   .agn-eb10{border-left-color:#f57c00}
   .agn-lim{border-left-color:#00897b}
   #agn-bulle{position:fixed;z-index:9600;display:none;max-width:420px;pointer-events:none;
-    background:#263238;color:#eceff1;border-radius:6px;padding:8px 10px;
+    background:#263238;color:var(--agn-fond-doux, #eceff1);border-radius:6px;padding:8px 10px;
     box-shadow:0 4px 18px rgba(0,0,0,.45);font:11.5px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
   #agn-bulle .agn-b-t{display:flex;align-items:center;gap:6px;font-weight:700;font-size:12px;margin-bottom:4px}
   #agn-bulle .agn-cas{background:rgba(255,255,255,.18);border-radius:3px;padding:1px 5px;font-size:10px}
@@ -4837,33 +4853,33 @@
   #agn-bulle .agn-b-w{color:#ffab91;margin-top:4px}
   #agn-bulle .agn-b-ok{color:#a5d6a7;margin-top:4px}
   .agn-grp{border:1px solid #e0e0e0;border-radius:4px;margin:5px 0;overflow:hidden}
-  .agn-grp-t{display:flex;align-items:center;gap:7px;padding:6px 8px;background:#f5f7f9;
+  .agn-grp-t{display:flex;align-items:center;gap:7px;padding:6px 8px;background:var(--agn-fond-survol, #f5f7f9);
     cursor:pointer;user-select:none;font-size:12px}
-  .agn-grp-t:hover{background:#eceff1}
-  .agn-grp-t .agn-chev{color:#78909c;width:9px}
+  .agn-grp-t:hover{background:var(--agn-fond-doux, #eceff1)}
+  .agn-grp-t .agn-chev{color:var(--agn-gris-clair, #78909c);width:9px}
   .agn-grp-t b{flex:1;font-weight:600}
-  .agn-pastille{width:11px;height:11px;border-radius:2px;flex:0 0 auto;box-shadow:0 0 0 1px rgba(0,0,0,.15)}
-  .agn-grp-n{background:#546e7a;color:#fff;border-radius:9px;padding:1px 7px;font-size:10.5px;font-weight:700}
+  .agn-pastille{width:11px;height:11px;border-radius:3px;flex:0 0 auto;box-shadow:0 0 0 1px rgba(0,0,0,.15)}
+  .agn-grp-n{background:var(--agn-gris, #546e7a);color:#fff;border-radius:8px;padding:1px 7px;font-size:11px;font-weight:700}
   .agn-grp-c{padding:4px 6px 6px}
-  .agn-lien{border:none;background:none;color:#1e88e5;cursor:pointer;font-size:11px;
+  .agn-lien{border:none;background:none;color:var(--agn-bleu, #1e88e5);cursor:pointer;font-size:11px;
     text-decoration:underline;padding:2px;margin-left:auto}
   .agn-empty{opacity:.6;font-style:italic;padding:8px 0;font-size:11px}
   .agn-sansagglo{display:flex;align-items:flex-start;gap:6px;margin-top:6px;
-    font-style:normal;opacity:1;cursor:pointer;color:#a34a00}
+    font-style:normal;opacity:1;cursor:pointer;color:var(--agn-brun, #a34a00)}
   #agn-modale{position:fixed;inset:0;z-index:9700;background:rgba(0,0,0,.35);
     display:flex;align-items:center;justify-content:center;
-    font:12px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1f2933}
+    font:12px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--agn-texte, #1f2933)}
   .agn-modale-in{background:#fff;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,.4);
     padding:14px 16px;width:380px;max-width:92vw}
-  .agn-modale-t{font-weight:700;font-size:13px;margin-bottom:8px;color:#c62828}
+  .agn-modale-t{font-weight:700;font-size:13px;margin-bottom:8px;color:var(--agn-rouge, #c62828)}
   .agn-modale-c{font-size:12px;margin-bottom:10px}
-  .agn-modale-geo{background:#eceff1;border-radius:4px;padding:6px 8px;margin-top:8px;font-size:11px}
-  #agn-err-save{background:#fdecea;border:1px solid #f5a29a;border-left:4px solid #c62828;
-    border-radius:5px;padding:8px 10px;margin-bottom:8px;font-size:11.5px;color:#8a1c14}
+  .agn-modale-geo{background:var(--agn-fond-doux, #eceff1);border-radius:4px;padding:6px 8px;margin-top:8px;font-size:11px}
+  #agn-err-save{background:#fdecea;border:1px solid #f5a29a;border-left:4px solid var(--agn-rouge, #c62828);
+    border-radius:4px;padding:8px 10px;margin-bottom:8px;font-size:11px;color:#8a1c14}
   #agn-err-save b{font-size:12px}
   #agn-err-save .agn-err-msg{margin:4px 0;font-weight:600}
-  #agn-err-save .agn-err-note{display:block;font-size:10.5px;opacity:.8;font-style:italic}
-  .agn-modale-saisie{border-top:1px dashed #cfd8dc;margin-top:8px;padding-top:8px}
+  #agn-err-save .agn-err-note{display:block;font-size:11px;opacity:.8;font-style:italic}
+  .agn-modale-saisie{border-top:1px dashed var(--agn-bord, #cfd8dc);margin-top:8px;padding-top:8px}
   .agn-modale-saisie input{width:100%;box-sizing:border-box;padding:5px 7px;font-size:12px;
     border:1px solid #bbb;border-radius:4px;margin:3px 0}
   /* WCT reinsere son bouton en dernier dans le conteneur (il le surveille) :
@@ -4874,7 +4890,7 @@
     background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.3);font-size:19px;line-height:1;
     display:flex;align-items:center;justify-content:center}
   #agn-fab-btn:hover{background:#eef3f8}
-  #agn-fab-btn.agn-fab-on{box-shadow:0 0 0 2px #1e88e5,0 2px 6px rgba(0,0,0,.3)}
+  #agn-fab-btn.agn-fab-on{box-shadow:0 0 0 2px var(--agn-bleu, #1e88e5),0 2px 6px rgba(0,0,0,.3)}
   /* ⚠️⚠️ Le panneau lateral de WME est ETROIT (~300 px) et sa largeur varie.
      Sans box-sizing:border-box, un bouton en width:100% mesure 100 % PLUS ses
      12 px de marge interne et ses 2 px de bordure : il sortait du panneau,
@@ -4888,30 +4904,30 @@
   .agn-sb-t{font-weight:700;font-size:13px;margin-bottom:2px;
     display:flex;align-items:baseline;gap:5px}
   .agn-sb-t span{opacity:.5;font-weight:400;font-size:11px}
-  .agn-sb h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#607d8b;
-    margin:14px 0 5px;border-bottom:1px solid #eceff1;padding-bottom:3px}
+  .agn-sb h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--agn-gris-titre, #607d8b);
+    margin:14px 0 5px;border-bottom:1px solid var(--agn-fond-doux, #eceff1);padding-bottom:3px}
   /* Section repliable : le titre h4 devient le bouton de repli. Le chevron est
      a DROITE et l'ensemble reste un h4, pour ne rien changer a la lecture. */
   .agn-sb h4.agn-sb-h{cursor:pointer;display:flex;align-items:center;gap:6px;
     user-select:none;margin-bottom:0}
-  .agn-sb h4.agn-sb-h:hover{color:#1e88e5}
+  .agn-sb h4.agn-sb-h:hover{color:var(--agn-bleu, #1e88e5)}
   .agn-sb h4.agn-sb-h > b{flex:1;min-width:0;font-weight:inherit;overflow-wrap:break-word}
   /* Le chevron doit se VOIR : a 10 px et 70 % d'opacite il passait pour un
      artefact, et rien ne disait que le titre etait cliquable. */
   .agn-sb h4.agn-sb-h .agn-sb-chev{flex:0 0 auto;font-size:13px;line-height:1;
-    opacity:.85;color:#78909c}
-  .agn-sb h4.agn-sb-h:hover .agn-sb-chev{opacity:1;color:#1e88e5}
+    opacity:.85;color:var(--agn-gris-clair, #78909c)}
+  .agn-sb h4.agn-sb-h:hover .agn-sb-chev{opacity:1;color:var(--agn-bleu, #1e88e5)}
   .agn-sb-sect{margin-bottom:2px}
   .agn-sb-sect > .agn-sb-corps{padding-top:5px}
   .agn-sb-sect.agn-ferme > .agn-sb-corps{display:none}
   /* Barre d'onglets du panneau. Trois onglets se partagent la largeur a egalite
      et le libelle retrecit plutot que de deborder. */
-  .agn-sb-onglets{display:flex;gap:0;margin:8px 0 0;border-bottom:1px solid #cfd8dc}
+  .agn-sb-onglets{display:flex;gap:0;margin:8px 0 0;border-bottom:1px solid var(--agn-bord, #cfd8dc)}
   .agn-sb-onglets button{flex:1 1 0;min-width:0;padding:6px 2px;border:0;background:none;
-    font:inherit;font-size:11.5px;color:#546e7a;cursor:pointer;border-bottom:2px solid transparent;
+    font:inherit;font-size:11px;color:var(--agn-gris, #546e7a);cursor:pointer;border-bottom:2px solid transparent;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .agn-sb-onglets button:hover{color:#1e88e5;background:#f5f7f9}
-  .agn-sb-onglets button.agn-sb-on{color:#1565c0;font-weight:700;border-bottom-color:#1e88e5}
+  .agn-sb-onglets button:hover{color:var(--agn-bleu, #1e88e5);background:var(--agn-fond-survol, #f5f7f9)}
+  .agn-sb-onglets button.agn-sb-on{color:var(--agn-bleu-fonce, #1565c0);font-weight:700;border-bottom-color:var(--agn-bleu, #1e88e5)}
   .agn-sb-vue{display:none}
   .agn-sb-vue.agn-sb-vue-on{display:block}
   /* La première section d'un onglet n'a pas besoin de reprendre du champ : la
@@ -4924,7 +4940,7 @@
   .agn-sb-c input{flex:0 0 auto}
   .agn-sb-col{display:flex;align-items:center;gap:7px;margin:4px 0;cursor:pointer}
   .agn-sb-col input{width:34px;height:22px;padding:0;border:1px solid #ccc;border-radius:3px;background:none;cursor:pointer}
-  .agn-sb-n{font-size:11px;color:#e65100;min-height:14px;margin-top:4px;
+  .agn-sb-n{font-size:11px;color:var(--agn-orange, #e65100);min-height:14px;margin-top:4px;
     overflow-wrap:break-word;word-break:break-word}
   /* Alerte de zonage : elle doit se voir AVANT qu'on lise les reports, sinon
      l'éditeur corrige de travers sans savoir que le zonage est incomplet. */
@@ -4943,10 +4959,10 @@
   .agn-sb-b:hover{background:#f3f3f3}
   .agn-sb-i{width:100%;box-sizing:border-box;padding:4px 6px;font-size:12px;
     border:1px solid #bbb;border-radius:4px;margin-top:2px}
-  .agn-sb-b.agn-sb-p{background:#1e88e5;color:#fff;border-color:#1976d2;font-weight:600}
+  .agn-sb-b.agn-sb-p{background:var(--agn-bleu, #1e88e5);color:#fff;border-color:#1976d2;font-weight:600}
   .agn-nav{display:flex;gap:6px;align-items:center;margin:6px 0}
   .agn-nav button{flex:0 0 auto;padding:4px 9px}
-  .agn-nav span{font-size:11px;color:#607d8b}
+  .agn-nav span{font-size:11px;color:var(--agn-gris-titre, #607d8b)}
   `;
 
   function el(html) { const d = document.createElement('div'); d.innerHTML = html.trim(); return d.firstChild; }
@@ -5056,14 +5072,14 @@
         </div>
         <div id="agn-onglets">
           <button id="agn-donnees" title="Contours, commune, agglomération">☰</button>
-          <button class="agn-tab" data-vue="segments">Segments <span class="agn-tab-n"></span></button>
-          <button class="agn-tab" data-vue="adresses">Numérotation <span class="agn-tab-n"></span></button>
+          <button class="agn-tab" data-vue="segments" title="Les écarts de nommage des segments (agglomération, cartouches, rédaction)">Segments <span class="agn-tab-n"></span></button>
+          <button class="agn-tab" data-vue="adresses" title="Les écarts de numérotation : numéros de rue et POI résidentiels">Numérotation <span class="agn-tab-n"></span></button>
         </div>
         <div id="agn-corps">
           <!-- Garde-fou territorial (v2.03) : en tete du corps, AVANT le bouton
                d'analyse — c'est la raison pour laquelle il est grise. -->
           <div id="agn-pays"></div>
-          <button class="agn-btn primary" id="agn-scan" disabled>Analyser la commune</button>
+          <button class="agn-btn primary" id="agn-scan" disabled title="Analyse le nommage et l'adressage de toute la commune choisie. Rien n'est enregistré : tu reliras chaque correction dans WME.">Analyser la commune</button>
           <!-- Conteneur PROPRE a la progression : agn-stats est reecrit par
                renderResults(), une barre qui y vivrait serait effacee. -->
           <div id="agn-prog"></div>
@@ -5078,21 +5094,21 @@
             <div class="agn-sect-t"><span class="agn-chev">▾</span><b>1. Contours communaux</b>
               <span class="agn-sect-r"></span></div>
             <div class="agn-sect-c">
-              <select class="agn-sel" id="agn-source">
+              <select class="agn-sel" id="agn-source" title="D'où viennent les contours communaux à charger">
                 <option value="gouv">Télécharger (geo.api.gouv.fr)</option>
                 <option value="fichier">Charger un fichier GeoJSON</option>
                 <option value="wazefrance">api.wazefrance.com</option>
               </select>
               <div id="agn-src-gouv">
                 <div class="agn-row">
-                  <input type="search" id="agn-dep-filtre" placeholder="Filtrer un département…" style="flex:1">
+                  <input type="search" id="agn-dep-filtre" title="Filtre la liste par numéro ou par nom de département" placeholder="Filtrer un département…" style="flex:1">
                   <span class="agn-note" id="agn-dep-n">0</span>
                 </div>
                 <div class="agn-deps" id="agn-deps"></div>
-                <button class="agn-btn" id="agn-dep-go" disabled>Télécharger et charger</button>
+                <button class="agn-btn" id="agn-dep-go" disabled title="Télécharge les contours des départements cochés (~3 Mo et ~10 s chacun) et les AJOUTE à ta base, sans effacer les autres">Télécharger et charger</button>
               </div>
               <div id="agn-src-fichier" style="display:none">
-                <button class="agn-btn" id="agn-contours">Choisir un fichier GeoJSON</button>
+                <button class="agn-btn" id="agn-contours" title="Charge un fichier GeoJSON de contours communaux. ⚠️ Remplace les contours en base ; les agglomérations tracées sont conservées">Choisir un fichier GeoJSON</button>
               </div>
               <div id="agn-src-wazefrance" style="display:none"><div class="agn-empty"></div></div>
               <input type="file" id="agn-fichier" accept=".geojson,.json" style="display:none">
@@ -5109,7 +5125,7 @@
                    et l'ordre alphabetique noyait celle qu'on regarde. -->
               <input type="text" class="agn-filtre" id="agn-commune-f"
                      placeholder="filtrer par nom ou code INSEE…" autocomplete="off">
-              <select class="agn-sel" id="agn-commune"><option value="">— charger d'abord les contours —</option></select>
+              <select class="agn-sel" id="agn-commune" title="La commune sur laquelle porte l'analyse. Celle qui est sous le centre de la carte est remontée en tête de liste."><option value="">— charger d'abord les contours —</option></select>
               <div class="agn-note" id="agn-nb-communes"></div>
             </div>
           </div>
@@ -5120,7 +5136,7 @@
             <div class="agn-sect-c">
               <div class="agn-sb-n" id="agn-voies">Trois façons d'obtenir le zonage :
                 tracer à la main, regarder les panneaux, ou partir d'un tracé proposé.</div>
-              <button class="agn-btn" id="agn-tracer" disabled>＋ Tracer l'agglomération</button>
+              <button class="agn-btn" id="agn-tracer" disabled title="Dessine à la main, sur la carte, le polygone de l'agglomération (double-clic pour fermer le tracé)">＋ Tracer l'agglomération</button>
               <button class="agn-btn" id="agn-panneaux" disabled title="Récupère les panneaux EB10 / EB20 (entrée et sortie d'agglomération) et les confronte aux polygones traces.">🪧 Panneaux d'agglomération</button>
               <button class="agn-btn" id="agn-pretrace" disabled title="Fabrique un polygone par groupe d'entrées d'agglomération. Tracé grossier, à ajuster aux poignées.">✏️ Proposer un tracé</button>
               <div id="agn-prog-panneaux"></div>
@@ -5128,7 +5144,7 @@
               <div id="agn-agglos"></div>
             </div>
           </div>
-          <button class="agn-btn" id="agn-volet-ok">Terminer et replier</button>
+          <button class="agn-btn" id="agn-volet-ok" title="Referme ce volet et rend la place à la fenêtre de travail">Terminer et replier</button>
       </div></div>`);
     document.body.appendChild(o);
 
@@ -5468,7 +5484,7 @@
         <!-- ⚠️ Le bouton de la fenêtre de travail reste HORS des onglets : c'est
              le seul geste qu'on refait tout le temps, il n'a rien a faire cache
              au fond d'un onglet de réglages (arbitrage auteur, 26/07). -->
-        <button class="agn-sb-b agn-sb-p" id="agn-rouvrir">Afficher la fenêtre</button>
+        <button class="agn-sb-b agn-sb-p" id="agn-rouvrir" title="Réaffiche la fenêtre de travail si tu l'as fermée">Afficher la fenêtre</button>
 
         <div class="agn-sb-onglets">
           <button data-vue="analyse" title="Ce que l'analyse regarde">Analyse</button>
@@ -5481,9 +5497,9 @@
             <label class="agn-sb-l" title="Part de longueur au-delà de laquelle un segment à cheval est rattaché d'office à un côté. En dessous, il est signalé comme à couper.">
               <span>Seuil de rattachement</span>
               <input type="number" id="agn-r-seuil" min="50" max="100" step="5"> %</label>
-            <label class="agn-sb-c"><input type="checkbox" id="agn-r-sansadresse">
+            <label class="agn-sb-c"><input type="checkbox" id="agn-r-sansadresse" title="Parkings et voies privées sont exclus par défaut : ils n'ont pas d'adressage. Les inclure remonte des écarts de rédaction sur leur nom.">
               Inclure parkings et voies privées</label>
-            <label class="agn-sb-c"><input type="checkbox" id="agn-r-alt">
+            <label class="agn-sb-c"><input type="checkbox" id="agn-r-alt" title="Un nom alternatif en trop est souvent légitime (voie connue sous plusieurs noms) : désactivé par défaut pour ne pas noyer les vrais écarts.">
               Signaler les noms alternatifs surnuméraires</label>`)}
           ${sect('controles', 'Contrôles', `
             <div id="agn-r-controles"></div>
@@ -5498,22 +5514,22 @@
               ne suit plus l'onglet ouvert : on peut lister les numéros en gardant
               les segments surlignes.</div>
             <div class="agn-sb-oc"><b>Segments</b>
-              <label class="agn-sb-c"><input type="checkbox" id="agn-r-segtable"> tableau</label>
-              <label class="agn-sb-c"><input type="checkbox" id="agn-r-segcarte"> carte</label></div>
+              <label class="agn-sb-c"><input type="checkbox" id="agn-r-segtable" title="Lister les écarts de nommage dans l'onglet Segments"> tableau</label>
+              <label class="agn-sb-c"><input type="checkbox" id="agn-r-segcarte" title="Surligner les segments en écart sur la carte"> carte</label></div>
             <div class="agn-sb-oc"><b>Adresses</b>
-              <label class="agn-sb-c"><input type="checkbox" id="agn-r-adrtable"> tableau</label>
-              <label class="agn-sb-c"><input type="checkbox" id="agn-r-adrcarte"> carte</label></div>
+              <label class="agn-sb-c"><input type="checkbox" id="agn-r-adrtable" title="Lister les écarts d'adressage dans l'onglet Numérotation"> tableau</label>
+              <label class="agn-sb-c"><input type="checkbox" id="agn-r-adrcarte" title="Marquer les numéros de rue et POI en écart sur la carte : disque plein pour un numéro hors agglomération, anneau pour un RPP en agglomération"> carte</label></div>
             <div class="agn-sb-oc"><b>Panneaux</b>
-              <label class="agn-sb-c"><input type="checkbox" id="agn-r-pancarte"> carte</label></div>`)}
+              <label class="agn-sb-c"><input type="checkbox" id="agn-r-pancarte" title="Afficher les panneaux d'entrée et de sortie d'agglomération relevés : vert dans un polygone, rouge dehors, gris si aucun polygone n'est tracé"> carte</label></div>`)}
           ${sect('surlignage', 'Surlignage sur la carte', `
-            <label class="agn-sb-c"><input type="checkbox" id="agn-r-surligner">
+            <label class="agn-sb-c"><input type="checkbox" id="agn-r-surligner" title="Peint les segments et les points en écart directement sur la carte">
               Surligner les écarts sur la carte</label>
             <div class="agn-sb-n">Numéro de rue hors agglo = disque plein ·
               RPP en agglo = anneau.</div>
             <div id="agn-r-couleurs"></div>
-            <button class="agn-sb-b" id="agn-r-reset">Couleurs par defaut</button>`)}
+            <button class="agn-sb-b" id="agn-r-reset" title="Remet les couleurs d'origine">Couleurs par défaut</button>`)}
           ${sect('navigation', 'Navigation', `
-            <label class="agn-sb-c"><input type="checkbox" id="agn-r-zoom">
+            <label class="agn-sb-c"><input type="checkbox" id="agn-r-zoom" title="Recentre la carte sur le segment quand tu cliques un écart">
               Cadrer sur le segment au clic</label>
             <label class="agn-sb-l" title="Le zoom s'adapte à l'emprise des segments ; cette valeur en est le plafond.">
               <span>Zoom maximal</span>
@@ -5530,14 +5546,14 @@
             <div class="agn-sb-n">Polygones, communes « sans agglo » et coches « traité »
               sont conservés dans le gestionnaire de scripts (survit au nettoyage du
               navigateur), avec repli local.</div>
-            <button class="agn-sb-b" id="agn-r-exporter">⬇️ Exporter (polygones + communes)</button>
+            <button class="agn-sb-b" id="agn-r-exporter" title="Écrit un fichier JSON contenant tes polygones et tes communes « sans agglo », à transmettre à un autre éditeur. Tes coches « traité » restent personnelles et n'y sont pas.">⬇️ Exporter (polygones + communes)</button>
             <div class="agn-sb-n">Le fichier partage les <b>polygones</b> et les
               communes « sans agglo ». Les coches « traité » restent personnelles.</div>
-            <button class="agn-sb-b" id="agn-r-importer-f">⬆️ Importer un fichier</button>
+            <button class="agn-sb-b" id="agn-r-importer-f" title="Ajoute les communes d'un fichier reçu. ⚠️ Tes communes existantes ne sont JAMAIS écrasées : seules les absentes sont ajoutées.">⬆️ Importer un fichier</button>
             <input type="file" id="agn-r-fichier-partage" accept=".json,application/json" style="display:none">
             <label class="agn-sb-l" style="margin-top:8px"><span>Importer depuis une URL</span></label>
-            <input type="text" id="agn-r-url" class="agn-sb-i" placeholder="https://raw.githubusercontent.com/…/zone.json" autocomplete="off">
-            <button class="agn-sb-b" id="agn-r-importer-u">🌐 Importer depuis l'URL</button>
+            <input type="text" id="agn-r-url" class="agn-sb-i" title="Adresse https d'un fichier de partage (les autres protocoles sont refusés)" placeholder="https://raw.githubusercontent.com/…/zone.json" autocomplete="off">
+            <button class="agn-sb-b" id="agn-r-importer-u" title="Télécharge ce fichier et ajoute les communes qui te manquent">🌐 Importer depuis l'URL</button>
             <div class="agn-sb-n" id="agn-r-partage-etat"></div>`)}
         </div>
       </div>`;
@@ -5637,7 +5653,7 @@
     const peindre = () => {
       zoneCouleurs.innerHTML = '';
       for (const [cle, f] of Object.entries(FAMILLES)) {
-        const l = el(`<label class="agn-sb-col">
+        const l = el(`<label class="agn-sb-col" title="Couleur de cette famille d'écarts sur la carte">
             <input type="color" value="${options.couleurs[cle] || f.defaut}">
             <span>${f.libelle}</span></label>`);
         l.querySelector('input').onchange = e => {
@@ -5948,7 +5964,7 @@
       ui.listeAgglos.innerHTML = '';
       const bloc = el(`<div class="agn-empty">
           Aucune agglomération tracée pour <b>${esc(communeActive.nom)}</b>.<br>
-          <label class="agn-sansagglo"><input type="checkbox" ${declaree ? 'checked' : ''}>
+          <label class="agn-sansagglo" title="À cocher seulement si la commune n'a RÉELLEMENT aucun panneau d'agglomération : toute la commune sera alors analysée comme hors agglomération."><input type="checkbox" ${declaree ? 'checked' : ''}>
             cette commune n'a <b>aucune agglomération</b> (tout est hors agglo)</label>
         </div>`);
       bloc.querySelector('input').onchange = e => {
@@ -5972,7 +5988,7 @@
                  title="Choisis dans les villes que WME connait, ou saisis librement."
                  placeholder="Étiquette (repérage seul)" value="${esc(a.label)}">
           <div class="agn-row">
-            <label><input type="checkbox" class="agn-ratt" ${a.rattache ? 'checked' : ''}> village rattache</label>
+            <label title="Le nom appliqué devient « Village (Commune) » au lieu du seul nom de la commune INSEE. Le village est lu sur la City du segment."><input type="checkbox" class="agn-ratt" ${a.rattache ? 'checked' : ''}> village rattaché</label>
             <button class="agn-mini agn-edit" title="Éditer les sommets">✎</button>
             <button class="agn-mini agn-zoom" title="Centrer">◎</button>
             <button class="agn-mini agn-del" title="Supprimer">✕</button>
@@ -6395,7 +6411,7 @@
         <button class="agn-btn" id="agn-suiv" style="width:auto">Suivant ›</button>
         <span id="agn-compteur">— / ${liste.length}</span>
         <span id="agn-traites" class="agn-traites"></span>
-        <button class="agn-lien" id="agn-tout">tout déplier</button></div>`);
+        <button class="agn-lien" id="agn-tout" title="Déplie ou replie tous les groupes de résultats">tout déplier</button></div>`);
     ui.results.appendChild(nav);
     ui.compteur = nav.querySelector('#agn-compteur');
     ui.traites = nav.querySelector('#agn-traites');

@@ -1,0 +1,35 @@
+33 elements interactifs sans infobulle
+
+L519    button   .agn-prog-x                Annuler
+L2203   button   #agn-na-ok                 Créer ce polygone
+L2204   button   #agn-na-skip               Passer celui-ci
+L2205   button   #agn-na-stop               Tout arrêter
+L4421   button   .agn-btn ${o.fort ? 'primary' : ''} ${o.libelle} `).join('')}
+L4429   button   #agn-saisie-ok             Utiliser cette adresse
+L4431   button   .agn-btn                   Annuler
+L4489   button   .agn-btn${i === 0 ? ' primary' : ''} ${
+L4493   input    #agn-np-nom                <input type="text" id="agn-np-nom" placeholder="Nom de la ru
+L4494   button   #agn-np-ok                 Utiliser ce nom
+L4496   button   .agn-btn                   Annuler
+L5098   input    #agn-fichier               <input type="file" id="agn-fichier" accept=".geojson,.json" 
+L5112   select   #agn-commune               — charger d'abord les contours —
+L5483   input    #agn-r-seuil               %
+L5501   input    #agn-r-segtable            tableau
+L5502   input    #agn-r-segcarte            carte
+L5504   input    #agn-r-adrtable            tableau
+L5505   input    #agn-r-adrcarte            carte
+L5507   input    #agn-r-pancarte            carte  `)}
+L5520   input    #agn-r-zoomniv             `)}
+L5525   input    #agn-r-autodep             <input type="checkbox" id="agn-r-autodep">
+L5537   input    #agn-r-fichier-partage     <input type="file" id="agn-r-fichier-partage" accept=".json,
+L5595   input                               ${esc(libelle)} `);
+L5641   input                               <input type="color" value="${options.couleurs[cle] || f.defa
+L5783   button   #agn-fab-btn               🏙️  `);
+L5832   input                               ' + esc(d.code) + '  ' + esc(d.nom) + ' </label
+L5883   button   #agn-vider                 tout vider `;
+L5951   input                               <input type="checkbox" ${declaree ? 'checked' : ''}>
+L5975   input    .agn-ratt                  village rattaché
+L5998   button   .agn-btn                   Terminer
+L5999   button   .agn-btn                   Annuler  `);
+L6394   button   #agn-prec                  ‹ Précédent
+L6395   button   #agn-suiv                  Suivant ›
