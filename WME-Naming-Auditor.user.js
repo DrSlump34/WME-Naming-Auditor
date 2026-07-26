@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.12
+// @version      2.13
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -275,7 +275,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '2.12';
+    return '2.13';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -2206,6 +2206,10 @@
           </div>
         </div>`);
       document.body.appendChild(boite);
+      // Deplacable par son titre : ces boites masquent l'endroit de la carte
+      // dont elles parlent (demande de l'auteur, 26/07).
+      rendreDeplacable(boite.querySelector('.agn-modale-in'),
+                       boite.querySelector('.agn-modale-t'));
       boite.addEventListener('mousedown', e => e.stopPropagation());
       ['keydown', 'keypress', 'keyup'].forEach(ev =>
         boite.addEventListener(ev, e => e.stopPropagation()));
@@ -4714,6 +4718,10 @@
           </div>
         </div>`);
       document.body.appendChild(boite);
+      // Deplacable par son titre : ces boites masquent l'endroit de la carte
+      // dont elles parlent (demande de l'auteur, 26/07).
+      rendreDeplacable(boite.querySelector('.agn-modale-in'),
+                       boite.querySelector('.agn-modale-t'));
       boite.addEventListener('mousedown', e => e.stopPropagation());
       // La saisie ne doit pas partir dans les raccourcis clavier de WME.
       ['keydown', 'keypress', 'keyup'].forEach(ev =>
@@ -4779,6 +4787,10 @@
           </div>
         </div>`);
       document.body.appendChild(boite);
+      // Deplacable par son titre : ces boites masquent l'endroit de la carte
+      // dont elles parlent (demande de l'auteur, 26/07).
+      rendreDeplacable(boite.querySelector('.agn-modale-in'),
+                       boite.querySelector('.agn-modale-t'));
       boite.addEventListener('mousedown', e => e.stopPropagation());
       // ⚠️ Sans ca, les frappes partent dans les raccourcis clavier de WME.
       ['keydown', 'keypress', 'keyup'].forEach(ev =>
@@ -5019,8 +5031,16 @@
     text-overflow:ellipsis;white-space:nowrap}
   .agn-sect-c{padding:7px 8px 9px}
   .agn-sect.agn-ferme .agn-sect-t{background:#eef4fa}
+  /* ⚠️⚠️ WME impose height:32px aux <button> par sa feuille de style globale.
+     Un libelle qui passe sur deux lignes etait donc COUPE NET : « — selon la
+     position de chaque numero » perdait son dernier mot (signale par l'auteur le
+     26/07, mesure : 32 px affiches pour 41 px de contenu). On rend la hauteur au
+     contenu, en gardant 32 px comme MINIMUM pour ne pas tasser les boutons
+     courts. Meme famille que le box-sizing du panneau lateral : un style de WME
+     qu'il faut neutraliser explicitement, jamais supposer absent. */
   .agn-btn{display:block;width:100%;padding:6px 10px;margin:3px 0;border:1px solid #bbb;border-radius:4px;
-    background:#fff;cursor:pointer;font-size:12px;color:inherit}
+    background:#fff;cursor:pointer;font-size:12px;color:inherit;
+    height:auto;min-height:32px;line-height:1.45;white-space:normal;text-align:center}
   .agn-btn:hover:not(:disabled){background:#f3f3f3}
   .agn-btn:disabled{opacity:.45;cursor:default}
   .agn-btn.primary{background:var(--agn-bleu, #1e88e5);color:#fff;border-color:#1976d2;font-weight:600}
@@ -5325,6 +5345,56 @@
    * et les noms de rues, de POI et les etiquettes de polygones viennent de
    * Waze ou d'un fichier de partage TIERS, donc de l'exterieur.
    */
+  /**
+   * Rend une boite de dialogue DEPLACABLE par sa poignee (son titre).
+   *
+   * ⚠️ Demande de l'auteur (26/07) : ces boites se posent au milieu de l'ecran et
+   * masquent justement l'endroit de la carte dont elles parlent — on ne peut pas
+   * verifier de quel cote de la limite tombe un numero sans les bouger.
+   *
+   * La boite est centree par le flex du fond ; on ne passe en positionnement
+   * absolu qu'AU PREMIER GLISSEMENT, en figeant d'abord sa position courante,
+   * sinon elle sauterait dans un coin au moment ou on l'attrape.
+   */
+  function rendreDeplacable(boite, poignee) {
+    if (!boite || !poignee) return;
+    poignee.style.cursor = 'move';
+    poignee.style.userSelect = 'none';
+    poignee.title = 'Glisser pour déplacer cette fenêtre';
+    let ox = 0, oy = 0, actif = false;
+    const bouger = e => {
+      if (!actif) return;
+      // Bornage a l'ecran : une boite tiree dehors serait irrecuperable, faute
+      // de barre de titre a rattraper.
+      const l = Math.max(4, Math.min(e.clientX - ox, window.innerWidth - boite.offsetWidth - 4));
+      const t = Math.max(4, Math.min(e.clientY - oy, window.innerHeight - boite.offsetHeight - 4));
+      boite.style.left = Math.round(l) + 'px';
+      boite.style.top = Math.round(t) + 'px';
+    };
+    const lacher = () => {
+      if (!actif) return;
+      actif = false;
+      document.removeEventListener('mousemove', bouger);
+      document.removeEventListener('mouseup', lacher);
+    };
+    poignee.addEventListener('mousedown', e => {
+      if (e.button !== 0) return;
+      const r = boite.getBoundingClientRect();
+      // On fige la position AVANT de sortir du flux : sans ca, la boite saute.
+      boite.style.position = 'fixed';
+      boite.style.margin = '0';
+      boite.style.left = Math.round(r.left) + 'px';
+      boite.style.top = Math.round(r.top) + 'px';
+      ox = e.clientX - r.left;
+      oy = e.clientY - r.top;
+      actif = true;
+      document.addEventListener('mousemove', bouger);
+      document.addEventListener('mouseup', lacher);
+      e.preventDefault();
+      e.stopPropagation();          // le glissement ne part pas dans la carte
+    });
+  }
+
   const esc = s => String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
