@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.17
+// @version      2.18
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -275,7 +275,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '2.17';
+    return '2.18';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -3179,6 +3179,13 @@
 
   /** Tolerance de superposition. Au-dela, la voie ne « longe » plus la limite. */
   const TOL_MITOYEN_M = 12;
+
+  /**
+   * En dessous de ce debordement, on ne dit RIEN : c'est l'ecart normal entre le
+   * contour INSEE et le trace de Waze, tous deux au metre pres, pas une
+   * information exploitable. 10 m se verifient a l'œil sur la carte.
+   */
+  const SEUIL_DEBORD_M = 10;
   const DEG_PAR_M = 1 / 111320;      // ~1 degre de latitude = 111,32 km
 
   /**
@@ -3302,8 +3309,8 @@
    * Fusionne les segments STRICTEMENT dans la meme situation : meme cas, meme
    * libelle, memes ecarts. Une rue decoupee en vingt troncons ne fait alors
    * qu'une ligne, et le clic les selectionne tous d'un bloc.
-   * Les pourcentages de debordement sont neutralises dans la cle : « deborde de
-   * 3 % » et « de 7 % » decrivent la meme situation et doivent se regrouper.
+   * Les MESURES de debordement sont neutralisees dans la cle : « deborde de
+   * 12 m » et « de 40 m » decrivent la meme situation et doivent se regrouper.
    */
   function regrouperFindings(liste) {
     const carte = new Map();
@@ -3320,7 +3327,11 @@
       const cle = JSON.stringify([
         f.cas, f.libelle,
         f.ecarts.map(e => [e.champ, e.avant, e.apres]),
-        (f.doute || '').replace(/\d+(?:[.,]\d+)?\s?%/g, 'N %')
+        // ⚠️ Les MESURES sont neutralisees dans la cle : « deborde de 12 m » et
+        // « de 40 m » decrivent la meme situation et doivent se regrouper. Depuis
+        // la v2.18 elles sont en METRES ; le motif des pourcentages est conserve,
+        // d'anciens doutes pouvant encore en porter.
+        (f.doute || '').replace(/\d+(?:[.,]\d+)?\s?(?:%|m)/g, 'N')
       ]);
       const g = carte.get(cle);
       if (g) { g.segIds.push(f.segId); g.geoms.push(f.geom); g.centres.push(f.centre);
@@ -4395,10 +4406,24 @@
           exp.candidatsPrincipal.map(c => c.nom).join(', ') +
           ') : le choix sera demandé à la correction');
       }
-      if (loc.partCommune < 1) notes.push('deborde de ' + pourcent(1 - loc.partCommune) + ' sur la commune voisine');
-      if (enAgglo && loc.partAgglo < 1) notes.push('deborde de ' + pourcent(1 - loc.partAgglo) + ' hors de l\'agglomération');
-      if (!enAgglo && loc.partAgglo > 0) notes.push('mord de ' + pourcent(loc.partAgglo) + ' sur l\'agglomération');
-      if (loc.partCommune < 1 || (enAgglo ? loc.partAgglo < 1 : loc.partAgglo > 0)) zones.limitrophe++;
+      // ⚠️⚠️ DEBORDEMENTS : en METRES, et pas en dessous du bruit de trace.
+      // « déborde de 0 % sur la commune voisine » ne disait rien (signalé par
+      // l'auteur, 26/07). Mesure de son exemple, le segment 481514185 : 788 m de
+      // long, débordement de 0,5 m — soit 0,068 %, arrondi à « 0 % ». Ce n'est
+      // pas un débordement, c'est l'écart normal entre le contour INSEE et le
+      // tracé de Waze, tous deux au mètre près.
+      // ⚠️ Un seuil en POURCENTAGE ne peut pas trancher : 2 % font 0,5 m sur un
+      // tronçon de 25 m et 60 m sur une départementale de 3 km. On raisonne donc
+      // en mètres — et on l'AFFICHE en mètres, parce que « déborde de 45 m » se
+      // vérifie sur la carte, « 2 % » non.
+      const longM = (loc.longueurDeg || 0) * 111320;
+      const enMetres = part => Math.round(part * longM);
+      const dCommune = enMetres(1 - loc.partCommune);
+      const dAgglo = enMetres(enAgglo ? 1 - loc.partAgglo : loc.partAgglo);
+      if (dCommune >= SEUIL_DEBORD_M) notes.push('déborde de ' + dCommune + ' m sur la commune voisine');
+      if (enAgglo && dAgglo >= SEUIL_DEBORD_M) notes.push('déborde de ' + dAgglo + ' m hors de l\'agglomération');
+      if (!enAgglo && dAgglo >= SEUIL_DEBORD_M) notes.push('mord de ' + dAgglo + ' m sur l\'agglomération');
+      if (dCommune >= SEUIL_DEBORD_M || dAgglo >= SEUIL_DEBORD_M) zones.limitrophe++;
 
       findings.push(Object.assign({}, base, { cas: exp.cas, ecarts, cible: exp,
         // Un segment dont le SEUL defaut est un cartouche absent, ou une faute
