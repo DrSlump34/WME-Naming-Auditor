@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.07
+// @version      2.08
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -275,7 +275,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '2.07';
+    return '2.08';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -2956,6 +2956,60 @@
    * 0 ou 100 %, rendant invisibles les segments courts a cheval. Quand les deux
    * extremites d'un cote different, une dichotomie situe le franchissement.
    */
+  /** Profondeur de subdivision d'un cote : 4 => jusqu'a 16 morceaux. */
+  const PROF_SUBDIV = 4;
+
+  /**
+   * Part de longueur du cote [a,b] qui est DANS la zone.
+   *
+   * ⚠️⚠️ Ne PAS se contenter de l'etat des deux extremites (defaut corrige en
+   * v2.08, trouve par les tests de `tools/test-zonage.js`) : un cote peut
+   * TRAVERSER la zone sans qu'aucun de ses bouts n'y soit (une route qui passe
+   * de part en part d'un village), ou au contraire en SORTIR en son milieu quand
+   * le polygone est concave. Le code d'origine comptait le premier cas pour 0 %
+   * et le second pour 100 %.
+   * Mesure sur les communes de l'auteur avant correction : 1 segment sur 838 a
+   * Coursan (100 % annonce contre 78 % reels — le segment passait « en agglo »
+   * au lieu d'etre signale « a couper ») et 1 sur 2922 a Gruissan. C'est rare,
+   * mais c'est une erreur sur le CŒUR du script, et la corriger coute un seul
+   * test de point par cote.
+   *
+   * ⚠️ Ce n'est pas une garantie absolue : une incursion plus courte que le pas
+   * de subdivision reste invisible. On divise le risque, on ne l'annule pas.
+   */
+  function partCote(a, b, dedans, da, db, prof) {
+    const d = longueur(a, b);
+    if (!d) return 0;
+    if (da !== db) {
+      // Franchissement : la dichotomie situe le passage a ~0,02 % pres.
+      let lo = 0, hi = 1;
+      for (let k = 0; k < 12; k++) {
+        const t = (lo + hi) / 2;
+        if (dedans(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t) === da) lo = t; else hi = t;
+      }
+      const t = (lo + hi) / 2;
+      return d * (da ? t : 1 - t);
+    }
+    // Meme etat aux deux bouts : le MILIEU peut pourtant differer. S'il differe,
+    // on coupe le cote en deux et on recommence sur chaque moitie.
+    if (prof > 0) {
+      const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      const dm = dedans(m[0], m[1]);
+      if (dm !== da) {
+        return partCote(a, m, dedans, da, dm, prof - 1) +
+               partCote(m, b, dedans, dm, db, prof - 1);
+      }
+    }
+    return da ? d : 0;
+  }
+
+  /**
+   * Part de LONGUEUR d'un trace situee a l'interieur d'une zone.
+   *
+   * On raisonne en longueur et non en nombre de sommets : un virage concentre
+   * dix points sur vingt metres quand une ligne droite en compte deux sur un
+   * kilometre.
+   */
   function partDedans(coords, dedans) {
     let total = 0, dans = 0;
     for (let i = 1; i < coords.length; i++) {
@@ -2963,18 +3017,97 @@
       const d = longueur(a, b);
       if (!d) continue;
       total += d;
-      const da = dedans(a[0], a[1]), db = dedans(b[0], b[1]);
-      if (da && db) { dans += d; continue; }
-      if (!da && !db) continue;
-      let lo = 0, hi = 1;
-      for (let k = 0; k < 12; k++) {           // ~0,02 % de precision
-        const t = (lo + hi) / 2;
-        if (dedans(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t) === da) lo = t; else hi = t;
-      }
-      const t = (lo + hi) / 2;
-      dans += d * (da ? t : 1 - t);
+      dans += partCote(a, b, dedans, dedans(a[0], a[1]), dedans(b[0], b[1]), PROF_SUBDIV);
     }
     return { total, dans };
+  }
+
+  // ===========================================================================
+  // ROUTES MITOYENNES : une voie qui SUIT la limite communale (v2.08)
+  //
+  // ⚠️⚠️ RETOUR TERRAIN de l'auteur (26/07, vecu a Saint-Michel-d'Euzet) : des
+  // routes HORS AGGLO epousent exactement la limite entre deux communes —
+  // chacune en possede un cote. Leur geometrie oscille alors de part et d'autre
+  // de la frontiere au gre des micro-ecarts de trace, `partCommune` retombe vers
+  // 50 %, et le script reclamait « a couper sur la limite communale ».
+  // IL N'Y A RIEN A COUPER : la route appartient bien aux deux communes.
+  //
+  // Regle posee par l'auteur : tant que la voie est SUPERPOSEE a la limite, et
+  // que le nom de la commune analysee figure dans le nom principal OU dans un
+  // alternatif, c'est bon. Ce n'est qu'a la fin de la superposition — la ou la
+  // voie entre franchement dans une commune — qu'une coupe se justifie.
+  // ===========================================================================
+
+  /** Tolerance de superposition. Au-dela, la voie ne « longe » plus la limite. */
+  const TOL_MITOYEN_M = 12;
+  const DEG_PAR_M = 1 / 111320;      // ~1 degre de latitude = 111,32 km
+
+  /**
+   * Cotes du contour communal, mis en cache : le contour d'une commune INSEE
+   * compte des centaines de sommets et on l'interroge une fois par segment.
+   */
+  let cacheCotes = { code: null, cotes: null };
+  function cotesDuContour(commune) {
+    if (cacheCotes.code === commune.code) return cacheCotes.cotes;
+    const cotes = [];
+    const ajouterAnneaux = anneaux => {
+      for (const ring of anneaux) {
+        for (let i = 1; i < ring.length; i++) cotes.push([ring[i - 1], ring[i]]);
+      }
+    };
+    const g = commune.geom;
+    if (g && g.type === 'Polygon') ajouterAnneaux(g.coordinates);
+    else if (g && g.type === 'MultiPolygon') g.coordinates.forEach(ajouterAnneaux);
+    cacheCotes = { code: commune.code, cotes };
+    return cotes;
+  }
+
+  /**
+   * Distance d'un point a la frontiere communale, en metres approches.
+   * Le calcul se fait dans un plan local (longitudes corrigees du cosinus de la
+   * latitude), suffisant a cette echelle.
+   */
+  function distanceALaLimite(lon, lat, commune) {
+    const cotes = cotesDuContour(commune);
+    const k = Math.cos(lat * Math.PI / 180);
+    const px = lon * k, py = lat;
+    // Fenetre de recherche : au-dela, inutile de calculer une distance exacte.
+    const marge = TOL_MITOYEN_M * DEG_PAR_M * 3;
+    let min = Infinity;
+    for (const [a, b] of cotes) {
+      // Rejet rapide par boite englobante du cote.
+      if (lon < Math.min(a[0], b[0]) - marge || lon > Math.max(a[0], b[0]) + marge ||
+          lat < Math.min(a[1], b[1]) - marge || lat > Math.max(a[1], b[1]) + marge) continue;
+      const ax = a[0] * k, ay = a[1], bx = b[0] * k, by = b[1];
+      const dx = bx - ax, dy = by - ay;
+      const l2 = dx * dx + dy * dy;
+      let t = l2 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0;
+      t = t < 0 ? 0 : (t > 1 ? 1 : t);
+      const ex = px - (ax + t * dx), ey = py - (ay + t * dy);
+      const d = Math.sqrt(ex * ex + ey * ey);
+      if (d < min) min = d;
+    }
+    return min === Infinity ? Infinity : min / DEG_PAR_M;
+  }
+
+  /**
+   * Part de longueur de la voie qui LONGE la limite communale.
+   * On reutilise `partDedans` avec « etre pres de la frontiere » comme critere :
+   * la dichotomie et la subdivision situent les entrees et sorties de la bande
+   * de tolerance aussi bien que celles d'un polygone.
+   */
+  function partLeLongDeLaLimite(coords, commune) {
+    const r = partDedans(coords, (x, y) =>
+      distanceALaLimite(x, y, commune) <= TOL_MITOYEN_M);
+    return r.total ? r.dans / r.total : 0;
+  }
+
+  /** La commune analysee est-elle portee par le nom principal ou un alternatif ? */
+  function communePortee(nam, nomCommune) {
+    const cible = normSansAccent(String(nomCommune || '').trim());
+    if (!cible) return false;
+    return [nam.primary, ...nam.alts]
+      .some(e => e && e.cityName && normSansAccent(e.cityName.trim()) === cible);
   }
 
   function localiser(coords, listeAgglos) {
@@ -2989,12 +3122,32 @@
       return { partCommune: dansCommune(c[0], c[1]) ? 1 : 0, partAgglo: ag ? 1 : 0, agglo: ag };
     }
 
+    // ⚠️⚠️ On mesure la part de l'UNION des polygones, pas la SOMME de leurs
+    // parts (defaut corrige en v2.08). Additionner comptait DEUX FOIS la portion
+    // commune a deux polygones qui se chevauchent : un trace a moitie en
+    // agglomeration pouvait ressortir a 80 % et basculer « en agglo » a tort.
+    // Le `Math.min(1, …)` d'avant masquait le debordement sans corriger le
+    // calcul. ⚡ Verifie le 26/07 : aucun chevauchement dans la base de l'auteur
+    // (7 communes, 3 avec plusieurs polygones), donc le defaut ne s'y voyait
+    // pas — mais le pre-trace automatique peut produire deux polygones voisins,
+    // et un fichier de partage vient de n'importe qui.
     let partAgglo = 0, aggloMaj = null, meilleure = 0;
-    for (const ag of listeAgglos) {
-      const r = partDedans(coords, (x, y) => pointInRings(x, y, [ag.ring]));
-      const part = r.dans / r.total;
-      partAgglo += part;
-      if (part > meilleure) { meilleure = part; aggloMaj = ag; }
+    if (listeAgglos.length === 1) {
+      // Cas courant : l'union se confond avec le seul polygone, un passage suffit.
+      const r = partDedans(coords, (x, y) => pointInRings(x, y, [listeAgglos[0].ring]));
+      partAgglo = r.total ? r.dans / r.total : 0;
+      if (partAgglo > 0) aggloMaj = listeAgglos[0];
+    } else {
+      const ru = partDedans(coords, (x, y) =>
+        listeAgglos.some(a => pointInRings(x, y, [a.ring])));
+      partAgglo = ru.total ? ru.dans / ru.total : 0;
+      // Le polygone MAJORITAIRE sert a nommer (village rattache) : il se
+      // determine polygone par polygone, contrairement a la part totale.
+      for (const ag of listeAgglos) {
+        const r = partDedans(coords, (x, y) => pointInRings(x, y, [ag.ring]));
+        const part = r.total ? r.dans / r.total : 0;
+        if (part > meilleure) { meilleure = part; aggloMaj = ag; }
+      }
     }
 
     return {
@@ -3672,7 +3825,12 @@
     findings = [];
     const skipped = { horsRegle: 0, sansAdresse: 0, horsCommune: 0, sansGeom: 0 };
     const zones = { agglo: 0, hors: 0, cheval: 0, limCom: 0, limitrophe: 0, cartouche: 0, special: 0, giratoire: 0,
-                    villes: new Map() };
+                    // `mitoyen` : voies qui epousent la limite communale — aucune
+                    // coupe a faire. Comptees pour qu'on VOIE que le script les a
+                    // examinees plutot que de les taire. `mitoyenSansVille` en
+                    // isole celles qui ne portent pas notre commune : hors agglo
+                    // c'est normal, en agglo cela meriterait un coup d'œil.
+                    mitoyen: 0, mitoyenSansVille: 0, villes: new Map() };
     const c = options.controles;
     const dejaVus = new Set();     // un segment vu dans deux cellules ne compte qu'une fois
     // Cartouche sur le nom principal : jugement de VOIE, pas de segment. On
@@ -3769,12 +3927,36 @@
       // Zone grise sur la limite COMMUNALE : il faut couper avant de nommer,
       // le bon nommage depend de l'endroit de la coupe.
       if (loc.partCommune < haut) {
-        zones.limCom++;
-        findings.push(Object.assign({}, base, { cas: 'LIM', doute: null, ecarts: [{
-          champ: 'limite communale',
-          avant: pourcent(loc.partCommune) + ' dans ' + communeActive.nom,
-          apres: 'à couper sur la limite communale' }] }));
-        continue;
+        // ⚠️⚠️ SAUF si la voie EPOUSE la limite : route MITOYENNE, chaque commune
+        // en possede un cote, IL N'Y A RIEN A COUPER (retour terrain de l'auteur,
+        // vecu a Saint-Michel-d'Euzet). On ne fait ce calcul QUE dans la zone
+        // grise : il coute une distance a la frontiere par point, inutile sur les
+        // segments francs.
+        const partLimite = partLeLongDeLaLimite(coords, communeActive);
+        if (partLimite >= haut) {
+          // ⚠️⚠️ On ne signale PAS de coupe, mais on NE SAUTE PAS le segment : il
+          // doit rester audite sur son NOM. Deux controles distincts, deux
+          // verdicts — confondre « faut-il couper ? » et « est-ce bien nomme ? »
+          // ferait disparaitre ces voies de l'audit.
+          // ⚡ MESURE a Saint-Michel-d'Euzet (26/07) : les 3 segments concernes
+          // longent la limite a 100 % et ne portent AUCUNE ville — ce qui est le
+          // nommage ATTENDU hors agglomeration (le principal n'a pas de ville).
+          // Exiger que la commune soit portee les aurait donc tous rejetes : la
+          // superposition suffit a ecarter la coupe, le nom est juge apres.
+          zones.mitoyen++;
+          if (!communePortee(nam, communeActive.nom)) zones.mitoyenSansVille++;
+        } else {
+          zones.limCom++;
+          findings.push(Object.assign({}, base, { cas: 'LIM', doute: null, ecarts: [{
+            champ: 'limite communale',
+            avant: pourcent(loc.partCommune) + ' dans ' + communeActive.nom +
+                   (partLimite > bas ? ' · longe la limite sur ' + pourcent(partLimite) : ''),
+            // La coupe se justifie la ou la superposition CESSE, pas n'importe ou.
+            apres: partLimite > bas
+              ? 'à couper là où la voie quitte la limite communale'
+              : 'à couper sur la limite communale' }] }));
+          continue;
+        }
       }
 
       // Zone grise sur la limite d'AGGLO : idem, coupure au panneau EB10.
@@ -6380,8 +6562,10 @@
         ? `<div class="agn-stat">
         <b>${s.ecarts}</b> segment(s) en écart sur <b>${s.analyses}</b> analyses a ${esc(communeActive.nom)}${
           s.lignes && s.lignes !== s.ecarts ? ', regroupes en <b>' + s.lignes + '</b> report(s)' : ''}.<br>
-        ${z.agglo} en agglo · ${z.hors} hors agglo · ${z.cheval} a couper (agglo) · ${z.limCom} a couper (commune)${
-          z.limitrophe ? ' · ' + z.limitrophe + ' debordent legerement' : ''}${
+        ${z.agglo} en agglo · ${z.hors} hors agglo · ${z.cheval} à couper (agglo) · ${z.limCom} à couper (commune)${
+          z.mitoyen ? ' · <span title="Voies qui épousent la limite entre deux communes : chacune en possède un côté. Elles portent déjà le nom de la commune, il n\'y a rien à couper.">' +
+            z.mitoyen + ' mitoyenne(s) conformes</span>' : ''}${
+          z.limitrophe ? ' · ' + z.limitrophe + ' débordent légèrement' : ''}${
           z.cartouche ? ' · ' + z.cartouche + ' cartouche(s) a poser' : ''}${
           z.special ? ' · ' + z.special + ' voie(s) a règle propre' : ''}${
           z.giratoire ? ' · ' + z.giratoire + ' giratoire(s)' : ''}.<br>
