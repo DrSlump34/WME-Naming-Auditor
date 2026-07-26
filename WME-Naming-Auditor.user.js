@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.19.03
+// @version      2.19.04
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -3009,13 +3009,31 @@
    *      MAJORITAIRE : en zone frontaliere, un segment isole ne fait pas foi.
    */
   function detecterPays() {
-    // 1. Preuve geometrique : nos propres contours INSEE.
+    // 1. Preuve geometrique : nos propres contours INSEE, sous le centre.
     try {
       const ctr = sdk.Map.getMapCenter();
       if (ctr && communes.length && communeDuPoint(ctr.lon, ctr.lat)) {
         return { nom: 'France', code: 'FR' };
       }
     } catch (e) { /* on essaie la suite */ }
+    // 1 bis. ⚠️⚠️ UNE COMMUNE INSEE CHOISIE EST FRANCAISE, POINT — arbitrage de
+    // l'auteur (27/07) : « Gruissan est en France. Point barre. On se fiche de
+    // ce qu'on voit à cause du dézoom, ou d'avoir plus d'espace hors pays à
+    // cause de la mer. »
+    //
+    // Cas vecu qui l'a impose : apres le cadrage sur Gruissan, le CENTRE
+    // GEOMETRIQUE du canvas tombait EN PLEINE MER — hors contour, donc preuve 1
+    // muette — et le cadrage d'une commune etendue s'arrete vers le zoom 13, ou
+    // WME ne charge AUCUN segment, donc preuve 2 muette aussi. Le script se
+    // declarait « territoire indetermine » devant une commune francaise
+    // selectionnee, et refusait de l'analyser.
+    //
+    // ⚠️ Ce n'est pas un relachement du garde-fou de la v2.03 : l'analyse porte
+    // sur le CONTOUR de la commune active, pas sur l'ecran. Tant qu'une commune
+    // INSEE est choisie, tout ce que le script ecrira concernera cette commune —
+    // francaise par construction. Le blocage garde tout son sens quand aucune ne
+    // l'est (c'est alors la vue qui decide, preuves 1 et 2).
+    if (communeActive) return { nom: 'France', code: 'FR' };
     // 2. Pays majoritaire des segments REELLEMENT dans la vue.
     try {
       let ext; try { ext = sdk.Map.getMapExtent(); } catch (e) { ext = null; }
