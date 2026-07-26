@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.02
+// @version      2.03
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les regles d'edition francaises (agglomeration / hors agglomeration, contours communaux INSEE). D'autres pays sont prevus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -275,7 +275,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '2.02';
+    return '2.03';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -437,7 +437,13 @@
     // c'est une corvee sans valeur ajoutee, et elle se refait a chaque fois.
     autoDep: true,
     controles: {},          // rempli d'apres le referentiel au demarrage
-    couleurs: Object.fromEntries(Object.entries(FAMILLES).map(([k, v]) => [k, v.defaut]))
+    couleurs: Object.fromEntries(Object.entries(FAMILLES).map(([k, v]) => [k, v.defaut])),
+    // Panneau lateral (v2.03) : neuf sections empilees d'affilee etaient
+    // illisibles (« c'est fouillis », auteur 26/07). Trois onglets, et chaque
+    // section se replie. On retient l'onglet ouvert ET les replis : un reglage
+    // qu'on referme est un reglage qu'on ne veut plus voir, pas seulement
+    // aujourd'hui.
+    panneau: { onglet: 'analyse', replis: {} }
   };
 
   // ===========================================================================
@@ -1311,16 +1317,77 @@
     replierSection('contours', muette);
   }
 
+  /**
+   * Combien de communes « a portee » on remonte en tete de liste. Au-dela, le
+   * groupe cesse d'etre un raccourci et redevient une liste a lire.
+   */
+  const COMMUNES_EN_TETE = 5;
+
+  /**
+   * Communes les plus PERTINENTES pour l'endroit regarde.
+   *
+   * ⚠️ Diagnostic du 23/07 (« il ne trouve pas la commune ») : ce n'etait pas un
+   * bug de detection mais une liste alphabetique — au zoom 12, Nimes arrivait
+   * 56e sur 84. On remonte donc en tete celle qui est SOUS LE CENTRE de la vue,
+   * puis les plus proches, sans casser l'ordre alphabetique du reste : on
+   * cherche parfois un nom, et on veut alors pouvoir le lire.
+   */
+  function communesEnTete(liste) {
+    if (liste.length < 4) return [];
+    let ctr; try { ctr = sdk.Map.getMapCenter(); } catch (e) { return []; }
+    if (!ctr || ctr.lon == null || ctr.lat == null) return [];
+    const sousLeCentre = communeDuPoint(ctr.lon, ctr.lat);
+    // Distance au centre de la BBOX : approximation suffisante pour ordonner,
+    // et infiniment moins couteuse qu'un point-dans-polygone par commune.
+    const dist = c => {
+      const dx = ((c.bbox[0] + c.bbox[2]) / 2 - ctr.lon) * Math.cos(ctr.lat * Math.PI / 180);
+      const dy = (c.bbox[1] + c.bbox[3]) / 2 - ctr.lat;
+      return Math.sqrt(dx * dx + dy * dy);
+    };
+    const tri = liste.slice().sort((a, b) => dist(a) - dist(b));
+    // Celle qui contient reellement le centre passe devant tout le monde : son
+    // bbox peut etre excentre (commune allongee), la distance seule la raterait.
+    if (sousLeCentre) {
+      const i = tri.findIndex(c => c.code === sousLeCentre.code);
+      if (i > 0) tri.unshift(tri.splice(i, 1)[0]);
+    }
+    return tri.slice(0, Math.min(COMMUNES_EN_TETE, liste.length - 1));
+  }
+
   function rafraichirCommunesDeLaVue() {
     if (!ui.selCommune) return;
     const liste = communesDeLaVue();
     const avant = communeActive ? communeActive.code : '';
+    // Le filtre ne touche PAS la commune en cours : on ne perd pas son travail
+    // parce qu'on a tape trois lettres dans un champ de recherche.
+    const f = normSansAccent((ui.filtreCommune && ui.filtreCommune.value || '').trim());
+    const garde = c => !f || normSansAccent(c.nom).includes(f) || c.code.startsWith(f);
+    const vus = liste.filter(garde);
+    const tete = communesEnTete(vus);
+    const codesTete = new Set(tete.map(c => c.code));
+    const opt = c => `<option value="${esc(c.code)}">${esc(c.nom)}</option>`;
+    // ⚠️ Sans groupe de tete, PAS d'optgroup : un `label` vide n'est pas neutre,
+    // il ajoute une ligne fantome et indente toutes les options pour rien.
+    const groupe = (libelle, arr) => !arr.length ? ''
+      : libelle ? `<optgroup label="${esc(libelle)}">${arr.map(opt).join('')}</optgroup>`
+                : arr.map(opt).join('');
+    const reste = vus.filter(c => !codesTete.has(c.code));
     ui.selCommune.innerHTML = '<option value="">— choisir une commune —</option>' +
-      liste.map(c => `<option value="${esc(c.code)}">${esc(c.nom)}</option>`).join('');
-    if (avant && liste.some(c => c.code === avant)) ui.selCommune.value = avant;
+      groupe('📍 Sous les yeux', tete) +
+      groupe(tete.length ? 'Toutes les communes de la vue' : '', reste);
+    if (avant && vus.some(c => c.code === avant)) ui.selCommune.value = avant;
+    else if (avant && liste.some(c => c.code === avant)) {
+      // Filtree hors de la liste mais toujours en cours : on la rajoute a part,
+      // sinon le `select` afficherait une commune differente de celle qu'on
+      // analyse — le pire des deux mondes.
+      ui.selCommune.insertAdjacentHTML('beforeend',
+        `<optgroup label="Commune en cours">${opt(communeActive)}</optgroup>`);
+      ui.selCommune.value = avant;
+    }
     else if (communeActive) { communeActive = null; oublierPanneaux(); redrawCommune(); }
-    ui.nbCommunes.textContent = communes.length
-      ? liste.length + ' commune(s) dans la vue sur ' + communes.length : '';
+    ui.nbCommunes.textContent = !communes.length ? ''
+      : (f ? vus.length + ' sur ' + liste.length + ' commune(s) dans la vue'
+           : liste.length + ' commune(s) dans la vue sur ' + communes.length);
     replierContoursSelonListe();
     renderAgglos();
   }
@@ -2671,17 +2738,149 @@
     return REF;
   }
 
-  /** Pays de la zone courante, d'apres l'adresse d'un segment charge. */
+  // ===========================================================================
+  // GARDE-FOU TERRITORIAL — le script ne travaille qu'en France (v2.03)
+  //
+  // Les regles de nommage codees ici sont FRANCAISES. Applique ailleurs, le
+  // script ne se tromperait pas a la marge : il renommerait massivement de
+  // travers. Jusqu'a la v2.02, `detecterPays()` retombait sur la France quand
+  // il ne savait pas — donc l'outil marchait partout. On inverse la charge de
+  // la preuve : sans France DEMONTREE, l'outil se ferme.
+  // ===========================================================================
+
+  /**
+   * Territoires FRANCAIS, tels que Waze les nomme.
+   *
+   * ⚠️⚠️ L'outre-mer n'est PAS « la France » dans le modele Waze : Guadeloupe,
+   * Martinique, Guyane, Reunion, Mayotte y sont des pays a part entiere, avec
+   * leur propre identifiant et leurs propres villes. Les bloquer serait un
+   * contresens — le code de la route et les regles de nommage y sont les
+   * memes. On les enumere donc, par code ISO ET par nom, en anglais comme en
+   * francais : WME nomme les pays selon la langue du profil de l'editeur.
+   */
+  const FR_CODES = new Set(['FR', 'GP', 'MQ', 'GF', 'RE', 'YT', 'MF', 'BL',
+                            'PM', 'NC', 'PF', 'WF', 'TF']);
+  const FR_NOMS = new Set([
+    'france', 'france metropolitaine', 'corse',
+    'guadeloupe', 'martinique',
+    'guyane', 'guyane francaise', 'french guiana',
+    'la reunion', 'reunion', 'mayotte',
+    'saint-martin', 'saint martin', 'saint-barthelemy', 'saint barthelemy',
+    'saint-pierre-et-miquelon', 'saint pierre and miquelon',
+    'nouvelle-caledonie', 'nouvelle caledonie', 'new caledonia',
+    'polynesie francaise', 'french polynesia',
+    'wallis-et-futuna', 'wallis et futuna', 'wallis and futuna',
+    'terres australes et antarctiques francaises',
+    'french southern and antarctic lands', 'french southern territories'
+  ].map(n => normSansAccent(n)));
+
+  /** Ce nom ou ce code designe-t-il un territoire francais ? */
+  function estTerritoireFrancais(nomOuCode) {
+    const t = String(nomOuCode || '').trim();
+    if (!t) return false;
+    if (t.length <= 3 && FR_CODES.has(t.toUpperCase())) return true;
+    return FR_NOMS.has(normSansAccent(t));
+  }
+
+  /**
+   * Pays de la zone REGARDEE. Renvoie `{ nom, code }`, ou `null` quand rien ne
+   * permet encore de conclure.
+   *
+   * ⚠️⚠️ PIEGE VERIFIE EN LIVE (26/07, Coursan → Barcelone) : le modele Waze
+   * ACCUMULE les pays visites, il ne les remplace pas. Apres un saut a
+   * Barcelone, `W.model.countries` contenait `["France", "Spain"]` et
+   * `sdk.DataModel.Countries.getTopCountry()` repondait encore **France**.
+   * `getTopCountry()` est donc REMANENT : il dit « un pays deja rencontre dans
+   * la session », PAS « le pays sous les yeux ». L'utiliser pour un garde-fou
+   * territorial donne un faux feu vert a l'etranger. NE PAS Y REVENIR.
+   *
+   * On ne se fie donc qu'a des preuves attachees a la vue COURANTE :
+   *   1. le centre de la vue tombe dans un contour communal INSEE deja charge —
+   *      preuve directe et instantanee, independante du zoom ;
+   *   2. sinon, les pays des segments dont la GEOMETRIE est dans l'emprise
+   *      courante (le filtre par emprise est ce qui elimine la remanence), au
+   *      MAJORITAIRE : en zone frontaliere, un segment isole ne fait pas foi.
+   */
   function detecterPays() {
+    // 1. Preuve geometrique : nos propres contours INSEE.
     try {
-      const segs = sdk.DataModel.Segments.getAll();
-      for (const s of segs.slice(0, 40)) {
-        const a = sdk.DataModel.Segments.getAddress({ segmentId: s.id });
-        const p = a && a.country && (a.country.name || a.country.abbr);
-        if (p) return p;
+      const ctr = sdk.Map.getMapCenter();
+      if (ctr && communes.length && communeDuPoint(ctr.lon, ctr.lat)) {
+        return { nom: 'France', code: 'FR' };
       }
-    } catch (e) { /* on reste sur le referentiel courant */ }
+    } catch (e) { /* on essaie la suite */ }
+    // 2. Pays majoritaire des segments REELLEMENT dans la vue.
+    try {
+      let ext; try { ext = sdk.Map.getMapExtent(); } catch (e) { ext = null; }
+      const comptes = new Map();
+      for (const s of sdk.DataModel.Segments.getAll()) {
+        // ⚠️ Le filtre par emprise n'est pas cosmetique : juste apres un saut
+        // de carte, `getAll()` rend encore des segments de l'ancienne vue.
+        if (ext) {
+          const co = s.geometry && s.geometry.coordinates;
+          if (!co || !co.length) continue;
+          const p = co[Math.floor(co.length / 2)];
+          if (!p || p[0] < ext[0] || p[0] > ext[2] || p[1] < ext[1] || p[1] > ext[3]) continue;
+        }
+        let a; try { a = sdk.DataModel.Segments.getAddress({ segmentId: s.id }); } catch (e) { continue; }
+        const c = a && a.country;
+        const cle = c && (c.name || c.abbr);
+        if (!cle) continue;
+        const e0 = comptes.get(cle) || { n: 0, nom: c.name || null, code: c.abbr || null };
+        e0.n++; comptes.set(cle, e0);
+        if (comptes.size === 1 && e0.n >= 20) break;   // unanimite franche : inutile d'aller plus loin
+      }
+      let meilleur = null;
+      for (const e0 of comptes.values()) if (!meilleur || e0.n > meilleur.n) meilleur = e0;
+      if (meilleur) return { nom: meilleur.nom, code: meilleur.code };
+    } catch (e) { /* rien de lisible */ }
     return null;
+  }
+
+  /**
+   * Etat territorial courant : `fr`, `hors` ou `inconnu`.
+   *
+   * ⚠️ « inconnu » BLOQUE aussi. C'est volontaire : tant qu'aucun segment n'est
+   * charge, il n'y a de toute facon rien a analyser, et laisser passer le doute
+   * remettrait exactement le repli permissif qu'on vient de retirer. L'etat est
+   * reevalue a chaque deplacement de carte, donc la levee est automatique.
+   */
+  let pays = { etat: 'inconnu', nom: null, code: null };
+
+  function evaluerPays() {
+    const p = detecterPays();
+    const avant = pays.etat;
+    if (!p) pays = { etat: 'inconnu', nom: null, code: null };
+    else pays = {
+      etat: (estTerritoireFrancais(p.nom) || estTerritoireFrancais(p.code)) ? 'fr' : 'hors',
+      nom: p.nom, code: p.code
+    };
+    if (pays.etat !== avant) {
+      log('territoire : ' + pays.etat + (pays.nom ? ' (' + pays.nom + ')' : ''));
+      // Le blocage change ce que l'editeur peut faire : les boutons et le
+      // bandeau doivent suivre immediatement, pas au prochain clic.
+      try { renderAgglos(); majBandeauPays(); } catch (e) { /* UI pas encore prete */ }
+    }
+    return pays;
+  }
+
+  const enFrance = () => pays.etat === 'fr';
+
+  /** Ce qu'on affiche a l'editeur quand l'outil se ferme. */
+  function messagePays() {
+    if (pays.etat === 'hors') {
+      return '<b>Hors de France : outil desactive.</b><br>' +
+        'Les regles de nommage de ce script sont francaises' +
+        (pays.nom ? ' et la carte est sur <b>' + esc(pays.nom) + '</b>' : '') +
+        '. Les appliquer ailleurs abimerait la carte.<br>' +
+        'La France metropolitaine, la Corse et l\'outre-mer sont acceptes.';
+    }
+    // ⚠️ Message ACTIONNABLE : la cause est presque toujours un zoom trop
+    // faible (WME ne charge aucun segment avant le zoom 14, cf.
+    // [[wme-sdk-pieges]]), pas un vrai probleme de territoire.
+    return '<b>Territoire indetermine : analyse en attente.</b><br>' +
+      'Zoome a 14 ou plus sur la commune : WME ne charge aucune donnee en dessous, ' +
+      'et le script a besoin de lire le pays avant d\'appliquer des regles francaises.';
   }
 
   // ---------------------------------------------------------------------------
@@ -3384,6 +3583,13 @@
   }
 
   async function scan() {
+    // ⚠️⚠️ Garde-fou territorial AVANT tout le reste (v2.03) : les regles sont
+    // francaises. On reevalue ici plutot que de se fier a l'etat memorise — la
+    // carte a pu bouger depuis le dernier controle.
+    if (evaluerPays().etat !== 'fr') {
+      ui.stats.innerHTML = '<div class="agn-stat agn-alerte">' + messagePays() + '</div>';
+      ui.results.innerHTML = ''; return;
+    }
     if (!communeActive) {
       ui.stats.innerHTML = '<div class="agn-stat agn-alerte">Choisis d\'abord une commune.</div>';
       ui.results.innerHTML = ''; return;
@@ -3407,7 +3613,9 @@
       return;
     }
 
-    choisirReferentiel(detecterPays());
+    // `pays` vient d'etre reevalue en tete de fonction : on lit son nom, sans
+    // relancer une detection.
+    choisirReferentiel(pays.nom || pays.code);
     replierTout();                 // l'analyse prend toute la place
     findings = [];
     const skipped = { horsRegle: 0, sansAdresse: 0, horsCommune: 0, sansGeom: 0 };
@@ -4262,6 +4470,16 @@
   }
 
   async function appliquerCorrection(f) {
+    // ⚠️⚠️ Dernier verrou territorial (v2.03), et le seul qui protege VRAIMENT
+    // la carte : les autres ne grisent que des boutons. Un report affiche en
+    // France reste cliquable apres un saut a l'etranger — on revalide donc ici,
+    // au moment d'ecrire, et pas seulement au moment d'afficher.
+    if (evaluerPays().etat !== 'fr') {
+      return { ok: false, motif: pays.etat === 'hors'
+        ? 'hors de France (' + (pays.nom || pays.code || 'territoire inconnu') +
+          ') : ce script n\'applique que les regles francaises'
+        : 'territoire indetermine : impossible de garantir que la carte est en France' };
+    }
     const plan = planDeCorrection(f);
     if (!plan) return { ok: false, motif: 'rien d\'automatisable' };
     // ⚠️ On demande AVANT d'ecrire quoi que ce soit : une correction ne doit
@@ -4448,7 +4666,13 @@
   .agn-btn:disabled{opacity:.45;cursor:default}
   .agn-btn.primary{background:#1e88e5;color:#fff;border-color:#1976d2;font-weight:600}
   .agn-btn.primary:disabled{background:#9e9e9e;border-color:#9e9e9e}
-  .agn-sel{width:100%;padding:5px;font-size:12px;margin:3px 0;border:1px solid #bbb;border-radius:4px;background:#fff}
+  .agn-sel{width:100%;box-sizing:border-box;padding:5px;font-size:12px;margin:3px 0;
+    border:1px solid #bbb;border-radius:4px;background:#fff}
+  .agn-sel optgroup{font-style:normal;font-weight:700;color:#546e7a}
+  .agn-sel optgroup option{font-weight:400;color:initial}
+  .agn-filtre{width:100%;box-sizing:border-box;padding:4px 6px;font-size:12px;margin:0 0 2px;
+    border:1px solid #cfd8dc;border-radius:4px}
+  .agn-filtre:focus{border-color:#1e88e5;outline:none}
   .agn-note{font-size:10.5px;color:#78909c;margin:2px 0}
   .agn-deps{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:0 6px;
     max-height:120px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;padding:4px;margin:4px 0;background:#fafafa}
@@ -4599,29 +4823,71 @@
     display:flex;align-items:center;justify-content:center}
   #agn-fab-btn:hover{background:#eef3f8}
   #agn-fab-btn.agn-fab-on{box-shadow:0 0 0 2px #1e88e5,0 2px 6px rgba(0,0,0,.3)}
-  .agn-sb{font:12px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:2px}
-  .agn-sb-t{font-weight:700;font-size:13px;margin-bottom:2px}
+  /* ⚠️⚠️ Le panneau lateral de WME est ETROIT (~300 px) et sa largeur varie.
+     Sans box-sizing:border-box, un bouton en width:100% mesure 100 % PLUS ses
+     12 px de marge interne et ses 2 px de bordure : il sortait du panneau,
+     coupe a droite (signale par l'auteur le 26/07). La regle vaut pour TOUT ce
+     qu'on met la-dedans, pas seulement les boutons — et min-width:0 autorise
+     les libelles flex a retrecir au lieu de pousser la ligne dehors.
+     ⚠️ Ce bloc CSS vit dans un template literal : PAS de backtick ici. */
+  .agn-sb, .agn-sb *{box-sizing:border-box}
+  .agn-sb{font:12px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:2px;
+    max-width:100%;overflow-x:hidden}
+  .agn-sb-t{font-weight:700;font-size:13px;margin-bottom:2px;
+    display:flex;align-items:baseline;gap:5px}
   .agn-sb-t span{opacity:.5;font-weight:400;font-size:11px}
   .agn-sb h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#607d8b;
     margin:14px 0 5px;border-bottom:1px solid #eceff1;padding-bottom:3px}
+  /* Section repliable : le titre h4 devient le bouton de repli. Le chevron est
+     a DROITE et l'ensemble reste un h4, pour ne rien changer a la lecture. */
+  .agn-sb h4.agn-sb-h{cursor:pointer;display:flex;align-items:center;gap:6px;
+    user-select:none;margin-bottom:0}
+  .agn-sb h4.agn-sb-h:hover{color:#1e88e5}
+  .agn-sb h4.agn-sb-h > b{flex:1;min-width:0;font-weight:inherit;overflow-wrap:break-word}
+  /* Le chevron doit se VOIR : a 10 px et 70 % d'opacite il passait pour un
+     artefact, et rien ne disait que le titre etait cliquable. */
+  .agn-sb h4.agn-sb-h .agn-sb-chev{flex:0 0 auto;font-size:13px;line-height:1;
+    opacity:.85;color:#78909c}
+  .agn-sb h4.agn-sb-h:hover .agn-sb-chev{opacity:1;color:#1e88e5}
+  .agn-sb-sect{margin-bottom:2px}
+  .agn-sb-sect > .agn-sb-corps{padding-top:5px}
+  .agn-sb-sect.agn-ferme > .agn-sb-corps{display:none}
+  /* Barre d'onglets du panneau. Trois onglets se partagent la largeur a egalite
+     et le libelle retrecit plutot que de deborder. */
+  .agn-sb-onglets{display:flex;gap:0;margin:8px 0 0;border-bottom:1px solid #cfd8dc}
+  .agn-sb-onglets button{flex:1 1 0;min-width:0;padding:6px 2px;border:0;background:none;
+    font:inherit;font-size:11.5px;color:#546e7a;cursor:pointer;border-bottom:2px solid transparent;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .agn-sb-onglets button:hover{color:#1e88e5;background:#f5f7f9}
+  .agn-sb-onglets button.agn-sb-on{color:#1565c0;font-weight:700;border-bottom-color:#1e88e5}
+  .agn-sb-vue{display:none}
+  .agn-sb-vue.agn-sb-vue-on{display:block}
+  /* La premiere section d'un onglet n'a pas besoin de reprendre du champ : la
+     barre d'onglets fait deja la separation. */
+  .agn-sb-vue > .agn-sb-sect:first-child > h4{margin-top:10px}
   .agn-sb-l{display:flex;align-items:center;gap:6px;margin:5px 0}
-  .agn-sb-l span{flex:1}
-  .agn-sb-l input{width:58px;padding:2px 4px;font-size:12px}
-  .agn-sb-c{display:flex;align-items:flex-start;gap:6px;margin:5px 0;cursor:pointer}
+  .agn-sb-l span{flex:1;min-width:0}
+  .agn-sb-l input{width:58px;flex:0 0 auto;padding:2px 4px;font-size:12px}
+  .agn-sb-c{display:flex;align-items:flex-start;gap:6px;margin:5px 0;cursor:pointer;min-width:0}
+  .agn-sb-c input{flex:0 0 auto}
   .agn-sb-col{display:flex;align-items:center;gap:7px;margin:4px 0;cursor:pointer}
   .agn-sb-col input{width:34px;height:22px;padding:0;border:1px solid #ccc;border-radius:3px;background:none;cursor:pointer}
-  .agn-sb-n{font-size:11px;color:#e65100;min-height:14px;margin-top:4px}
+  .agn-sb-n{font-size:11px;color:#e65100;min-height:14px;margin-top:4px;
+    overflow-wrap:break-word;word-break:break-word}
   /* Alerte de zonage : elle doit se voir AVANT qu'on lise les reports, sinon
      l'editeur corrige de travers sans savoir que le zonage est incomplet. */
   .agn-alerte-bloc{margin:6px 0;padding:8px 10px;border-radius:6px;font-size:12px;
     background:#fff3e0;border:1px solid #ffb74d;color:#5d4037;line-height:1.45}
   /* « Segments : ☑ tableau ☑ carte » sur une seule ligne : deux cases par
      famille tiendraient mal sur deux lignes chacune dans un panneau etroit. */
-  .agn-sb-oc{display:flex;align-items:center;gap:10px;margin:4px 0;font-size:12px}
-  .agn-sb-oc b{min-width:66px}
-  .agn-sb-oc .agn-sb-c{margin:0;white-space:nowrap}
+  /* ⚠️ flex-wrap indispensable : dans un panneau retreci, « Segments ☑ tableau
+     ☑ carte » depassait a droite au lieu de passer a la ligne. */
+  .agn-sb-oc{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;margin:4px 0;font-size:12px}
+  .agn-sb-oc b{flex:0 0 auto;min-width:62px}
+  .agn-sb-oc .agn-sb-c{margin:0;white-space:nowrap;flex:0 0 auto}
   .agn-sb-b{width:100%;padding:6px;margin-top:6px;border:1px solid #bbb;border-radius:4px;
-    background:#fff;cursor:pointer;font-size:12px}
+    background:#fff;cursor:pointer;font:inherit;font-size:12px;text-align:center;
+    overflow-wrap:break-word}
   .agn-sb-b:hover{background:#f3f3f3}
   .agn-sb-i{width:100%;box-sizing:border-box;padding:4px 6px;font-size:12px;
     border:1px solid #bbb;border-radius:4px;margin-top:2px}
@@ -4707,6 +4973,10 @@
       // Meme piege pour les couleurs : la famille `rpp`, ajoutee en v1.93,
       // serait `undefined` chez qui a deja des reglages enregistres.
       options.couleurs = Object.assign({}, couleursDefaut, memo.options.couleurs || {});
+      // Meme piege pour le panneau lateral (v2.03) : `replis` doit rester un
+      // objet meme si l'enregistrement est anterieur a son existence.
+      const p = memo.options.panneau || {};
+      options.panneau = { onglet: p.onglet || 'analyse', replis: p.replis || {} };
     }
     // Les controles disponibles dependent du referentiel : on active par defaut
     // ceux qu'il declare et que l'utilisateur n'a pas deja regles.
@@ -4728,6 +4998,9 @@
           <button class="agn-tab" data-vue="adresses">Numerotation <span class="agn-tab-n"></span></button>
         </div>
         <div id="agn-corps">
+          <!-- Garde-fou territorial (v2.03) : en tete du corps, AVANT le bouton
+               d'analyse — c'est la raison pour laquelle il est grise. -->
+          <div id="agn-pays"></div>
           <button class="agn-btn primary" id="agn-scan" disabled>Analyser la commune</button>
           <!-- Conteneur PROPRE a la progression : agn-stats est reecrit par
                renderResults(), une barre qui y vivrait serait effacee. -->
@@ -4770,6 +5043,10 @@
             <div class="agn-sect-t"><span class="agn-chev">▾</span><b>2. Commune a traiter</b>
               <span class="agn-sect-r"></span></div>
             <div class="agn-sect-c">
+              <!-- Filtre (v2.03) : au zoom 12 la vue peut contenir 80 communes,
+                   et l'ordre alphabetique noyait celle qu'on regarde. -->
+              <input type="text" class="agn-filtre" id="agn-commune-f"
+                     placeholder="filtrer par nom ou code INSEE…" autocomplete="off">
               <select class="agn-sel" id="agn-commune"><option value="">— charger d'abord les contours —</option></select>
               <div class="agn-note" id="agn-nb-communes"></div>
             </div>
@@ -4799,6 +5076,7 @@
     ui.prog = o.querySelector('#agn-prog');
     ui.inputFichier = o.querySelector('#agn-fichier');
     ui.selCommune = o.querySelector('#agn-commune');
+    ui.filtreCommune = o.querySelector('#agn-commune-f');
     ui.nbCommunes = o.querySelector('#agn-nb-communes');
     ui.btnTracer = o.querySelector('#agn-tracer');
     ui.listeAgglos = o.querySelector('#agn-agglos');
@@ -4807,6 +5085,7 @@
     ui.progPanneaux = o.querySelector('#agn-prog-panneaux');
     ui.bilanPanneaux = o.querySelector('#agn-bilan-panneaux');
     ui.btnScan = o.querySelector('#agn-scan');
+    ui.bandeauPays = o.querySelector('#agn-pays');
     ui.stats = o.querySelector('#agn-stats');
     ui.bandeauFix = o.querySelector('#agn-fix');
     ui.results = o.querySelector('#agn-results');
@@ -4875,6 +5154,10 @@
       if (communeActive) replierSection('commune', false);   // choix fait
       if (communeActive) { try { sdk.Map.centerMapOnGeometry({ geometry: communeActive.geom }); } catch (e) { /* */ } }
     };
+
+    // Filtre des communes. `input` et non `change` : la liste doit se resserrer
+    // a la frappe, sinon le champ ne fait pas gagner de temps.
+    ui.filtreCommune.oninput = () => rafraichirCommunesDeLaVue();
 
     o.querySelector('#agn-fermer').onclick = fermerOverlay;
     /**
@@ -5082,79 +5365,127 @@
    * (restauration des contours, rendu, abonnement carte) ne tournait plus.
    */
   function buildReglages(pane) {
+    /**
+     * Une section repliable. Le titre porte le repli, le corps le contenu.
+     * `cle` sert a memoriser l'etat : elle doit rester stable d'une version a
+     * l'autre, sinon les replis de l'editeur se perdent au prochain lancement.
+     */
+    const sect = (cle, titre, corps) => `
+        <div class="agn-sb-sect" data-sect="${cle}">
+          <h4 class="agn-sb-h" title="Replier ou deplier cette section"><b>${titre}</b><span class="agn-sb-chev">▾</span></h4>
+          <div class="agn-sb-corps">${corps}</div>
+        </div>`;
+
     pane.innerHTML = `
       <div class="agn-sb">
         <div class="agn-sb-t">${SCRIPT_NAME} <span>v${VERSION}</span></div>
-
-        <h4>Analyse</h4>
-        <label class="agn-sb-l" title="Part de longueur au-dela de laquelle un segment a cheval est rattache d'office a un cote. En dessous, il est signale comme a couper.">
-          <span>Seuil de rattachement</span>
-          <input type="number" id="agn-r-seuil" min="50" max="100" step="5"> %</label>
-        <label class="agn-sb-c"><input type="checkbox" id="agn-r-sansadresse">
-          Inclure parkings et voies privees</label>
-        <label class="agn-sb-c"><input type="checkbox" id="agn-r-alt">
-          Signaler les noms alternatifs surnumeraires</label>
-
-        <h4>Controles</h4>
-        <div id="agn-r-controles"></div>
-        <div class="agn-sb-n" id="agn-r-relance"></div>
-
-        <h4>Navigation</h4>
-        <label class="agn-sb-c"><input type="checkbox" id="agn-r-zoom">
-          Cadrer sur le segment au clic</label>
-        <label class="agn-sb-l" title="Le zoom s'adapte a l'emprise des segments ; cette valeur en est le plafond.">
-          <span>Zoom maximal</span>
-          <input type="number" id="agn-r-zoomniv" min="12" max="22" step="1"></label>
-
-        <h4>Ou voir les resultats</h4>
-        <div class="agn-sb-n">Tableau et carte se choisissent separement. La carte
-          ne suit plus l'onglet ouvert : on peut lister les numeros en gardant
-          les segments surlignes.</div>
-        <div class="agn-sb-oc"><b>Segments</b>
-          <label class="agn-sb-c"><input type="checkbox" id="agn-r-segtable"> tableau</label>
-          <label class="agn-sb-c"><input type="checkbox" id="agn-r-segcarte"> carte</label></div>
-        <div class="agn-sb-oc"><b>Adresses</b>
-          <label class="agn-sb-c"><input type="checkbox" id="agn-r-adrtable"> tableau</label>
-          <label class="agn-sb-c"><input type="checkbox" id="agn-r-adrcarte"> carte</label></div>
-        <div class="agn-sb-oc"><b>Panneaux</b>
-          <label class="agn-sb-c"><input type="checkbox" id="agn-r-pancarte"> carte</label></div>
-
-        <h4>Surlignage sur la carte</h4>
-        <label class="agn-sb-c"><input type="checkbox" id="agn-r-surligner">
-          Surligner les ecarts sur la carte</label>
-        <div class="agn-sb-n">Numero de rue hors agglo = disque plein ·
-          RPP en agglo = anneau.</div>
-        <div id="agn-r-couleurs"></div>
-        <button class="agn-sb-b" id="agn-r-reset">Couleurs par defaut</button>
-
-        <h4>Contours communaux</h4>
-        <label class="agn-sb-c" title="Interroge geo.api.gouv.fr pour savoir quel departement est sous les yeux, et telecharge ses contours s'ils manquent."><input type="checkbox" id="agn-r-autodep">
-          Charger tout seul le departement visible</label>
-        <div class="agn-sb-n">Les contours se cumulent : charger un departement n'efface pas les autres.</div>
-
-        <h4>Correction</h4>
-        <div class="agn-sb-n" id="agn-r-droits"></div>
-
-        <h4>Sauvegarde &amp; partage</h4>
-        <div class="agn-sb-n" id="agn-r-socle"></div>
-        <div class="agn-sb-n">Polygones, communes « sans agglo » et coches « traité »
-          sont conservés dans le gestionnaire de scripts (survit au nettoyage du
-          navigateur), avec repli local.</div>
-        <button class="agn-sb-b" id="agn-r-exporter">⬇️ Exporter (polygones + communes)</button>
-        <div class="agn-sb-n">Le fichier partage les <b>polygones</b> et les
-          communes « sans agglo ». Les coches « traité » restent personnelles.</div>
-        <button class="agn-sb-b" id="agn-r-importer-f">⬆️ Importer un fichier</button>
-        <input type="file" id="agn-r-fichier-partage" accept=".json,application/json" style="display:none">
-        <label class="agn-sb-l" style="margin-top:8px"><span>Importer depuis une URL</span></label>
-        <input type="text" id="agn-r-url" class="agn-sb-i" placeholder="https://raw.githubusercontent.com/…/zone.json" autocomplete="off">
-        <button class="agn-sb-b" id="agn-r-importer-u">🌐 Importer depuis l'URL</button>
-        <div class="agn-sb-n" id="agn-r-partage-etat"></div>
-
-        <h4>Fenetre de travail</h4>
+        <!-- ⚠️ Le bouton de la fenetre de travail reste HORS des onglets : c'est
+             le seul geste qu'on refait tout le temps, il n'a rien a faire cache
+             au fond d'un onglet de reglages (arbitrage auteur, 26/07). -->
         <button class="agn-sb-b agn-sb-p" id="agn-rouvrir">Afficher la fenetre</button>
+
+        <div class="agn-sb-onglets">
+          <button data-vue="analyse" title="Ce que l'analyse regarde">Analyse</button>
+          <button data-vue="affichage" title="Ou et comment les ecarts se voient">Affichage</button>
+          <button data-vue="donnees" title="Contours, sauvegarde et partage">Donnees</button>
+        </div>
+
+        <div class="agn-sb-vue" data-vue="analyse">
+          ${sect('analyse', 'Analyse', `
+            <label class="agn-sb-l" title="Part de longueur au-dela de laquelle un segment a cheval est rattache d'office a un cote. En dessous, il est signale comme a couper.">
+              <span>Seuil de rattachement</span>
+              <input type="number" id="agn-r-seuil" min="50" max="100" step="5"> %</label>
+            <label class="agn-sb-c"><input type="checkbox" id="agn-r-sansadresse">
+              Inclure parkings et voies privees</label>
+            <label class="agn-sb-c"><input type="checkbox" id="agn-r-alt">
+              Signaler les noms alternatifs surnumeraires</label>`)}
+          ${sect('controles', 'Controles', `
+            <div id="agn-r-controles"></div>
+            <div class="agn-sb-n" id="agn-r-relance"></div>`)}
+          ${sect('correction', 'Correction', `
+            <div class="agn-sb-n" id="agn-r-droits"></div>`)}
+        </div>
+
+        <div class="agn-sb-vue" data-vue="affichage">
+          ${sect('resultats', 'Ou voir les resultats', `
+            <div class="agn-sb-n">Tableau et carte se choisissent separement. La carte
+              ne suit plus l'onglet ouvert : on peut lister les numeros en gardant
+              les segments surlignes.</div>
+            <div class="agn-sb-oc"><b>Segments</b>
+              <label class="agn-sb-c"><input type="checkbox" id="agn-r-segtable"> tableau</label>
+              <label class="agn-sb-c"><input type="checkbox" id="agn-r-segcarte"> carte</label></div>
+            <div class="agn-sb-oc"><b>Adresses</b>
+              <label class="agn-sb-c"><input type="checkbox" id="agn-r-adrtable"> tableau</label>
+              <label class="agn-sb-c"><input type="checkbox" id="agn-r-adrcarte"> carte</label></div>
+            <div class="agn-sb-oc"><b>Panneaux</b>
+              <label class="agn-sb-c"><input type="checkbox" id="agn-r-pancarte"> carte</label></div>`)}
+          ${sect('surlignage', 'Surlignage sur la carte', `
+            <label class="agn-sb-c"><input type="checkbox" id="agn-r-surligner">
+              Surligner les ecarts sur la carte</label>
+            <div class="agn-sb-n">Numero de rue hors agglo = disque plein ·
+              RPP en agglo = anneau.</div>
+            <div id="agn-r-couleurs"></div>
+            <button class="agn-sb-b" id="agn-r-reset">Couleurs par defaut</button>`)}
+          ${sect('navigation', 'Navigation', `
+            <label class="agn-sb-c"><input type="checkbox" id="agn-r-zoom">
+              Cadrer sur le segment au clic</label>
+            <label class="agn-sb-l" title="Le zoom s'adapte a l'emprise des segments ; cette valeur en est le plafond.">
+              <span>Zoom maximal</span>
+              <input type="number" id="agn-r-zoomniv" min="12" max="22" step="1"></label>`)}
+        </div>
+
+        <div class="agn-sb-vue" data-vue="donnees">
+          ${sect('contours', 'Contours communaux', `
+            <label class="agn-sb-c" title="Interroge geo.api.gouv.fr pour savoir quel departement est sous les yeux, et telecharge ses contours s'ils manquent."><input type="checkbox" id="agn-r-autodep">
+              Charger tout seul le departement visible</label>
+            <div class="agn-sb-n">Les contours se cumulent : charger un departement n'efface pas les autres.</div>`)}
+          ${sect('partage', 'Sauvegarde &amp; partage', `
+            <div class="agn-sb-n" id="agn-r-socle"></div>
+            <div class="agn-sb-n">Polygones, communes « sans agglo » et coches « traité »
+              sont conservés dans le gestionnaire de scripts (survit au nettoyage du
+              navigateur), avec repli local.</div>
+            <button class="agn-sb-b" id="agn-r-exporter">⬇️ Exporter (polygones + communes)</button>
+            <div class="agn-sb-n">Le fichier partage les <b>polygones</b> et les
+              communes « sans agglo ». Les coches « traité » restent personnelles.</div>
+            <button class="agn-sb-b" id="agn-r-importer-f">⬆️ Importer un fichier</button>
+            <input type="file" id="agn-r-fichier-partage" accept=".json,application/json" style="display:none">
+            <label class="agn-sb-l" style="margin-top:8px"><span>Importer depuis une URL</span></label>
+            <input type="text" id="agn-r-url" class="agn-sb-i" placeholder="https://raw.githubusercontent.com/…/zone.json" autocomplete="off">
+            <button class="agn-sb-b" id="agn-r-importer-u">🌐 Importer depuis l'URL</button>
+            <div class="agn-sb-n" id="agn-r-partage-etat"></div>`)}
+        </div>
       </div>`;
 
     const q = s => pane.querySelector(s);
+
+    // ── Onglets et replis ───────────────────────────────────────────────────
+    const vues = [...pane.querySelectorAll('.agn-sb-vue')];
+    const tabs = [...pane.querySelectorAll('.agn-sb-onglets button')];
+    const choisirVueReglages = nom => {
+      // Un nom enregistre par une version qui n'a plus cet onglet ne doit pas
+      // laisser le panneau VIDE : on retombe sur le premier.
+      if (!vues.some(v => v.dataset.vue === nom)) nom = vues[0].dataset.vue;
+      vues.forEach(v => v.classList.toggle('agn-sb-vue-on', v.dataset.vue === nom));
+      tabs.forEach(t => t.classList.toggle('agn-sb-on', t.dataset.vue === nom));
+      options.panneau.onglet = nom; saveUI();
+    };
+    tabs.forEach(t => { t.onclick = () => choisirVueReglages(t.dataset.vue); });
+
+    pane.querySelectorAll('.agn-sb-sect').forEach(s => {
+      const cle = s.dataset.sect;
+      const chev = s.querySelector('.agn-sb-chev');
+      const poser = ferme => {
+        s.classList.toggle('agn-ferme', ferme);
+        chev.textContent = ferme ? '▸' : '▾';
+      };
+      poser(!!options.panneau.replis[cle]);
+      s.querySelector('.agn-sb-h').onclick = () => {
+        const ferme = !s.classList.contains('agn-ferme');
+        poser(ferme);
+        options.panneau.replis[cle] = ferme; saveUI();
+      };
+    });
+    choisirVueReglages(options.panneau.onglet);
     const prevenir = () => { q('#agn-r-relance').textContent = 'Relance une analyse pour appliquer.'; };
 
     const seuil = q('#agn-r-seuil');
@@ -5465,21 +5796,62 @@
     };
   }
 
+  /**
+   * Bandeau du garde-fou territorial. Il n'apparait QUE quand l'outil est
+   * ferme : en France, rien ne doit encombrer la fenetre.
+   *
+   * ⚠️ Nuance qui evite un bandeau permanent et inutile : « territoire
+   * indetermine » est l'etat NORMAL au zoom 12-13, ou WME n'a encore charge
+   * aucun segment — c'est justement le zoom auquel on choisit sa commune et
+   * l'on trace les polygones. On ne le signale donc que si l'editeur avait de
+   * quoi lancer une analyse (commune choisie et zonage pret) : la, le bandeau
+   * explique un bouton grise. Le refus franc (« hors de France ») s'affiche,
+   * lui, toujours.
+   */
+  function majBandeauPays() {
+    const z = ui.bandeauPays;
+    if (!z) return;
+    let montrer = false;
+    if (pays.etat === 'hors') montrer = true;
+    else if (pays.etat === 'inconnu' && communeActive) {
+      montrer = !!(agglos[communeActive.code] || []).length || !!sansAgglo[communeActive.code];
+    }
+    z.innerHTML = montrer
+      ? '<div class="agn-alerte-bloc">' + (pays.etat === 'hors' ? '⛔ ' : '⏳ ') + messagePays() + '</div>'
+      : '';
+  }
+
   function renderAgglos() {
-    ui.btnTracer.disabled = !communeActive;
-    ui.btnPanneaux.disabled = !communeActive;
-    if (ui.btnPreTrace) ui.btnPreTrace.disabled = !communeActive || !panneaux.length;
+    // Garde-fou territorial (v2.03). ⚠️⚠️ DEUX cas a ne pas confondre :
+    //  - « hors » (etranger DEMONTRE) : on ferme tout, tracage compris ;
+    //  - « inconnu » : on ne ferme QUE l'analyse. Bloquer le tracage y serait
+    //    une regression — on trace au zoom 12, precisement la ou WME n'a charge
+    //    aucun segment et ou le pays est donc illisible.
+    const horsFrance = pays.etat === 'hors';
+    ui.btnTracer.disabled = !communeActive || horsFrance;
+    ui.btnPanneaux.disabled = !communeActive || horsFrance;
+    if (ui.btnPreTrace) ui.btnPreTrace.disabled = !communeActive || !panneaux.length || horsFrance;
+    if (horsFrance) {
+      ui.btnScan.disabled = true;
+      ui.listeAgglos.innerHTML = '<div class="agn-empty">' + messagePays() + '</div>';
+      majBandeauPays();
+      return;
+    }
     if (!communeActive) {
       ui.btnScan.disabled = true;
       ui.listeAgglos.innerHTML = '<div class="agn-empty">Choisis une commune.</div>';
       majResumeSections();     // sinon l'en-tete annonce encore la commune perdue
+      majBandeauPays();        // et le bandeau n'a plus de raison d'etre
       return;
     }
     const liste = agglos[communeActive.code] || [];
     // ⚠️ Le bouton d'analyse reste FERME tant qu'on n'a ni polygone ni
     // declaration explicite : sans zonage, tous les ecarts seraient faux.
     const declaree = !!sansAgglo[communeActive.code];
-    ui.btnScan.disabled = !liste.length && !declaree;
+    // Et le garde-fou territorial : l'analyse exige une France DEMONTREE. Le
+    // bandeau juste au-dessus du bouton dit pourquoi il est ferme — un bouton
+    // grise sans explication ne vaut pas mieux qu'une promesse vide.
+    ui.btnScan.disabled = (!liste.length && !declaree) || !enFrance();
     if (!liste.length) {
       ui.listeAgglos.innerHTML = '';
       const bloc = el(`<div class="agn-empty">
@@ -5494,9 +5866,11 @@
       };
       ui.listeAgglos.appendChild(bloc);
       majResumeSections();
+      majBandeauPays();
       return;
     }
     majResumeSections();
+    majBandeauPays();
     majDatalistVilles();
     ui.listeAgglos.innerHTML = '';
     liste.forEach((a, i) => {
@@ -6075,6 +6449,11 @@
 
     await restaurerContours();
     renderContours();
+    // ⚠️ AVANT le premier rendu : `renderAgglos` lit l'etat territorial pour
+    // decider quels boutons ouvrir. Au demarrage, WME n'a souvent encore rien
+    // charge — l'etat reste « inconnu » et la surveillance de la carte le
+    // corrigera d'elle-meme dans la seconde qui suit.
+    evaluerPays();
     rafraichirCommunesDeLaVue();
     renderAgglos();
     if (ui.overlay.style.display === 'none') nettoyerCarte();
@@ -6090,6 +6469,9 @@
       sdk.Events.on({ eventName: 'wme-map-move-end', eventHandler: () => {
         clearTimeout(debounce);
         debounce = setTimeout(() => {
+          // Le garde-fou territorial se reevalue a chaque arret de la carte :
+          // c'est ce qui rend le blocage reversible sans rechargement.
+          evaluerPays();
           rafraichirCommunesDeLaVue();
           // ⚠️ Apres le rafraichissement, pas avant : si les contours sont deja
           // la, il n'y a rien a telecharger et rien ne part sur le reseau.
