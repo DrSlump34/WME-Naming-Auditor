@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.13
+// @version      2.14
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -275,7 +275,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '2.13';
+    return '2.14';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -358,6 +358,26 @@
   // Autoroute Axxx : AUCUNE ville, ni en principal ni en alternatif, et ce
   // quelle que soit la zone traversee. Regle systematique, sans exception.
   const RE_AUTOROUTE = /^A\s?\d+/;
+
+  /**
+   * ⚠️⚠️ NOM COMPOSITE « numero - nom de la route » : c'est INTERDIT.
+   *
+   * Ancienne regle FR, abandonnee (signalee par l'auteur le 26/07 : « c'est une
+   * vieille regle, c'est interdit »). Le numero et le nom de voie ne se
+   * concatenent pas dans un seul libelle : le numero va au nom principal hors
+   * agglomeration, ou en alternatif en agglomeration, et le nom de rue vit dans
+   * son propre champ.
+   *
+   * ⚡ RELEVE SUR LE TERRAIN (segments 63412653 / 365882089 / 365882086, N580 a
+   * Saint-Laurent-des-Arbres) : le principal porte « N580 », et les alternatifs
+   * portent A LA FOIS « N580 - Route d'Avignon » (l'ancien format) ET « Route
+   * d'Avignon » (le bon). Le composite est donc un RESIDU en doublon.
+   *
+   * On accepte les trois tirets (`-`, `–`, `—`) et un espacement libre autour :
+   * la saisie reelle est irreguliere.
+   */
+  const RE_NOM_COMPOSITE =
+    /^((?:A|N|D|M|E|T|CR|CV|CC|VC|RC|C)\s?\d+[a-zA-Z0-9]*)\s*[-–—]\s*(\S.*)$/;
 
   // Voies qui ne portent NI ville NI nom de rue : ferry, voie ferree, piste.
   const ROADTYPE_SANS_ADRESSE_TOTALE = new Set([15, 18, 19]);
@@ -2532,7 +2552,34 @@
   }
 
   function expectedNaming(nam, agglo, nomCommune) {
-    const entries = [nam.primary, ...nam.alts].filter(e => e.name || e.cityName);
+    // ⚠️⚠️ UN NOM COMPOSITE « Dxxx - Nom de la route » NE DOIT JAMAIS SERVIR DE
+    // CIBLE (corrige en v2.14, defaut vu en live a Saint-Laurent-des-Arbres).
+    // `isRoute` ne le reconnait pas comme un numero — il y a du texte apres —
+    // donc il passait pour un NOM DE RUE valide et pouvait etre retenu comme
+    // cible : le script reclamait alors d'AJOUTER « N580 - Route d'Avignon » en
+    // alternatif, c'est-a-dire de CREER le format interdit, tout en demandant
+    // par ailleurs de le supprimer. Deux consignes contradictoires sur le meme
+    // segment.
+    // On le ramene donc a son nom seul AVANT tout raisonnement : si le bon nom
+    // existe deja ailleurs, les deux se confondent et il n'y a plus d'ecart
+    // fantome ; s'il est le seul, la cible proposee est le nom PROPRE.
+    const nettoyer = e => {
+      const m = (e.name || '').match(RE_NOM_COMPOSITE);
+      return m ? { name: m[2].trim(), cityName: e.cityName,
+                   signText: e.signText, signType: e.signType } : e;
+    };
+    const vues = new Set();
+    const entries = [nam.primary, ...nam.alts]
+      .filter(e => e.name || e.cityName)
+      .map(nettoyer)
+      // Le nettoyage peut creer des doublons (« N580 - Route d'Avignon » et
+      // « Route d'Avignon » deviennent identiques) : on les fond en un seul,
+      // sinon le doute « plusieurs noms de rue » se declencherait a tort.
+      .filter(e => {
+        const k = (e.name || '').trim().toLowerCase() + '|' + (e.cityName || '').trim().toLowerCase();
+        if (vues.has(k)) return false;
+        vues.add(k); return true;
+      });
     const routes = entries.filter(isRoute);
     const noms = entries.filter(e => e.name && !isRoute(e));
     const route = routes[0] || null, nomRue = noms[0] || null;
@@ -2717,6 +2764,29 @@
         ecarts.push({ champ: 'direction dans le nom' + ou, avant: nom,
           apres: 'la direction n\'est admise que sur les bretelles' });
       }
+      // ⚠️⚠️ « Dxxx - Nom de la route » : ancienne regle FR, INTERDITE aujourd'hui.
+      // Le remede depend de l'endroit ou le composite se trouve, et on le DIT,
+      // parce que les deux cas ne se corrigent pas de la meme facon :
+      //  - en PRINCIPAL : il suffit de le remplacer par le nom seul ;
+      //  - en ALTERNATIF : ⚠️ le SDK n'a PAS de `removeAlternateStreet` (voir
+      //    [[wme-sdk-pieges]]), donc le script ne peut pas le retirer — c'est un
+      //    geste manuel, et promettre le contraire serait mentir.
+      if (c.nomComposite) {
+        const m = nom.match(RE_NOM_COMPOSITE);
+        if (m) {
+          const nomSeul = m[2].trim();
+          // Le bon nom existe-t-il DEJA ailleurs sur ce segment ? Alors le
+          // composite n'est qu'un doublon a supprimer, et on le dit.
+          const dejaLa = [nam.primary, ...nam.alts]
+            .some(x => x !== e && (x.name || '').trim().toLowerCase() === nomSeul.toLowerCase());
+          ecarts.push({ champ: 'numéro collé au nom' + ou, avant: nom,
+            apres: i === 0
+              ? nomSeul + ' — le numéro va en alternatif (ou en principal hors agglomération), jamais collé au nom'
+              : (dejaLa
+                  ? '⚠️ à SUPPRIMER à la main : « ' + nomSeul + ' » est déjà présent, ce nom en est un doublon (ancienne règle)'
+                  : '⚠️ à corriger à la main en « ' + nomSeul + ' » : le script ne sait pas retirer un nom alternatif') });
+        }
+      }
     });
     return ecarts;
   }
@@ -2790,6 +2860,9 @@
         { cle: 'abreviations', portee: 'forme', libelle: 'Abréviations interdites (Av., Bd., Rte...)' },
         { cle: 'contractions', portee: 'forme', libelle: 'Contractions interdites (St-, R. Poincaré)' },
         { cle: 'majuscule', portee: 'forme', libelle: 'Nom commençant par une minuscule' },
+        // Ancienne regle FR, aujourd'hui interdite : « D980 - Route de Bagnols ».
+        { cle: 'nomComposite', portee: 'forme',
+          libelle: 'Numéro collé au nom (« D980 - Route de… », interdit)' },
         { cle: 'fonctionDirection', portee: 'forme', libelle: 'Fonction ou direction dans le nom' },
         { cle: 'hnHorsAgglo', portee: 'adresse',
           libelle: 'Numéros de rue (HN) hors agglomération' },
