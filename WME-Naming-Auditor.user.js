@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.08
+// @version      2.09
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -275,7 +275,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '2.08';
+    return '2.09';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -4510,21 +4510,66 @@
     };
     let faits = 0;
     const echecs = [];
+    // ⚠️ Les echecs CRITIQUES sont tenus a part : ceux qui laissent la carte
+    // dans un etat abime (adresse en double, POI sans adresse). Ils doivent
+    // remonter INTACTS et EN TETE jusqu'a l'editeur, jamais etre noyes dans un
+    // compteur ni tronques (defaut corrige en v2.09).
+    const critiques = [];
     const villesUtilisees = new Set();
     const laisses = f.hns.length - hnsManipulables(f).length;
+    /**
+     * Retire un POI qu'on vient de creer. Rend `true` si la carte est bien
+     * revenue en arriere. ⚠️ Le resultat DOIT etre lu : c'est lui qui distingue
+     * « rattrape » de « doublon en place ».
+     */
+    const retirerPoi = venueId => {
+      try { DM.Venues.deleteVenue({ venueId }); return true; }
+      catch (e) { return false; }
+    };
     for (const hn of hnsManipulables(f)) {
       let venueId = null;
       const ville = villePour(hn);
+      // ⚠️⚠️ PAS DE COMMUNE ⇒ PAS DE CONVERSION (defaut corrige en v2.09, trouve
+      // par tools/test-hn-rpp.js). Sans ce garde, le POI etait cree avec
+      // `cityName: ''` ET le numero supprime : l'adresse perdait sa commune,
+      // alors que la doctrine du projet est justement que la ville du POI EST la
+      // commune INSEE. Le cas arrive en limite de departement — numero tombant
+      // hors des contours charges, sur un segment sans ville (donc hors agglo,
+      // ou c'est le nommage attendu). Meme logique que le garde sur le nom.
+      if (!ville) {
+        echecs.push(hn.number + ' : commune indéterminable (aucun contour chargé sous ' +
+          'ce numéro et le segment n\'en porte pas) — charge le département voisin, ' +
+          'ou choisis la commune à la main');
+        continue;
+      }
+      // ── 1. Creation du POI ─────────────────────────────────────────────────
       try {
         // /!\ addVenue rend un NOMBRE, les autres methodes veulent une CHAINE.
         venueId = String(DM.Venues.addVenue({
           category: REF.adressage.categoriePoi, geometry: hn.geometry }));
+      } catch (e) {
+        echecs.push(hn.number + ' : POI non créé (' + (e.message || e) + ')');
+        continue;                       // rien n'a ete touche ⇒ on garde le numero
+      }
+      // ── 2. Adresse du POI ──────────────────────────────────────────────────
+      // ⚠️⚠️ ETAPE A NE PAS CONFONDRE AVEC LA PRECEDENTE (defaut corrige en
+      // v2.09, trouve par tools/test-hn-rpp.js) : les deux etaient dans le MEME
+      // try, et un echec d'adressage laissait sur la carte un POI residentiel
+      // SANS ADRESSE, en plus du numero conserve. Or l'erreur est reelle et
+      // documentee — `stateId is required for raw address updates`.
+      try {
         DM.Venues.updateAddress({ venueId, addressData: Object.assign(
           { houseNumber: String(hn.number), streetName: nomRue, cityName: ville }, ctx) });
       } catch (e) {
-        echecs.push(hn.number + ' : ' + (e.message || e));
-        continue;                       // POI rate ⇒ on garde le numero
+        const annule = retirerPoi(venueId);
+        const m = hn.number + ' : adresse du POI refusée (' + (e.message || e) + ')' +
+          (annule ? ', POI retiré' :
+            ' — ⚠️ LE POI EST RESTÉ SANS ADRESSE, à supprimer à la main');
+        echecs.push(m);
+        if (!annule) critiques.push(m);
+        continue;
       }
+      // ── 3. Retrait du numero : c'est ici que se joue le « tout ou rien » ───
       try {
         DM.HouseNumbers.deleteHouseNumber({ houseNumberId: hn.id });
         faits++; villesUtilisees.add(ville);
@@ -4532,11 +4577,21 @@
       } catch (e) {
         // ⚠️ Le POI existe mais le numero resiste : on RETIRE le POI, sinon
         // l'adresse serait en double — pire que l'ecart de depart.
-        try { DM.Venues.deleteVenue({ venueId }); } catch (e2) { /* */ }
-        echecs.push(hn.number + ' : numéro non retirable, POI annule (' + (e.message || e) + ')');
+        // ⚠️⚠️ Et si ce retrait echoue AUSSI, il faut le DIRE : l'ancien message
+        // annoncait « POI annule » sans verifier, donc il rassurait a tort et
+        // l'editeur enregistrait un doublon sans le savoir (defaut corrige en
+        // v2.09). Un message faux est pire que pas de message.
+        if (retirerPoi(venueId)) {
+          echecs.push(hn.number + ' : numéro non retirable, POI annulé (' + (e.message || e) + ')');
+        } else {
+          const m = hn.number + ' : ⚠️ ADRESSE EN DOUBLE — le POI a été créé mais ni ' +
+            'le numéro ni le POI n\'ont pu être retirés. N\'enregistre pas : annule dans WME ' +
+            '(Ctrl+Z) ou supprime le POI à la main.';
+          echecs.push(m); critiques.push(m);
+        }
       }
     }
-    return { faits, echecs, laisses, villes: [...villesUtilisees] };
+    return { faits, echecs, critiques, laisses, villes: [...villesUtilisees] };
   }
 
 
@@ -4742,12 +4797,21 @@
       }
       try {
         const r = convertirHnEnPoi(f, choix);
-        if (!r.faits) return { ok: false, motif: r.echecs[0] || 'aucun numéro converti' };
+        if (!r.faits) return { ok: false, motif: r.echecs[0] || 'aucun numéro converti',
+                               critiques: r.critiques };
+        // ⚠️⚠️ NE PAS reduire les echecs a un COMPTEUR (defaut corrige en v2.09) :
+        // l'ancien message disait « N numéro(s) laissés de côté » et jetait le
+        // detail — donc un « ADRESSE EN DOUBLE » n'arrivait JAMAIS a l'editeur.
+        // Un numero simplement non charge et une carte abimee ne se comptent pas
+        // ensemble.
+        const parts = [];
+        if (r.laisses) parts.push(r.laisses + ' numéro(s) non chargé(s) par WME, laissés de côté');
+        if (r.echecs.length) parts.push(r.echecs.join(' ; '));
         // Converti partiellement : la ligne reste a traiter, on ne la barre pas.
         return { ok: true, nb: r.faits, ops: r.faits, bloques: 0,
-                 partiel: (r.echecs.length + (r.laisses || 0)) > 0,
-                 avertissement: (r.echecs.length + (r.laisses || 0)) +
-                   ' numéro(s) laisses de cote' };
+                 partiel: parts.length > 0,
+                 critiques: r.critiques,
+                 avertissement: parts.join(' · ') };
       } catch (e) {
         log('conversion impossible', e);
         return { ok: false, motif: e.message || String(e) };
@@ -6287,6 +6351,12 @@
     // Une conversion d'adresses compte des NUMEROS, pas des segments.
     const unite = liste.every(f => f.adresse) ? 'numero' : 'segment';
     const echecs = [];
+    // ⚠️⚠️ Messages CRITIQUES : ceux qui signalent une carte laissee dans un
+    // mauvais etat (adresse en double, POI sans adresse). Tenus a part pour etre
+    // affiches EN ENTIER et EN PREMIER — le bandeau tronque les echecs ordinaires
+    // a trois, et un avertissement de doublon n'a pas le droit de tomber dans la
+    // partie coupee (v2.09).
+    const critiques = [];
     // Une conversion HN→POI cadre la carte et attend le chargement des numeros :
     // compter ~1 a 2 s par numero. Sur un groupe, l'editeur attend pour de bon.
     const prog = progression(ui.prog, { annulable: liste.length > 1, titre: 'Correction en cours…' });
@@ -6298,6 +6368,9 @@
         prog.fixer(i).sous(f.libelle);
         await prog.respirer(true);
         const res = await appliquerCorrection(f);
+        if (res.critiques && res.critiques.length) {
+          for (const m of res.critiques) critiques.push(f.libelle + ' — ' + m);
+        }
         if (res.ok) {
           ok++; segments += res.nb; bloques += (res.bloques || 0);
           // Une conversion partielle laisse du travail : on ne barre pas la ligne.
@@ -6318,7 +6391,7 @@
     prog.fin();
     redrawEcarts(null);
     majBoutonsGroupes();      // une serie corrigee vide souvent tout un groupe
-    majBandeauCorrection(ok, segments, echecs, bloques, unite, interrompu);
+    majBandeauCorrection(ok, segments, echecs, bloques, unite, interrompu, critiques);
     // Demande de l'auteur : apres une conversion, c'est le POI qui doit etre
     // selectionne, pas le segment d'origine — on enchaine en general sur son
     // point d'entree.
@@ -6329,17 +6402,26 @@
     }
   }
 
-  function majBandeauCorrection(ok, segments, echecs, bloques, unite, interrompu) {
+  function majBandeauCorrection(ok, segments, echecs, bloques, unite, interrompu, critiques) {
     if (!ui.bandeauFix) return;
     const enAttente = nbModifsEnAttente();
-    if (!ok && (!echecs || !echecs.length)) { ui.bandeauFix.innerHTML = ''; return; }
-    ui.bandeauFix.innerHTML =
+    const crit = critiques || [];
+    if (!ok && (!echecs || !echecs.length) && !crit.length) { ui.bandeauFix.innerHTML = ''; return; }
+    // ⚠️⚠️ Les messages critiques passent AVANT le bilan, en entier, dans un bloc
+    // a part : ils disent que la carte est abimee et ce qu'il faut faire tout de
+    // suite. Les noyer dans la liste tronquee des echecs revenait a ne pas les
+    // dire (v2.09).
+    const blocCritique = crit.length
+      ? `<div class="agn-alerte-bloc"><b>⛔ À RÉGLER AVANT D'ENREGISTRER</b><br>` +
+        crit.map(esc).join('<br>') + '</div>'
+      : '';
+    ui.bandeauFix.innerHTML = blocCritique +
       `<div class="agn-stat ${echecs.length ? 'agn-alerte' : 'agn-ok'}">
         ${interrompu ? '<b>⚠ Série interrompue.</b> ' : ''}
         <b>${ok}</b> correction(s) appliquée(s) sur <b>${segments}</b> ${(unite || 'segment')}(s).
         ${bloques ? '<b>' + bloques + '</b> segment(s) ignoré(s), verrouillé(s) au-dessus de ton niveau. ' : ''}
         ${enAttente != null ? '<b>' + enAttente + '</b> modification(s) en attente dans WME — ' : ''}
-        <b>rien n'est enregistre</b> : relis, puis clique sur Enregistrer dans WME.
+        <b>rien n'est enregistré</b> : relis, puis clique sur Enregistrer dans WME.
         ${echecs.length ? '<br>Échecs : ' + echecs.slice(0, 3).map(esc).join(' ; ') +
           (echecs.length > 3 ? ' …' : '') : ''}
       </div>`;
