@@ -87,7 +87,8 @@ const VILLES = { 100: { id: 100, name: 'Saint-Laurent-des-Arbres' },
                  102: { id: 102, name: '', isEmpty: true } };
 function auditer(pois, controles) {
   const api = monter(controles || DEFAUT);
-  const stats = { poiAudites: 0, poiHorsCommune: 0, poiNaturels: 0, poiConformes: 0 };
+  const stats = { poiAudites: 0, poiHorsCommune: 0, poiNaturels: 0, poiBati: 0,
+                  poiConformes: 0 };
   const out = api.auditerPoi(pois, RUES, VILLES, COMMUNE, stats);
   return { out, stats };
 }
@@ -114,6 +115,24 @@ for (const cat of ['FARM', 'SEAPORT_MARINA_HARBOR', 'SWIMMING_POOL', 'CARPOOL_SP
   r = auditer([POI({ categories: [cat], streetID: null })]);
   verifier('3. ' + cat + ' — audité (lieu bâti)', r.stats.poiAudites, 1);
 }
+
+// 3bis. ⚠️ LE BATI SANS NOM n'est pas une adresse (precision de l'auteur) : une
+//       ZONE sans nom sert a dessiner un batiment sur l'ecran de l'application ;
+//       les commerces qu'elle abrite sont des POI a part, eux-memes audites.
+const ZONE = { type: 'Polygon',
+               coordinates: [[[4.709, 44.059], [4.711, 44.059], [4.711, 44.061], [4.709, 44.061], [4.709, 44.059]]] };
+r = auditer([POI({ name: '', geometry: ZONE, streetID: null,
+                   categories: ['SHOPPING_AND_SERVICES'] })]);
+verifier('3bis. zone SANS NOM — écartée (bâti)', r.out.length, 0);
+verifier('3bis. et comptée comme bâti', r.stats.poiBati, 1);
+verifier('3bis. pas comptée comme auditée', r.stats.poiAudites, 0);
+// La meme zone AVEC un nom est un vrai POI : elle reste auditee.
+r = auditer([POI({ name: 'Intermarché', geometry: ZONE, streetID: null })]);
+verifier('3bis. zone AVEC un nom — auditée', [r.out.length, r.stats.poiBati], [1, 0]);
+// Un POI PONCTUEL sans nom ne dessine rien : il n'a pas cette excuse.
+r = auditer([POI({ name: '', streetID: null })]);
+verifier('3bis. POINT sans nom — audité quand même', r.out.length, 1);
+verifier('3bis. et pas compté comme bâti', r.stats.poiBati, 0);
 
 // 4. Hors du contour : ce n'est pas notre commune.
 r = auditer([POI({ geometry: { type: 'Point', coordinates: DEHORS } })]);
@@ -203,6 +222,34 @@ d = api.poiDansCommune({ geometry: surCheval, entryExitPoints: [
   { point: { type: 'Point', coordinates: DEDANS }, entry: true, primary: true }] }, COMMUNE);
 verifier('18. le même, accès principal dedans — retenu',
          [d.dedans, d.source], [true, 'accès principal']);
+
+// ── Le cadrage d'un POI SURFACIQUE ─────────────────────────────────────────
+// ⚠️ Bug signale par l'auteur le 26/07 : « le clic sur un ecart de POI ne centre
+// pas dessus ». `cadrerSur` etalait `coordinates` a la main, ce qui donnait des
+// ANNEAUX au lieu de points pour un Polygone : l'emprise partait en NaN. Verrou
+// de non-regression sur l'aplatissement, quelle que soit la profondeur.
+console.log('\n=== Cadrage : emprise d\'une géométrie, quel que soit son type ===\n');
+const g = new Function(extraire('sommetsDe') + '\n' + extraire('emprise') +
+                       '\nreturn { sommetsDe, emprise };')();
+const empriseDe = geom => g.emprise(g.sommetsDe(geom));
+let em = empriseDe({ type: 'Point', coordinates: [4.71, 44.06] });
+verifier('19. Point — centre exact', [em.centre.lon, em.centre.lat], [4.71, 44.06]);
+em = empriseDe({ type: 'LineString', coordinates: [[4.70, 44.05], [4.72, 44.07]] });
+verifier('20. LineString — centre au milieu', [em.centre.lon, em.centre.lat], [4.71, 44.06]);
+em = empriseDe(ZONE);
+verifier('21. Polygon — centre calculable (pas NaN)',
+         [isFinite(em.centre.lon), isFinite(em.centre.lat), isFinite(em.rx)], [true, true, true]);
+// ⚠️ `emprise` rend le CENTRE DE GRAVITE (moyenne des points), pas le centre de
+// la boite — c'est voulu dans ce projet. L'anneau etant FERME, son premier point
+// compte deux fois : le centre penche donc de ~20 m vers ce sommet. Sans effet
+// pour un cadrage, d'ou la tolerance ici plutot qu'un correctif dans `emprise`,
+// utilisee partout ailleurs.
+verifier('21. et il tombe au centre de la zone à ~50 m près',
+         [Math.abs(em.centre.lon - 4.71) < 5e-4, Math.abs(em.centre.lat - 44.06) < 5e-4],
+         [true, true]);
+em = empriseDe({ type: 'MultiPolygon', coordinates: [ZONE.coordinates] });
+verifier('22. MultiPolygon — centre calculable aussi',
+         [isFinite(em.centre.lon), Math.abs(em.centre.lat - 44.06) < 5e-4], [true, true]);
 
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(66));

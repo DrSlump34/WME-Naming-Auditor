@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.15
+// @version      2.16
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -275,7 +275,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '2.15';
+    return '2.16';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -3558,6 +3558,18 @@
       const cats = v.categories || [];
       // ⚠️ Elements du paysage : aucune adresse a reclamer (voir POI_CATEGORIES_NATURELLES).
       if (cats.some(x => POI_CATEGORIES_NATURELLES.has(x))) { stats.poiNaturels++; continue; }
+      // ⚠️⚠️ LE BATI SANS NOM N'EST PAS UNE ADRESSE (precision de l'auteur, 26/07) :
+      // « c'est courant, c'est pour visualiser sur l'ecran de l'application le
+      // bati, et on traite les commerces a l'interieur avec des vrais POI, point
+      // ou zone ». Une ZONE SANS NOM sert donc a dessiner un batiment ; lui
+      // reclamer une rue et une commune serait un contresens. Les commerces qu'il
+      // abrite sont, eux, des POI a part entiere et restent audites.
+      // ⚡ Mesure a Saint-Laurent-des-Arbres : 10 des 17 ecarts venaient de ces
+      // batis — ils representaient la majorite d'un onglet qui n'avait rien a
+      // signaler. Un POI PONCTUEL sans nom reste signale, lui : un point sans nom
+      // ne dessine rien, il n'a pas cette excuse.
+      const estZone = !!(v.geometry && v.geometry.type !== 'Point');
+      if (estZone && !(v.name || '').trim()) { stats.poiBati++; continue; }
       const situation = poiDansCommune(v, commune);
       if (!situation.dedans) { stats.poiHorsCommune++; continue; }
       stats.poiAudites++;
@@ -4457,6 +4469,8 @@
     // ⚠️ `poiNaturels` est compte pour qu'on VOIE que le script les a ecartes
     // exprès (rivieres, forets…), plutot que de les passer sous silence.
     const statsPoi = { poiAudites: 0, poiHorsCommune: 0, poiNaturels: 0,
+                       // `poiBati` : zones sans nom qui dessinent un batiment.
+                       poiBati: 0,
                        poiConformes: 0, erreur: null, indisponible: null };
     let poiFindings = [];
 
@@ -6991,7 +7005,10 @@
     cadrerSur(f);
     // Un POI n'est pas un segment : on le selectionne comme venue, et on ne
     // retente pas — il est deja charge puisqu'on vient de le lire.
-    if (f.adresse && f.sousType === 'poi') {
+    // ⚠️ `f.poi` (les VRAIS POI, v2.15) autant que les RPP : sans ce test, un
+    // ecart de POI partait dans la branche « segment » avec un identifiant de
+    // venue, et la selection echouait silencieusement.
+    if (f.poi || (f.adresse && f.sousType === 'poi')) {
       try { sdk.Editing.setSelection({ selection: { ids: [f.venueId], objectType: 'venue' } }); }
       catch (e) { log('sélection du POI impossible', e); }
       redrawEcarts(idx);
@@ -7188,11 +7205,20 @@
       if (f.centre) centrerSurZoneVisible(f.centre, null);
       return;
     }
-    // ⚠️ Un Point porte `coordinates: [lon, lat]`, une ligne `[[lon,lat], ...]` :
-    // les etaler pareil donnerait une liste de NOMBRES et casserait l'emprise.
+    // ⚠️⚠️ Chaque type de geometrie imbrique ses coordonnees d'un cran de plus :
+    // un Point porte `[lon, lat]`, une ligne `[[lon,lat], …]`, un POLYGONE
+    // `[[[lon,lat], …]]`. Etaler `coordinates` a la main marchait pour les deux
+    // premiers et donnait des ANNEAUX au lieu de points pour le troisieme :
+    // l'emprise partait en NaN et la carte ne bougeait pas. C'est le bug signale
+    // par l'auteur le 26/07 — « le clic sur un ecart de POI ne centre pas
+    // dessus » — les POI etant justement souvent surfaciques (79 sur 136 mesures).
+    // `sommetsDe` aplatit n'importe quelle profondeur : on ne devine plus.
     const tous = [];
-    geoms.forEach(g => { if (g.type === 'Point') tous.push(g.coordinates);
-                         else tous.push(...g.coordinates); });
+    geoms.forEach(g => { tous.push.apply(tous, sommetsDe(g)); });
+    if (!tous.length) {
+      if (f.centre) centrerSurZoneVisible(f.centre, null);
+      return;
+    }
     let e = emprise(tous);
     let z = zoomPour(2 * e.rx, 2 * e.ry, e.centre.lat);
 
@@ -7204,7 +7230,9 @@
         for (let i = 1; i < g.coordinates.length; i++) d += longueur(g.coordinates[i - 1], g.coordinates[i]);
         if (d > long) { long = d; meilleur = g; }
       });
-      e = emprise(meilleur.coordinates);
+      // ⚠️ Meme precaution que plus haut : on aplatit au lieu de supposer la
+      // profondeur des coordonnees.
+      e = emprise(sommetsDe(meilleur));
       z = zoomPour(2 * e.rx, 2 * e.ry, e.centre.lat);
     }
 
@@ -7367,7 +7395,10 @@
       (p.poiHorsCommune ? ' · ' + p.poiHorsCommune + ' hors du contour communal' : '') +
       (p.poiNaturels
         ? ' · <span title="Rivière, fleuve, mer, lac, étang, île, forêt, plantation, canal, marais, plage : ces lieux décrivent le paysage et n\'ont pas d\'adresse postale. Ils sont écartés volontairement.">' +
-          p.poiNaturels + ' élément(s) naturel(s) écarté(s)</span>' : '') + '.' +
+          p.poiNaturels + ' élément(s) naturel(s) écarté(s)</span>' : '') +
+      (p.poiBati
+        ? ' · <span title="Zones sans nom qui servent à dessiner le bâti sur l\'écran de l\'application. Ce ne sont pas des adresses : les commerces qu\'elles abritent sont des POI à part entière, eux-mêmes audités.">' +
+          p.poiBati + ' bâti(s) sans nom écarté(s)</span>' : '') + '.' +
       (options.controles.poiNumero ? ''
         : '<br><span style="opacity:.8">Le contrôle « numéro de rue manquant » est ' +
           'décoché : il concerne environ la moitié des POI. Coche-le dans les réglages ' +
