@@ -170,6 +170,28 @@ for (const n of ['Domaine de Cazaux', 'Camp Redon', 'Route Nationale', 'Chemin N
   else verifier('« ' + n + " » n'est pas confondu avec un numéro", v, false);
 }
 
+// ── ⚠️⚠️ LA REGLE OFFICIELLE (rappelee par l'auteur le 26/07) ───────────────
+// « En agglo, on ne met AUCUN cartouche sur le nom de rue en principal, peu
+// importe qu'il existe ou non en Alt. » Le recensement ne doit donc plus voir
+// les segments en agglomeration : c'est le SEUL garde-fou, puisque
+// `cartouchesPrincipal()` proposerait sinon exactement ce que la regle interdit.
+console.log('\n=== La règle officielle : rien en agglomération ===\n');
+const appel = src.match(/if \(!enAgglo\) collecterCartouche\(seg, nam, base\);/);
+verifier('23. le recensement est conditionné à « hors agglomération »', !!appel, true);
+// Verrou de non-regression : que l'ancien appel inconditionnel ne revienne pas.
+const inconditionnel = /\n\s*collecterCartouche\(seg, nam, base\);/.test(src);
+verifier('24. plus aucun appel inconditionnel', inconditionnel, false);
+// Et `verifierCartouches` ne doit RIEN reclamer sur un nom de rue.
+const vc = new Function(PREAMBULE + '\n' + extraire('verifierCartouches') +
+                        '\nreturn verifierCartouches;')();
+const namRue = { primary: { name: 'Avenue Jean Jaurès', cityName: 'Coursan', signText: '', signType: null },
+                 alts: [{ name: 'D1118', cityName: '', signText: 'D1118', signType: 1092 }] };
+verifier('25. nom de rue en principal + Dxxx cartouché en alt — AUCUN écart',
+         vc(namRue).length, 0);
+// Ce qui reste juste : un NUMERO en principal sans son cartouche.
+const namNum = { primary: { name: 'D1118', cityName: '', signText: '', signType: null }, alts: [] };
+verifier('26. numéro en principal sans cartouche — toujours signalé', vc(namNum).length, 1);
+
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(66));
 console.log('%d verifications OK, %d ECHEC(S)', ok, ko);

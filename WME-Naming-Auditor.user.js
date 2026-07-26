@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.16
+// @version      2.17
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -275,7 +275,7 @@
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '2.16';
+    return '2.17';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -2692,9 +2692,13 @@
    * signText + signType. Trois controles, de gravite decroissante :
    *  1. le NOM PRINCIPAL est un numero de route mais n'a pas de cartouche ;
    *  2. un NOM ALTERNATIF est un numero de route sans cartouche (moins grave) ;
-   *  3. le numero est en alternatif et le principal est un nom de rue : c'est
-   *     alors le principal qui devrait probablement porter le cartouche — mais
-   *     ca depend du terrain, donc on le signale sans l'affirmer.
+   *
+   * ⚠️⚠️ IL N'Y A PLUS DE TROISIEME CONTROLE. La v1.92 signalait « le numero est
+   * en alternatif, le principal est un nom de rue ⇒ le principal devrait porter
+   * le cartouche ». L'auteur a rappele la regle officielle le 26/07 : EN
+   * AGGLOMERATION, on ne met AUCUN cartouche sur le nom de rue en principal,
+   * peu importe qu'il existe ou non en alternatif. Ce « rappel » proposait donc
+   * une correction qui ABIMAIT le nommage.
    */
   const estNumero = e => RE_ROUTE.test((e.name || '').trim());
   const sansCartouche = e => !(e.signText && e.signText.trim()) || e.signType == null;
@@ -2711,13 +2715,11 @@
           apres: 'poser le cartouche ' + a.name + ' sur ce nom alternatif' });
       }
     }
-    // ⚠️ LE CARTOUCHE SUR LE NOM PRINCIPAL N'EST PLUS JUGE ICI, segment par
-    // segment (v1.92). Il vit sur la Street, PARTAGEE par toute la voie : le
-    // poser depuis un seul segment le colle a tous. Il ne peut donc etre un
-    // ecart que si TOUTE la voie est concernee — regle de l'auteur, 23/07 :
-    // « une avenue peut n'avoir qu'une partie qui soit une Dxx ; si un seul de
-    // ses segments n'a pas le Dxx-cartouche en alt, on n'ajoute rien ». Ce
-    // jugement de GROUPE se fait dans `cartouchesPrincipal()`, apres l'analyse.
+    // ⚠️ Le cartouche sur le NOM DE RUE principal n'est plus propose EN
+    // AGGLOMERATION (v2.17) : la regle officielle l'interdit. Hors
+    // agglomeration, le jugement reste de GROUPE — le cartouche vit sur la
+    // Street, PARTAGEE par toute la voie, donc le poser depuis un seul segment
+    // le colle a tous — et se fait dans `cartouchesPrincipal()`.
     return ecarts;
   }
 
@@ -4313,7 +4315,14 @@
       // Recensement pour le cartouche-sur-principal : tout segment de voie
       // ordinaire (ni giratoire, ni rail/bretelle/rocade) dont le principal est
       // un vrai nom de rue. On note quels cartouches de route il porte en alt.
-      collecterCartouche(seg, nam, base);
+      //
+      // ⚠️⚠️ SAUF EN AGGLOMERATION (regle rappelee par l'auteur le 26/07, qui
+      // ANNULE le comportement de la v1.92) : « officiellement, en agglo, on ne
+      // met AUCUN cartouche sur le nom de rue en principal, peu importe qu'il
+      // existe ou non en Alt ». Ce n'etait donc pas un ecart a signaler, mais une
+      // correction qui aurait ABIME le nommage. On ne recense plus ces voies —
+      // ni report, ni proposition, ni bouton.
+      if (!enAgglo) collecterCartouche(seg, nam, base);
 
       // Zone grise sur la limite COMMUNALE : il faut couper avant de nommer,
       // le bon nommage depend de l'endroit de la coupe.
