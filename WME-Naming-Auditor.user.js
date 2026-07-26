@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.18
+// @version      2.19
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -1868,18 +1868,34 @@
   let panneaux = [];          // le releve brut de la commune active
   let bilanPanneaux = null;
 
-  /** Distance approximative d'un point a un anneau, en metres. */
-  function distanceAuRing(lon, lat, ring) {
+  /** Distance approximative entre deux points, en metres. */
+  const distanceM = (a, b) => Math.hypot(
+    (a[0] - b[0]) * 111320 * Math.cos((a[1] + b[1]) * Math.PI / 360),
+    (a[1] - b[1]) * 110540);
+
+  /**
+   * Distance approximative d'un point a une POLYLIGNE, en metres.
+   *
+   * ⚠️ Sert a deux choses qui n'ont rien a voir : l'anneau d'un polygone
+   * d'agglomeration (panneaux) et le TRACE d'une voie (v2.19, « le POI est-il
+   * le long de la rue qu'il declare ? »). Ce sont les memes mathematiques : en
+   * garder deux copies, c'est la faute exacte des giratoires de la v2.11.
+   */
+  function distanceAuTrace(lon, lat, points) {
+    if (!points || !points.length) return Infinity;
+    if (points.length < 2) return distanceM([lon, lat], points[0]);
     const kLon = 111320 * Math.cos(lat * Math.PI / 180), kLat = 110540;
     const p = [lon * kLon, lat * kLat];
     let best = Infinity;
-    for (let i = 1; i < ring.length; i++) {
-      const a = [ring[i - 1][0] * kLon, ring[i - 1][1] * kLat];
-      const b = [ring[i][0] * kLon, ring[i][1] * kLat];
+    for (let i = 1; i < points.length; i++) {
+      const a = [points[i - 1][0] * kLon, points[i - 1][1] * kLat];
+      const b = [points[i][0] * kLon, points[i][1] * kLat];
       best = Math.min(best, distPointSegment(p, a, b));
     }
     return best;
   }
+  /** Cas particulier : l'anneau d'un polygone est une polyligne fermee. */
+  const distanceAuRing = distanceAuTrace;
 
   /**
    * Classe chaque panneau de la commune par rapport aux polygones traces.
@@ -3389,6 +3405,201 @@
             plat.reduce((s, p) => s + p[1], 0) / plat.length];
   }
 
+  // ===========================================================================
+  // RPP EN AGGLOMERATION — legitime, ou numero a repasser sur le segment ?
+  //
+  // Doctrine de la v1.86, rappelee par l'auteur : en agglomeration le numero va
+  // sur le SEGMENT, mais un POI residentiel y reste souvent LEGITIME, parce que
+  // l'entree — la boite aux lettres — donne sur une AUTRE voie que l'adresse
+  // postale. Un numero porte par un segment ne sait exprimer qu'une adresse sur
+  // SA voie : le RPP est alors le seul moyen de dire la verite du terrain.
+  //
+  // ⚠️⚠️ D'ou le report « a trancher » de la v1.86, et non « a corriger ».
+  // Les NUANCES demandees par l'auteur (26/07) servent a separer, dans ce tas,
+  // les cas ou l'argument NE TIENT PAS — la, c'est un ecart franc :
+  //   1. un numero identique est DEJA pose sur la meme rue, tout pres : le RPP
+  //      fait doublon, quelle que soit la raison de sa presence ;
+  //   2. le POINT D'ACCES du POI donne sur la voie meme de son adresse : il n'y
+  //      a aucun decalage a exprimer. Et s'il donne sur une AUTRE voie, c'est au
+  //      contraire la preuve que le POI est a sa place — il n'est plus signale ;
+  //   3. faute de point d'acces, la POSITION : si la voie la plus proche du POI
+  //      est celle de son adresse, un numero sur le segment dirait la meme
+  //      chose. Sinon on ne conclut pas — la position n'est pas l'entree.
+  //
+  // ⚠️ La PHOTO n'innocente pas (arbitrage de l'auteur, 26/07) : un RPP
+  // photographie a bien ete pose par quelqu'un venu sur place, donc on le DIT et
+  // on le range en fin de liste, mais on ne masque rien. Mesure du 26/07 :
+  // 26 RPP sur 28 sont photographies a Coursan et seulement 7 sur 35 a
+  // Saint-Laurent-des-Arbres — masquer sur ce critere aurait vide l'audit d'une
+  // commune et pas de l'autre. (Toutes les photos relevees portent
+  // `scanned:true` : aucune autre espece n'existe dans les donnees.)
+  // ===========================================================================
+
+  /**
+   * Ecart minimal, en metres, entre les deux voies candidates pour que « la plus
+   * proche » veuille dire quelque chose. Sous cette marge, le POI est a
+   * equidistance : le trace de Waze et la position du POI sont l'un comme
+   * l'autre au metre pres, on ne tranche pas sur du bruit.
+   *
+   * ⚠️⚠️ CALEE SUR MESURE, PAS CHOISIE (Coursan, 26/07, 22 RPP situes le long de
+   * leur propre rue) : les ecarts entre les deux voies candidates s'echelonnent
+   * de 2 m a 57 m, et les POI sont a 0-24 m de leur rue. Sensibilite mesuree —
+   * combien des 22 sont tranches : 5 m → 20 · 8 m → 19 · **10 m → 17** ·
+   * 12 m → 15 · 15 m → 11 · 20 m → 7. En ville les rues sont a 20-30 m l'une de
+   * l'autre : au-dela de 15 m on ne tranche presque plus rien. 10 m garde les
+   * cas nets, laisse « a trancher » les POI d'angle de rue (18 m contre 27 m),
+   * et c'est l'ordre de grandeur deja retenu en v2.18 pour le bruit de trace
+   * (`SEUIL_DEBORD_M`).
+   */
+  const RPP_MARGE_VOIE_M = 10;
+  /**
+   * Au-dela de cette distance, la voie la plus proche ne dit plus rien du POI
+   * (fond de lotissement, propriete profonde) : on s'abstient.
+   */
+  const RPP_PORTEE_VOIE_M = 120;
+  /**
+   * Rayon dans lequel un numero identique sur la MEME rue est le meme point
+   * d'adresse. Au-dela, une longue rue peut porter deux fois le meme numero
+   * (hameaux, bis/ter mal saisis) sans que ce soit un doublon.
+   * ⚠️ Mesure du 26/07 a Coursan : le seul doublon trouve est a 95 m — le RPP
+   * se pose a l'entree de la propriete, le numero au bord de la voie.
+   */
+  const RPP_DOUBLON_M = 150;
+
+  /** Tous les noms de voie portes par un segment (principal + alternatifs). */
+  function nomsDeVoie(nam) {
+    if (!nam) return [];
+    return [nam.primary, ...(nam.alts || [])]
+      .map(e => (e && e.name || '').trim()).filter(Boolean);
+  }
+
+  /** Deux jeux de noms designent-ils la meme voie ? (un nom commun suffit) */
+  const memeVoie = (a, b) => (a || []).some(x => (b || []).includes(x));
+
+  /**
+   * Cle d'un point d'adresse : « rue|numero », insensible a la casse, aux
+   * espaces et aux accents — la saisie reelle est irreguliere (« 4 BIS », « 4bis »).
+   * ⚠️ NE PAS l'appeler `cleAdresse` : ce nom est deja pris par la cle d'un
+   * REPORT (persistance des « traites »), et une seconde declaration dans la
+   * meme portee empeche le script entier de se charger.
+   */
+  const cleNumeroRue = (rue, num) =>
+    normSansAccent(String(rue || '').trim()) + '|' +
+    String(num == null ? '' : num).trim().toLowerCase().replace(/\s+/g, '');
+
+  /**
+   * Un numero identique est-il DEJA pose sur la meme rue, a portee du POI ?
+   * Rend `{ numero, dist }`, ou null. `index` est la table « rue|numero » des
+   * numeros lus (voir `analyserAdresses`).
+   */
+  function doublonDeNumero(rue, numero, point, index) {
+    if (!index || !rue || numero == null || String(numero).trim() === '' || !point) return null;
+    const liste = index.get(cleNumeroRue(rue, numero));
+    if (!liste || !liste.length) return null;
+    let best = null;
+    for (const h of liste) {
+      const d = distanceM(point, h.p);
+      if (d <= RPP_DOUBLON_M && (!best || d < best.dist)) best = { numero: h.numero, dist: d };
+    }
+    return best;
+  }
+
+  /**
+   * La voie la plus proche d'un point, parmi les segments lus.
+   *
+   * Rend `{ noms, dist, distAutreVoie }` : `distAutreVoie` est la distance a la
+   * voie la plus proche portant un nom DIFFERENT — c'est elle qui dit si le
+   * verdict est net ou si deux rues se disputent le POI.
+   * ⚠️ Les segments SANS NOM comptent : une allee privee anonyme explique tres
+   * bien qu'un POI soit loin de la rue qu'il declare, et l'ignorer ferait
+   * conclure a tort que le POI longe l'adresse qu'il porte.
+   */
+  function voieLaPlusProche(lon, lat, segs) {
+    // Boite de rejet, large : mesurer chaque trace de la commune pour chaque POI
+    // couterait cher sans rien changer au resultat.
+    const marge = RPP_PORTEE_VOIE_M * 3;
+    const dLat = marge / 110540;
+    const dLon = marge / (111320 * Math.max(0.1, Math.cos(lat * Math.PI / 180)));
+    const candidats = [];
+    for (const s of segs || []) {
+      const co = s && s.geometry && s.geometry.coordinates;
+      if (!co || !co.length) continue;
+      let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+      for (const p of co) {
+        if (p[0] < x1) x1 = p[0]; if (p[0] > x2) x2 = p[0];
+        if (p[1] < y1) y1 = p[1]; if (p[1] > y2) y2 = p[1];
+      }
+      if (lon < x1 - dLon || lon > x2 + dLon || lat < y1 - dLat || lat > y2 + dLat) continue;
+      const d = distanceAuTrace(lon, lat, co);
+      if (d > RPP_PORTEE_VOIE_M) continue;
+      let nam = null; try { nam = readNaming(s); } catch (e) { /* segment hors modele */ }
+      candidats.push({ d, noms: nomsDeVoie(nam) });
+    }
+    if (!candidats.length) return { noms: [], dist: Infinity, distAutreVoie: Infinity };
+    candidats.sort((a, b) => a.d - b.d);
+    const best = candidats[0];
+    const autre = candidats.find(c => !memeVoie(best.noms, c.noms));
+    return { noms: best.noms, dist: best.d, distAutreVoie: autre ? autre.d : Infinity };
+  }
+
+  /**
+   * Verdict sur un RPP situe en agglomeration.
+   *
+   * Entrees deja mesurees par l'appelant (la fonction est PURE, donc eprouvable
+   * sans carte) :
+   *   - `rue`      : nom de la rue de l'adresse du POI ;
+   *   - `voieAcces`: `voieLaPlusProche` autour du POINT D'ACCES, ou null ;
+   *   - `voiePos`  : `voieLaPlusProche` autour de la position du POI ;
+   *   - `doublon`  : `{ numero, dist }` si un numero identique est deja pose sur
+   *                  la meme rue a portee, sinon null ;
+   *   - `photo`    : le POI porte-t-il au moins une photo ?
+   *
+   * Rend `{ verdict, raison, source, photo }` avec `verdict` valant :
+   *   'ecart'    — l'argument du decalage ne tient pas, le numero doit passer
+   *                sur le segment (la conversion reste MANUELLE) ;
+   *   'conforme' — le point d'acces PROUVE le decalage : on ne signale rien,
+   *                mais on compte le cas pour le dire ;
+   *   'trancher' — rien de mesurable ne permet de conclure : c'est le report
+   *                historique, celui ou les deux reponses sont bonnes.
+   */
+  function verdictRppAgglo({ rue, voieAcces, voiePos, doublon, photo }) {
+    const fin = (verdict, raison, source) => ({ verdict, raison, source, photo: !!photo });
+    // 1. Le doublon ne se discute pas : la meme adresse existe deja deux fois.
+    if (doublon) {
+      return fin('ecart', 'le n° ' + doublon.numero + ' est déjà posé sur « ' + rue +
+        ' » à ' + Math.round(doublon.dist) + ' m : ce POI fait doublon', 'numéro existant');
+    }
+    if (!rue) return fin('trancher', null, null);
+    // 2. Le point d'acces, quand il existe, DIT ou se trouve l'entree.
+    const base = voieAcces || voiePos;
+    const source = voieAcces ? 'point d\'accès' : 'position du POI';
+    if (!base || !isFinite(base.dist) || base.dist > RPP_PORTEE_VOIE_M) {
+      return fin('trancher', null, null);
+    }
+    if (memeVoie(base.noms, [rue])) {
+      // Une autre voie aussi proche ⇒ le constat ne vaut rien.
+      if (isFinite(base.distAutreVoie) && base.distAutreVoie - base.dist < RPP_MARGE_VOIE_M) {
+        return fin('trancher', null, null);
+      }
+      return fin('ecart', voieAcces
+        ? 'le point d\'accès donne sur « ' + rue + ' », c\'est-à-dire sur la voie de ' +
+          'l\'adresse elle-même : rien ne justifie un POI'
+        : 'le POI est le long de « ' + rue + ' » (' + Math.round(base.dist) + ' m), ' +
+          'la voie de son adresse : un numéro sur le segment dirait la même chose',
+        source);
+    }
+    // 3. L'acces donne sur une AUTRE voie : c'est exactement le cas legitime.
+    // ⚠️ La POSITION seule ne suffit pas a conclure ca — elle ne dit pas ou est
+    // l'entree —, donc sans point d'acces on en reste a « a trancher ».
+    if (voieAcces && base.noms.length &&
+        (!isFinite(base.distAutreVoie) || base.distAutreVoie - base.dist >= RPP_MARGE_VOIE_M)) {
+      return fin('conforme', 'le point d\'accès donne sur « ' + base.noms[0] +
+        ' », pas sur « ' + rue + ' » : le POI dit un décalage qu\'un numéro ne saurait exprimer',
+        'point d\'accès');
+    }
+    return fin('trancher', null, null);
+  }
+
   /**
    * CE numero precis est-il manipulable, c'est-a-dire present dans le modele
    * d'edition ?
@@ -3781,9 +3992,15 @@
     const segmentDe = id => parId.get(String(id)) ||
       (() => { try { return sdk.DataModel.Segments.getById({ segmentId: id }); } catch (e) { return null; } })();
 
-    // --- 1. Numeros de rue hors agglomeration -------------------------------
-    if (faireHn) {
-      const parSegment = new Map();
+    // --- 0. Lecture des numeros de rue — PARTAGEE par les deux controles -----
+    //
+    // ⚠️ v2.19 : les numeros ne servent plus seulement au controle « numeros
+    // hors agglomeration ». La detection des RPP en doublon (phase 2) a besoin
+    // de savoir quels numeros sont DEJA poses sur la voie — y compris EN
+    // agglomeration, que la phase 1 ecarte justement. Une seule lecture nourrit
+    // les deux, et le controle POI la declenche meme seul.
+    let tousHn = [];
+    if (faireHn || fairePoi) {
       try {
         // ⚠️ `fetchHouseNumbers` a une LIMITE DE LOT non documentee : mesuree en
         // live, 500 segments passent, 600 sont rejetes d'emblee (« Server
@@ -3808,22 +4025,50 @@
           hns.push(...lot);
         }
         stats.hnLus += hns.length;
-        for (const hn of hns) {
-          // Les cellules du balayage se chevauchent : un meme numero peut
-          // remonter deux fois.
-          if (stats.hnVus && stats.hnVus.has(hn.id)) continue;
-          if (stats.hnVus) stats.hnVus.add(hn.id);
-          const p = hn.geometry && hn.geometry.coordinates;
-          if (!p) continue;
-          if (!dansCommune(p[0], p[1])) { stats.hnHorsCommune++; continue; }
-          if (dansAgglo(p[0], p[1])) continue;                 // a sa place
-          if (!parSegment.has(hn.segmentId)) parSegment.set(hn.segmentId, []);
-          parSegment.get(hn.segmentId).push(hn);
-        }
+        tousHn = hns;
       } catch (e) {
         if (e && e.annulation) throw e;      // une interruption n'est pas une panne
         log('lecture des numéros de rue impossible', e);
         stats.hnErreur = e.message || String(e);
+      }
+    }
+
+    // Index « rue|numero » → positions des numeros deja poses : c'est lui qui
+    // dit qu'un RPP fait doublon. ⚠️ Accumule dans `stats` : en balayage la
+    // commune arrive par cellules, un index local ne verrait que la derniere.
+    if (fairePoi) {
+      if (!stats.hnIndex) { stats.hnIndex = new Map(); stats.hnIndexVus = new Set(); }
+      for (const hn of tousHn) {
+        if (stats.hnIndexVus.has(hn.id)) continue;    // cellules qui se recouvrent
+        stats.hnIndexVus.add(hn.id);
+        const p = hn.geometry && hn.geometry.coordinates;
+        if (!p) continue;
+        const seg = segmentDe(hn.segmentId);
+        let nam = null; try { nam = seg ? readNaming(seg) : null; } catch (e) { /* hors modele */ }
+        // Un numero appartient a son segment : il est donc « sur » n'importe
+        // lequel des noms que ce segment porte, principal comme alternatif.
+        for (const nom of nomsDeVoie(nam)) {
+          const cle = cleNumeroRue(nom, hn.number);
+          if (!stats.hnIndex.has(cle)) stats.hnIndex.set(cle, []);
+          stats.hnIndex.get(cle).push({ p, numero: hn.number });
+        }
+      }
+    }
+
+    // --- 1. Numeros de rue hors agglomeration -------------------------------
+    if (faireHn) {
+      const parSegment = new Map();
+      for (const hn of tousHn) {
+        // Les cellules du balayage se chevauchent : un meme numero peut
+        // remonter deux fois.
+        if (stats.hnVus && stats.hnVus.has(hn.id)) continue;
+        if (stats.hnVus) stats.hnVus.add(hn.id);
+        const p = hn.geometry && hn.geometry.coordinates;
+        if (!p) continue;
+        if (!dansCommune(p[0], p[1])) { stats.hnHorsCommune++; continue; }
+        if (dansAgglo(p[0], p[1])) continue;                 // a sa place
+        if (!parSegment.has(hn.segmentId)) parSegment.set(hn.segmentId, []);
+        parSegment.get(hn.segmentId).push(hn);
       }
 
       // ⚠️⚠️ UN REPORT PAR NUMERO, jamais par segment (demande de l'auteur,
@@ -3891,6 +4136,10 @@
         catch (e) { log('lecture des POI impossible', e); }
       }
       stats.poiLus += venues.length;
+      // ⚠️ Les reports sont mis de cote avant d'etre pousses : la PHOTO ne
+      // masque rien, mais elle range le cas EN FIN de liste (arbitrage de
+      // l'auteur, 26/07). Trier a la fin est le seul moment ou on les a tous.
+      const reportsRpp = [];
       for (const v of venues) {
         if (stats.poiVus && stats.poiVus.has(v.id)) continue;   // cellules qui se recouvrent
         if (stats.poiVus) stats.poiVus.add(v.id);
@@ -3908,45 +4157,86 @@
                 rueNom = (a && a.street && a.street.name) || ''; } catch (e) { /* */ }
         }
         stats.poiAgglo++;
-        findings.push({
+
+        // ── Les nuances de la v2.19 : ce RPP a-t-il une raison d'etre ? ──────
+        // ⚠️ Le point d'acces prime sur la position : il DIT ou est l'entree,
+        // quand la position ne fait que la suggerer. `positionPoi` connait
+        // deja l'ordre de preference (accès principal → entrée → geometrie).
+        const acces = positionPoi(v);
+        const aUnAcces = acces.point && (acces.source === 'accès principal' || acces.source === 'point d\'accès');
+        const verdict = verdictRppAgglo({
+          rue: rueNom,
+          voieAcces: aUnAcces ? voieLaPlusProche(acces.point[0], acces.point[1], segs) : null,
+          voiePos: voieLaPlusProche(p[0], p[1], segs),
+          doublon: doublonDeNumero(rueNom, num, p, stats.hnIndex),
+          photo: (v.images || []).length > 0
+        });
+        // Le point d'acces PROUVE le decalage : le POI est a sa place. On ne le
+        // signale plus — mais on le COMPTE, pour ne pas laisser croire que
+        // l'audit n'a rien vu (leçon des giratoires : toujours dire ou sont
+        // passes les cas manquants).
+        if (verdict.verdict === 'conforme') { stats.poiAggloConforme++; continue; }
+        // ⚠️ Compte APRES les conformes : le bilan annonce « restent signales,
+        // en fin de liste », ce qui serait faux pour un cas qu'on ne signale pas.
+        if (verdict.photo) stats.poiAggloPhoto++;
+        const ecart = verdict.verdict === 'ecart';
+        if (ecart) stats.poiAggloEcart++;
+
+        reportsRpp.push({
           adresse: true, sousType: 'poi', cas: 'POI-C', segId: 'v' + v.id,
           libelle: (v.name || 'POI résidentiel') + (num ? ' — n° ' + num : ''),
           roadType: null, nbPoints: 1,
           geom: { type: 'Point', coordinates: p },
           centre: { lon: p[0], lat: p[1] }, venueId: String(v.id),
-          // On n'annonce PAS une correction a appliquer — on pose la question :
-          // en agglomeration le numero va sur le segment, sauf si l'entree
-          // donne sur une autre voie. Ecrire « a passer sur le segment »
-          // ferait corriger a tort les cas ou le POI a justement raison.
-          ecarts: [{ champ: 'POI résidentiel en agglo',
-                     avant: num ? 'n° ' + num + ' porte par un POI résidentiel' : 'POI résidentiel sans numéro',
-                     apres: 'à trancher : numéro sur le segment, ou entrée sur une autre voie' }],
-          // ⚠️⚠️ CE REPORT N'EST PAS UN DEFAUT A CORRIGER : c'est une question a
-          // trancher sur place, et les deux reponses sont bonnes.
-          // ⚠️ LA raison qui justifie de garder le POI (precisee par l'auteur le
-          // 22/07) : **l'adresse postale est sur une rue, mais l'entree — la
-          // boite aux lettres — donne sur une AUTRE voie.** Un numero porte par
-          // un segment ne sait exprimer qu'une adresse sur SA voie ; le POI
-          // residentiel est alors le seul moyen de dire la verite du terrain.
+          // Sert au tri : les cas photographies passent apres les autres.
+          rppPhoto: verdict.photo,
+          // ⚠️⚠️ DEUX REPORTS DIFFERENTS SOUS LE MEME CAS.
+          // Par defaut c'est une QUESTION, pas un defaut : en agglomeration le
+          // numero va sur le segment, sauf si l'entree donne sur une autre voie
+          // — les deux reponses sont bonnes, et ecrire « a passer sur le
+          // segment » ferait corriger a tort les POI qui ont raison (v1.86).
+          // Mais quand une des nuances de la v2.19 a tranche, on l'AFFIRME avec
+          // sa raison : la question ne se pose plus.
+          ecarts: [{ champ: ecart ? 'POI résidentiel injustifié' : 'POI résidentiel en agglo',
+                     avant: num ? 'n° ' + num + ' porté par un POI résidentiel' : 'POI résidentiel sans numéro',
+                     apres: ecart
+                       ? 'le numéro doit passer sur le segment (à faire à la main)'
+                       : 'à trancher : numéro sur le segment, ou entrée sur une autre voie' }],
           // ⚠️ Le sens POI → numero n'est pas automatise, et ce n'est pas une
           // limite du SDK (`addHouseNumber` et `deleteVenue` existent) : le
           // script ne sait dire ni sur QUEL segment ni a QUEL endroit poser le
           // numero, et supprimer le POI emporterait son nom, son point d'entree
           // et ses photos. On guide donc l'editeur au lieu de decider pour lui.
-          aideTitre: 'Deux issues possibles — c\'est le terrain qui tranche',
-          aide: [
-            'Si l\'entrée (la boite aux lettres) donne bien sur ' +
-              (rueNom ? '« ' + rueNom + ' »' : 'la rue de l\'adresse') +
-              ' : le numéro doit passer sur le segment. Sélectionné la voie, ouvre ' +
-              '« Ajouter des numéros de rue », pose' + (num ? ' le n° ' + num : ' le numéro') +
-              ' du bon côté, vérifie qu\'il tombe devant l\'entrée, puis supprime ce POI.',
-            'Si l\'entrée donne sur une AUTRE voie que l\'adresse postale : laisse le POI en place. ' +
-              'C\'est précisément ce qu\'il sert à dire, et un numéro sur segment ne saurait pas ' +
-              'l\'exprimer. Marque la ligne comme traitée (✓) pour ne pas la revoir.'
-          ],
-          doute: null
+          aideTitre: ecart
+            ? 'Pourquoi ce POI n\'a pas lieu d\'être'
+            : 'Deux issues possibles — c\'est le terrain qui tranche',
+          aide: ecart
+            ? [ (verdict.raison || '') + (verdict.source ? ' (constaté sur : ' + verdict.source + ')' : '') + '.',
+                'Sélectionne la voie, ouvre « Ajouter des numéros de rue », pose' +
+                  (num ? ' le n° ' + num : ' le numéro') + ' du bon côté, vérifie qu\'il tombe ' +
+                  'devant l\'entrée, puis supprime ce POI.',
+                '⚠️ Vérifie quand même sur place : le script mesure des distances, ' +
+                  'il ne voit pas la boite aux lettres.' ]
+            : [ 'Si l\'entrée (la boite aux lettres) donne bien sur ' +
+                  (rueNom ? '« ' + rueNom + ' »' : 'la rue de l\'adresse') +
+                  ' : le numéro doit passer sur le segment. Sélectionne la voie, ouvre ' +
+                  '« Ajouter des numéros de rue », pose' + (num ? ' le n° ' + num : ' le numéro') +
+                  ' du bon côté, vérifie qu\'il tombe devant l\'entrée, puis supprime ce POI.',
+                'Si l\'entrée donne sur une AUTRE voie que l\'adresse postale : laisse le POI en place. ' +
+                  'C\'est précisément ce qu\'il sert à dire, et un numéro sur segment ne saurait pas ' +
+                  'l\'exprimer. Marque la ligne comme traitée (✓) pour ne pas la revoir.' ],
+          // ⚠️ La photo ne disculpe pas, elle TEMPERE : quelqu'un est venu sur
+          // place. On le dit, on ne le cache pas (arbitrage de l'auteur, 26/07).
+          doute: verdict.photo
+            ? 'ce POI porte une photo : il a été posé par un contributeur venu sur place — ' +
+              'regarde-le de près avant de le supprimer'
+            : null
         });
       }
+      // Les cas photographies en dernier ; a photo egale, l'ordre de lecture est
+      // conserve (tri stable).
+      reportsRpp.sort((a, b) => (a.rppPhoto ? 1 : 0) - (b.rppPhoto ? 1 : 0));
+      findings.push(...reportsRpp);
     }
   }
 
@@ -4037,6 +4327,14 @@
       houseNumber: v.houseNumber == null ? '' : v.houseNumber,
       categories: v.categories || [],
       entryExitPoints: v.entryExitPoints || [],
+      // ⚠️ v2.19 : une PHOTO dit que quelqu'un est venu sur place poser ce POI
+      // (arbitrage de l'auteur, 26/07 — elle tempere le report sans l'annuler).
+      // Releve le 26/07 : `images: [{id, date, location, street, approved,
+      // scanned}]`, et TOUTES les photos rencontrees portent `scanned:true`.
+      // ⚠️ Le SDK les donne AUSSI, mais sous une autre forme (`{id, url,
+      // isApproved, creationDate}`) : seule leur PRESENCE nous interesse, donc
+      // les deux sources se valent et le balayage n'est pas penalise.
+      images: v.images || [],
       _adr: { houseNumber: v.houseNumber || '',
               street: rues[v.streetID] ? { name: rues[v.streetID].name } : null,
               city: (rues[v.streetID] && villes[rues[v.streetID].cityID])
@@ -4498,7 +4796,13 @@
 
     // Les adresses sont analysees a part : lecture serveur, et objets ponctuels.
     const statsAdr = { hnLus: 0, hnHorsAgglo: 0, hnHorsCommune: 0, poiLus: 0,
-                       poiAgglo: 0, hnErreur: null, calquesActives: [], hnVus: new Set(), poiVus: new Set() };
+                       poiAgglo: 0, hnErreur: null, calquesActives: [], hnVus: new Set(), poiVus: new Set(),
+                       // v2.19 — le detail des RPP en agglomeration : combien
+                       // sont tranches comme injustifies, combien sont au
+                       // contraire PROUVES a leur place par leur point d'acces
+                       // (ceux-la ne sont plus signales : il faut le DIRE), et
+                       // combien portent une photo.
+                       poiAggloEcart: 0, poiAggloConforme: 0, poiAggloPhoto: 0 };
     // Les VRAIS POI (pas les RPP) ont leur propre onglet et leurs propres comptes.
     // ⚠️ `poiNaturels` est compte pour qu'on VOIE que le script les a ecartes
     // exprès (rivieres, forets…), plutot que de les passer sous silence.
@@ -4959,6 +5263,9 @@
       return (c && c.nom) || f.rueCible.ville;
     };
     let faits = 0;
+    // Points d'entree effectivement repris du numero sur le POI (v2.19) : le
+    // dire permet de verifier que ca a marche, au lieu de l'esperer.
+    let reprises = 0;
     const echecs = [];
     // ⚠️ Les echecs CRITIQUES sont tenus a part : ceux qui laissent la carte
     // dans un etat abime (adresse en double, POI sans adresse). Ils doivent
@@ -5019,6 +5326,34 @@
         if (!annule) critiques.push(m);
         continue;
       }
+      // ── 2 bis. Point d'entree : on reprend celui du numero ────────────────
+      //
+      // ⚠️ Demande de l'auteur (26/07) : « si le HN possede un point d'entree,
+      // que le RPP nouvellement cree possede le meme ». Un numero de rue porte
+      // un `fractionPoint` — le bout de la fleche, pose sur la chaussee — qui
+      // dit PAR OU l'on entre. Le POI cree a sa place le perdrait, et Waze
+      // guiderait alors vers la voie la plus proche de son centre, qui n'est pas
+      // toujours celle de l'adresse. `Venues.replaceNavigationPoints` existe
+      // pour ca (releve le 26/07 : `{venueId, navigationPoints:[{point, entry,
+      // exit}]}`).
+      // ⚠️ ON LE REPREND MEME QUAND IL N'EST PAS « FORCE » (mesure du 26/07 :
+      // 0 numero force sur les 73 lus a Coursan — un point calcule reste le seul
+      // qui designe la bonne voie ; ne rien poser serait pire).
+      // ⚠️ ECHEC NON BLOQUANT : le POI est valide sans point d'entree, et on ne
+      // va pas renoncer a la conversion pour ca. Mais on le DIT, sinon
+      // l'editeur croirait le point repris.
+      const fp = hn.fractionPoint && hn.fractionPoint.coordinates;
+      if (fp) {
+        try {
+          DM.Venues.replaceNavigationPoints({ venueId, navigationPoints: [
+            { point: { type: 'Point', coordinates: fp }, entry: true, exit: true }
+          ] });
+          reprises++;
+        } catch (e) {
+          echecs.push(hn.number + ' : point d\'entrée non repris (' + (e.message || e) +
+            ') — à poser à la main sur le POI');
+        }
+      }
       // ── 3. Retrait du numero : c'est ici que se joue le « tout ou rien » ───
       try {
         DM.HouseNumbers.deleteHouseNumber({ houseNumberId: hn.id });
@@ -5041,7 +5376,7 @@
         }
       }
     }
-    return { faits, echecs, critiques, laisses, villes: [...villesUtilisees] };
+    return { faits, reprises, echecs, critiques, laisses, villes: [...villesUtilisees] };
   }
 
 
@@ -5269,6 +5604,7 @@
         return { ok: true, nb: r.faits, ops: r.faits, bloques: 0,
                  partiel: parts.length > 0,
                  critiques: r.critiques,
+                 reprises: r.reprises,
                  avertissement: parts.join(' · ') };
       } catch (e) {
         log('conversion impossible', e);
@@ -5572,6 +5908,10 @@
   .agn-grp-t b{flex:1;font-weight:600}
   .agn-pastille{width:11px;height:11px;border-radius:3px;flex:0 0 auto;box-shadow:0 0 0 1px rgba(0,0,0,.15)}
   .agn-grp-n{background:var(--agn-gris, #546e7a);color:#fff;border-radius:8px;padding:1px 7px;font-size:11px;font-weight:700}
+  /* Thematique entierement traitee : elle se replie et s'efface, sans
+     disparaitre — on doit pouvoir la rouvrir. */
+  .agn-grp.agn-fini .agn-grp-t{opacity:.55}
+  .agn-grp.agn-fini .agn-grp-n{background:var(--agn-vert, #2e7d32)}
   .agn-grp-c{padding:4px 6px 6px}
   .agn-lien{border:none;background:none;color:var(--agn-bleu, #1e88e5);cursor:pointer;font-size:11px;
     text-decoration:underline;padding:2px;margin-left:auto}
@@ -6903,6 +7243,40 @@
     redrawEcarts(null);
     majCompteurTraites();
     majBoutonsGroupes();
+    replierThematiquesFinies();
+  }
+
+  /**
+   * Une thematique entierement traitee se replie toute seule (demande de
+   * l'auteur, 26/07 : « quand une thematique d'ecarts est traitee, on replie la
+   * section pour alleger l'affichage »). Vaut pour les trois onglets — segments,
+   * adresses et POI —, puisque toutes leurs listes sont faites des memes groupes.
+   *
+   * ⚠️ On ne replie qu'au MOMENT ou la thematique se termine, pas a chaque
+   * passage : sinon l'editeur ne pourrait plus la rouvrir (elle se refermerait
+   * sous ses doigts). Le drapeau `dataset.fini` retient qu'on l'a deja fait.
+   * ⚠️ Et un groupe VIDE n'est pas un groupe fini : `every` sur une liste vide
+   * repond `true`, ce qui replierait une section qui n'a jamais rien eu.
+   */
+  function replierThematiquesFinies() {
+    if (!ui.results) return;
+    ui.results.querySelectorAll('.agn-grp').forEach(grp => {
+      const membres = [...grp.querySelectorAll('.agn-item')]
+        .map(n => findings[parseInt(n.dataset.idx, 10)]).filter(Boolean);
+      const fini = membres.length > 0 && membres.every(f => f.traite);
+      const n = grp.querySelector('.agn-grp-n');
+      if (n) {
+        n.textContent = fini ? '✓ ' + membres.length : String(membres.length);
+        n.title = fini ? 'Thématique entièrement traitée' : '';
+      }
+      grp.classList.toggle('agn-fini', fini);
+      if (fini && grp.dataset.fini !== '1') {
+        grp.dataset.fini = '1';
+        if (grp.classList.contains('agn-ouvert')) ouvrirGroupe(grp, false);
+      } else if (!fini) {
+        delete grp.dataset.fini;                 // decoche : la thematique reprend
+      }
+    });
   }
 
   /**
@@ -6928,7 +7302,7 @@
    * c'est l'editeur qui relit et enregistre.
    */
   async function corriger(liste, noeuds) {
-    let ok = 0, segments = 0, bloques = 0;
+    let ok = 0, segments = 0, bloques = 0, reprises = 0;
     crees = [];                 // on ne selectionne que les POI de CETTE serie
     // Une conversion d'adresses compte des NUMEROS, pas des segments.
     const unite = liste.every(f => f.adresse) ? 'numero' : 'segment';
@@ -6955,6 +7329,7 @@
         }
         if (res.ok) {
           ok++; segments += res.nb; bloques += (res.bloques || 0);
+          reprises += (res.reprises || 0);
           // Une conversion partielle laisse du travail : on ne barre pas la ligne.
           if (res.partiel) echecs.push(f.libelle + ' — ' + res.avertissement);
           else if (noeuds && noeuds[i]) marquerTraite(f, noeuds[i], true);
@@ -6973,7 +7348,7 @@
     prog.fin();
     redrawEcarts(null);
     majBoutonsGroupes();      // une serie corrigee vide souvent tout un groupe
-    majBandeauCorrection(ok, segments, echecs, bloques, unite, interrompu, critiques);
+    majBandeauCorrection(ok, segments, echecs, bloques, unite, interrompu, critiques, reprises);
     // Demande de l'auteur : apres une conversion, c'est le POI qui doit etre
     // selectionne, pas le segment d'origine — on enchaine en general sur son
     // point d'entree.
@@ -6984,7 +7359,7 @@
     }
   }
 
-  function majBandeauCorrection(ok, segments, echecs, bloques, unite, interrompu, critiques) {
+  function majBandeauCorrection(ok, segments, echecs, bloques, unite, interrompu, critiques, reprises) {
     if (!ui.bandeauFix) return;
     const enAttente = nbModifsEnAttente();
     const crit = critiques || [];
@@ -7002,6 +7377,7 @@
         ${interrompu ? '<b>⚠ Série interrompue.</b> ' : ''}
         <b>${ok}</b> correction(s) appliquée(s) sur <b>${segments}</b> ${(unite || 'segment')}(s).
         ${bloques ? '<b>' + bloques + '</b> segment(s) ignoré(s), verrouillé(s) au-dessus de ton niveau. ' : ''}
+        ${reprises ? '<b>' + reprises + '</b> point(s) d\'entrée repris du numéro sur le POI. ' : ''}
         ${enAttente != null ? '<b>' + enAttente + '</b> modification(s) en attente dans WME — ' : ''}
         <b>rien n'est enregistré</b> : relis, puis clique sur Enregistrer dans WME.
         ${echecs.length ? '<br>Échecs : ' + echecs.slice(0, 3).map(esc).join(' ; ') +
@@ -7469,8 +7845,25 @@
       </div>${bandeauVillesSansPolygone()}${bandeauInterrompu()}${bandeauSource()}`
         : `<div class="agn-stat">
         ${s.adr ? '<b>' + s.adr.hnLus + '</b> numéro(s) lu(s) a ' + esc(communeActive.nom) +
-            ', dont <b>' + s.adr.hnHorsAgglo + '</b> hors agglomération.<br><b>' +
-            s.adr.poiLus + '</b> POI résidentiel(s), dont <b>' + s.adr.poiAgglo + '</b> en agglomération.' +
+            (options.controles.hnHorsAgglo
+              ? ', dont <b>' + s.adr.hnHorsAgglo + '</b> hors agglomération.'
+              : '<span title="Ils ont été lus pour repérer les POI résidentiels qui font doublon avec un numéro déjà posé.">' +
+                ' (contrôle « numéros hors agglomération » décoché).</span>') + '<br><b>' +
+            s.adr.poiLus + '</b> POI résidentiel(s), dont <b>' + s.adr.poiAgglo + '</b> en agglomération' +
+            // v2.19 — DIRE ce que les nuances ont tranché, et surtout ce
+            // qu'elles ont ÉCARTÉ : un compte qui baisse sans explication se
+            // lit comme un audit qui ne voit plus rien.
+            (s.adr.poiAggloEcart
+              ? ' · <b>' + s.adr.poiAggloEcart + '</b> <span title="Le numéro est déjà posé sur la voie, ou l\'entrée donne sur la voie de l\'adresse elle-même : le POI n\'exprime aucun décalage.">sans justification</span>'
+              : '') +
+            (s.adr.poiAggloConforme
+              ? ' · <span title="Leur point d\'accès donne sur une AUTRE voie que leur adresse : c\'est exactement ce qu\'un POI résidentiel sert à dire. Ils ne sont pas signalés.">' +
+                s.adr.poiAggloConforme + ' à leur place (accès sur une autre voie)</span>'
+              : '') +
+            (s.adr.poiAggloPhoto
+              ? ' · <span title="Ces POI portent une photo : quelqu\'un est venu sur place les poser. Ils restent signalés, mais en fin de liste.">' +
+                s.adr.poiAggloPhoto + ' avec photo</span>'
+              : '') + '.' +
             (s.adr.hnErreur ? '<br><span class="agn-alerte">Lecture des numéros : ' + esc(s.adr.hnErreur) + '</span>' : '') +
             (s.adr.hnHorsAgglo
               ? '<br><span style="opacity:.8">La conversion cadre elle-même sur les numéros : ' +
@@ -7514,7 +7907,12 @@
     // sur plusieurs centaines d'ecarts, la liste a plat est illisible.
     const parFamille = new Map();
     liste.slice()
-      .sort((a, b) => a.cas.localeCompare(b.cas) || a.libelle.localeCompare(b.libelle))
+      // ⚠️ Le tri d'AFFICHAGE a le dernier mot : trier les reports a la
+      // construction ne servirait a rien s'il les reclassait ensuite. Les RPP
+      // photographies passent donc en fin de leur thematique ici aussi (v2.19).
+      .sort((a, b) => a.cas.localeCompare(b.cas) ||
+        (a.rppPhoto ? 1 : 0) - (b.rppPhoto ? 1 : 0) ||
+        a.libelle.localeCompare(b.libelle))
       .forEach(f => {
         const cle = familleDe(f);
         if (!parFamille.has(cle)) parFamille.set(cle, []);
@@ -7596,6 +7994,9 @@
       });
       ui.results.appendChild(grp);
     }
+    // Les coches restaurees d'une session precedente comptent : une thematique
+    // deja finie doit s'afficher comme telle des le rendu.
+    replierThematiquesFinies();
   }
 
   function ouvrirGroupe(grp, ouvrir) {
