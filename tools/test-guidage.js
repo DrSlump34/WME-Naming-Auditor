@@ -236,6 +236,16 @@ titre('Verrous sur le SOURCE');
   verifier('19. … et le harnais voit bien toutes les etapes (garde-fou du test lui-meme)',
     rendues.length >= 9, true);
 
+  // ⚠️ v2.25.02 : le bandeau de guidage vit dans la FENETRE de travail. Un
+  // « ce volet » / « cette section » y designe donc un element qui n'est pas le
+  // sien — c'est la regle « ne jamais guider vers un element qu'on ne montre
+  // pas », appliquee aux MOTS. On nomme par la place, pas par la proximite.
+  const textesG = [...declarees.matchAll(/texte: '([^']*(?:\\'[^']*)*)'/g)].map(m => m[1]);
+  verifier('21. ⭐ aucun bandeau ne dit « ce volet » : il n\'y est pas',
+    textesG.filter(t => /\bce volet\b|\bcette section\b/i.test(t)), []);
+  verifier('21. … et le harnais lit bien les textes (garde-fou du test lui-meme)',
+    textesG.length >= 9, true);
+
   // v2.25.01 : le bouton se ferme AUSSI pendant le sondage, sinon un clic rapide
   // lance un releve complet que la reponse legere va peut-etre rendre inutile.
   const rA2 = src.slice(src.indexOf('const sansPanneaux'));

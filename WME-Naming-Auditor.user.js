@@ -1,7 +1,7 @@
-﻿// ==UserScript==
+// ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.25.01
+// @version      2.25.02
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -7663,7 +7663,11 @@
     // Le bilan de couverture ET le bouton : on veut qu'il soit LU avant d'etre
     // clique — c'est le dernier moment ou une agglomeration oubliee se rattrape.
     'volet-terminer': { n: 3, cible: '#agn-volet-ok, .agn-avert-exh', dansVolet: true,
-      texte: 'Le zonage est fait — referme ce volet.',
+      // ⚠️ « CE volet » ne designe rien : le bandeau de guidage vit dans la
+      // FENETRE de travail, pas dans le volet. On le nomme par sa place (auteur,
+      // 27/07). Les infobulles du bouton, elles, sont bien DANS le volet et
+      // gardent « ce volet ».
+      texte: 'Le zonage est fait — referme le volet de gauche.',
       suite: '⚠️ Assure-toi d\'abord que TOUTES les agglomérations sont tracées : ' +
              'une agglomération oubliée passe en hors agglomération, et tous ses écarts seront faux.' },
     analyse: { n: 3, cible: '#agn-scan',
