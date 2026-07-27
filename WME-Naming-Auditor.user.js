@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.27.02
+// @version      2.27.03
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
+// @icon         data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCIgdmlld0JveD0iMCAwIDY0IDY0Ij48cmVjdCB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHJ4PSIxMiIgZmlsbD0iIzFlODhlNSIvPjxwYXRoIGQ9Ik0zMSAxNEgyMGE2IDYgMCAwIDAtNiA2djExYTYgNiAwIDAgMCAxLjc2IDQuMjRsMTUgMTVhNiA2IDAgMCAwIDguNDggMGwxMS0xMWE2IDYgMCAwIDAgMC04LjQ4bC0xNS0xNUE2IDYgMCAwIDAgMzEgMTR6IiBmaWxsPSIjZmZmIi8+PGNpcmNsZSBjeD0iMjMiIGN5PSIyMyIgcj0iMy41IiBmaWxsPSIjMWU4OGU1Ii8+PC9zdmc+
 // @homepageURL  https://github.com/DrSlump34/WME-Naming-Auditor
 // @supportURL   https://github.com/DrSlump34/WME-Naming-Auditor/issues
 // @match        https://www.waze.com/editor*
@@ -7573,7 +7574,7 @@
       <div id="agn-overlay">
         <div id="agn-main">
         <div id="agn-tete">
-          <b>🏙️ Naming Auditor</b><span class="agn-v">v${VERSION}</span><span class="agn-sp"></span>
+          <b>🏷️ Naming Auditor</b><span class="agn-v">v${VERSION}</span><span class="agn-sp"></span>
           <button id="agn-reduire" title="Réduire">–</button>
           <button id="agn-fermer" title="Fermer">✕</button>
         </div>
@@ -8875,8 +8876,11 @@
     if (cont.querySelector('#agn-fab-wrap')) return true;
     const vieux = document.querySelector('#agn-fab-wrap');
     if (vieux) vieux.remove();               // orphelin : on ne laisse pas de doublon
+    // ⚠️ L'icone dit ce que fait le script : NOMMER. L'ancien 🏙️ (paysage
+    // urbain) ne se lisait pas a 40 px — « on ne sait pas ce que c'est »
+    // (l'auteur, 27/07). Une ETIQUETTE, c'est le geste meme de l'outil.
     const wrap = el(`<div id="agn-fab-wrap"><button id="agn-fab-btn" type="button"
-        title="${esc(SCRIPT_NAME)}">🏙️</button></div>`);
+        title="${esc(SCRIPT_NAME)}">🏷️</button></div>`);
     cont.appendChild(wrap);
     wrap.querySelector('button').onclick = () => {
       if (ui.overlay.style.display === 'none') ouvrirOverlay(); else fermerOverlay();
@@ -10292,7 +10296,7 @@
 
     // Le panneau lateral porte les REGLAGES ; l'overlay porte le travail.
     const { tabLabel, tabPane } = await sdk.Sidebar.registerScriptTab();
-    tabLabel.textContent = '🏙️';
+    tabLabel.textContent = '🏷️';
     tabLabel.title = SCRIPT_NAME;
     tabLabel.style.fontSize = '15px';
     buildReglages(tabPane);
