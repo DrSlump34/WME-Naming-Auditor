@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.27.08
+// @version      2.27.09
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -488,6 +488,11 @@
   let options = {
     sansAdresse: false, altEnTrop: false, seuil: 0.8,
     zoomClic: true, zoomNiveau: 17, surligner: true,
+    // ⚠️ Infobulle de survol : COCHEE par defaut (c'est un apport apprecie —
+    // « très très utile », Glenan56, 27/07), mais debrayable. Signale le meme
+    // jour : d'AUTRES SCRIPTS posent leur propre bulle au survol, et les deux se
+    // recouvrent. On ne peut pas arbitrer chez le voisin ; on peut se taire.
+    bulleSurvol: true,
     // Tableau et carte se choisissent SEPAREMENT, pour les segments comme pour
     // les adresses (demande de l'auteur, 23/07). Jusqu'ici la carte ne peignait
     // que l'onglet actif : ouvrir « Segments » effacait les adresses de la
@@ -1981,6 +1986,11 @@
   }
 
   function chercherSousLeCurseur() {
+    // ⚠️⚠️ On coupe A LA SOURCE, pas a l'affichage : sans ce test, le script
+    // continuerait a convertir la position de la souris et a mesurer la distance
+    // a chaque report, plusieurs fois par seconde, pour finalement ne rien
+    // montrer. Une option qui masque sans arreter le calcul n'est pas une option.
+    if (!options.bulleSurvol) return null;
     if (!options.surligner || !findings.length) return null;
     let ll;
     try { ll = sdk.Map.getLonLatFromPixel({ x: souris.x, y: souris.y }); } catch (e) { return null; }
@@ -8668,6 +8678,7 @@
           <tr><td><b>Numéros non chargés</b></td><td>WME ne descend les numéros de rue qu'<b>à partir du zoom 18</b>. La conversion cadre elle-même la carte pour les faire venir.</td></tr>
           <tr><td><b>POI résidentiels absents</b></td><td>Ils ne sont servis qu'à partir du <b>zoom 17</b> — d'où la voie rapide, qui ne dépend pas du zoom.</td></tr>
           <tr><td><b>« a un numéro de rue invalide »</b></td><td><b>Ce n'est pas un doublon d'adresse</b>, malgré ce que le message laisse croire. Refus de WME sur <b>un numéro précis</b>, qui persiste <b>même après avoir supprimé et enregistré</b> le numéro de rue du même nom — et le numéro de rue, lui, reste acceptable : seul le lieu est bloqué. C'est un <b>résidu côté serveur Waze</b>, invisible dans l'éditeur. Rien à corriger sur la carte : annule, et signale l'adresse exacte au staff, qui sait la purger. Le script <b>recopie ce message et l'explique</b> dans un bandeau, car l'alerte de WME s'affiche derrière sa fenêtre.</td></tr>
+          <tr><td><b>Deux infobulles superposées</b></td><td>D'autres scripts posent aussi leur bulle au survol de la carte, et les deux se recouvrent — le script <b>ne peut pas arbitrer chez le voisin</b>. Décoche <b>Infobulle au survol</b> dans <b>☰ → Surlignage sur la carte</b> : le reste de l'affichage (surlignage, couleurs) est conservé. Pour savoir quel script pose l'autre bulle : clic droit dessus → <b>Inspecter</b>, son identifiant nomme presque toujours le script.</td></tr>
           <tr><td><b>Analyse interrompue</b></td><td>Les constats qui supposent d'avoir tout vu (villes sans polygone, cartouches d'une voie entière) sont alors présentés comme <b>non fiables</b>, pas cachés.</td></tr>
           <tr><td><b>Rien n'est enregistré</b></td><td>Le compteur de la fenêtre rappelle combien de modifications attendent dans WME. <b>C'est toi qui enregistres.</b></td></tr>
         </table>` },
@@ -8908,6 +8919,10 @@
               Surligner les écarts sur la carte</label>
             <div class="agn-sb-n">Numéro de rue hors agglo = disque plein ·
               RPP en agglo = anneau.</div>
+            <label class="agn-sb-c"><input type="checkbox" id="agn-r-bulle" title="Affiche le détail de l'écart dans une infobulle quand la souris passe sur un segment ou un point signalé. À décocher si un autre script pose déjà sa propre infobulle au survol : les deux se recouvrent.">
+              Infobulle au survol</label>
+            <div class="agn-sb-n">À décocher si <b>un autre script</b> affiche déjà
+              une infobulle au survol : les deux se superposent.</div>
             <div id="agn-r-couleurs"></div>
             <button class="agn-sb-b" id="agn-r-reset" title="Remet les couleurs d'origine">Couleurs par défaut</button>`)}
           ${sect('navigation', 'Navigation', `
@@ -9004,6 +9019,10 @@
     });
     coche('#agn-r-zoom', 'zoomClic');
     coche('#agn-r-surligner', 'surligner', () => redrawEcarts(null));
+    // ⚠️ Decocher doit faire disparaitre la bulle DEJA affichee : sans ce
+    // rappel, elle restait a l'ecran jusqu'au prochain mouvement de souris —
+    // un reglage qui ne prend effet qu'apres coup se lit comme une panne.
+    coche('#agn-r-bulle', 'bulleSurvol', () => { survole = null; cacherBulle(); });
 
     // Les 4 cases « tableau / carte » vivent dans `options.vue`, pas a la
     // racine : `coche` ne sait pas les atteindre.

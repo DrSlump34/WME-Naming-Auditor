@@ -198,6 +198,34 @@ titre('Geometries « Multi » : eclatees en features simples');
              return [f.length, new Set(f.map(x => x.id)).size]; })(), [46, 46]);
 }
 
+// ===========================================================================
+// L'INFOBULLE DE SURVOL EST DEBRAYABLE (v2.27.09)
+//
+// ⚠️⚠️ Signale par Glenan56 (27/07) : d'AUTRES SCRIPTS posent leur propre bulle
+// au survol, et les deux se recouvrent. Verifie avant de conclure : la bulle
+// claire de ses captures n'est NI Naming Auditor (fond #263238, et AUCUN code
+// de vitesse) NI « Place Interface Enhancements » (sa source n'a ni tooltip de
+// lieu ni vitesse). On ne peut pas arbitrer chez le voisin — on peut se taire.
+// ===========================================================================
+{
+  verifier('14. l\'option existe et est cochee par defaut',
+    /bulleSurvol: true/.test(src), true);
+  verifier('14. la case a cocher existe dans le volet',
+    /id="agn-r-bulle"/.test(src), true);
+  verifier('14. elle est branchee sur l\'option',
+    /coche\('#agn-r-bulle', 'bulleSurvol'/.test(src), true);
+  // ⭐ Couper A LA SOURCE : une option qui masque sans arreter le calcul
+  // laisserait le script mesurer la distance a chaque report, en pure perte.
+  verifier('14. ⭐ le calcul de survol s\'arrete des l\'entree de la fonction',
+    /if \(!options\.bulleSurvol\) return null;/.test(src), true);
+  // Et decocher doit effacer la bulle DEJA affichee.
+  verifier('14. decocher efface la bulle deja a l\'ecran',
+    /coche\('#agn-r-bulle', 'bulleSurvol', \(\) => \{ survole = null; cacherBulle\(\); \}\)/
+      .test(src), true);
+  verifier('14. l\'aide explique la superposition et ou decocher',
+    /Deux infobulles superpos/.test(src) && /Surlignage sur la carte<\/b>/.test(src), true);
+}
+
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(60));
 console.log('%d verifications OK, %d ECHEC(S)', ok, ko);
