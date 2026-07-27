@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.27.04
+// @version      2.27.05
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -4053,6 +4053,50 @@
     return r.total ? r.dans / r.total : 0;
   }
 
+  /**
+   * Ce nom de ville designe-t-il la commune traitee ?
+   *
+   * ⚠️ Vrai pour « Caraman » comme pour « Le Village (Caraman) » : le format des
+   * villages rattaches designe bien cette commune-la. C'est le « a verifier
+   * aussi avec les villes de… » de Glenan56 — sans ce cas, tous les segments
+   * d'un village rattache seraient comptes « hors ville », a l'envers.
+   * ⚠️ Comparaison sans accent ni casse : WME et l'INSEE ne s'accordent pas sur
+   * les diacritiques.
+   *
+   * PURE.
+   */
+  function villeDeCetteCommune(ville, nomCommune) {
+    const v = String(ville || '').trim();
+    const c = normSansAccent(String(nomCommune || '').trim());
+    if (!v || !c) return false;
+    if (normSansAccent(v) === c) return true;
+    const m = v.match(/\(([^)]+)\)\s*$/);       // « Village (Commune) »
+    return !!m && normSansAccent(m[1].trim()) === c;
+  }
+
+  /**
+   * Comment un segment SE DECLARE-t-il, d'apres son seul NOM PRINCIPAL ?
+   *
+   * ⭐ C'est la regle FR lue a l'envers : en agglomeration la ville est portee
+   * par le principal, hors agglomeration il n'en porte pas. Le principal est
+   * donc une DECLARATION de zone — et la comparer au terrain (le polygone
+   * d'agglo) est exactement ce que Glenan56 fait a la main avec Road Selector :
+   * « je vois de suite les segments hors ville mais edites comme etant en ville,
+   * et les segments en ville qui ne sont pas selectionnes, donc possiblement
+   * oublies ».
+   *
+   * ⚠️ On ne regarde QUE le principal : un alternatif portant une ville est
+   * normal hors agglomeration (c'est meme la cible), il ne declare rien.
+   *
+   * PURE. Rend 'ville' | 'horsVille' | 'autreVille'.
+   */
+  function declarationDeZone(nam, nomCommune) {
+    if (!nam || !nam.primary) return null;
+    const v = (nam.primary.cityName || '').trim();
+    if (!v) return 'horsVille';
+    return villeDeCetteCommune(v, nomCommune) ? 'ville' : 'autreVille';
+  }
+
   /** La commune analysee est-elle portee par le nom principal ou un alternatif ? */
   function communePortee(nam, nomCommune) {
     const cible = normSansAccent(String(nomCommune || '').trim());
@@ -7219,6 +7263,12 @@
   .agn-item.agn-traite .agn-ok-btn{background:var(--agn-vert, #2e7d32);color:#fff;border-color:var(--agn-vert, #2e7d32)}
   /* Ligne traitée : plus d'eclair non plus — il ne ferait rien. */
   .agn-item.agn-traite .agn-fix-btn{display:none}
+  /* Selection rapide par zone declaree (v2.27.05) */
+  #agn-zone-sel{margin:6px 0 2px}
+  .agn-zone-btns{display:flex;gap:6px}
+  .agn-zone-btns .agn-btn{flex:1;margin:0}
+  .agn-zone-info{font-size:11px;color:var(--agn-gris, #546e7a);margin-top:4px;line-height:1.35}
+  .agn-zone-info b{color:var(--agn-bleu-fonce, #1565c0)}
   .agn-traites{color:var(--agn-vert, #2e7d32);font-weight:600}
   /* Selection partielle : orange, parce qu'il y a un geste a faire (dezoomer). */
   .agn-selinfo{color:var(--agn-orange, #e65100);font-weight:600;cursor:help}
@@ -7662,6 +7712,18 @@
                seul quand il n'y a plus rien a guider. -->
           <div id="agn-guide"></div>
           <button class="agn-btn primary" id="agn-scan" disabled title="Analyse le nommage et l'adressage de toute la commune choisie. Rien n'est enregistré : tu reliras chaque correction dans WME.">Analyser la commune</button>
+          <!-- Selection rapide (idee de Glenan56) : NE PASSE PAS par l'analyse.
+               C'est une loupe sur ce qui est a l'ecran, pour comparer d'un coup
+               d'oeil ce que les segments DECLARENT et ou ils sont vraiment. -->
+          <div id="agn-zone-sel">
+            <div class="agn-zone-btns">
+              <button class="agn-btn" id="agn-sel-ville" disabled
+                title="${esc(TITRE_SEL.ville)}">🏘 En ville</button>
+              <button class="agn-btn" id="agn-sel-hors" disabled
+                title="${esc(TITRE_SEL.horsVille)}">🌾 Hors ville</button>
+            </div>
+            <div id="agn-zone-info" class="agn-zone-info"></div>
+          </div>
           <!-- Conteneur PROPRE a la progression : agn-stats est reecrit par
                renderResults(), une barre qui y vivrait serait effacee. -->
           <div id="agn-prog"></div>
@@ -7750,6 +7812,11 @@
     ui.selCommune = o.querySelector('#agn-commune');
     ui.filtreCommune = o.querySelector('#agn-commune-f');
     ui.nbCommunes = o.querySelector('#agn-nb-communes');
+    ui.btnSelVille = o.querySelector('#agn-sel-ville');
+    ui.btnSelHors = o.querySelector('#agn-sel-hors');
+    ui.zoneInfo = o.querySelector('#agn-zone-info');
+    if (ui.btnSelVille) ui.btnSelVille.onclick = () => selectionnerParZone('ville');
+    if (ui.btnSelHors) ui.btnSelHors.onclick = () => selectionnerParZone('horsVille');
     ui.btnTracer = o.querySelector('#agn-tracer');
     ui.listeAgglos = o.querySelector('#agn-agglos');
     ui.btnPanneaux = o.querySelector('#agn-panneaux');
@@ -8333,6 +8400,26 @@
         </table>
         <p>Ce qui est écarté est <b>compté et dit</b> dans le bilan : hors commune, voies sans
           adressage, voies à règle propre. Un compteur qui baisse doit toujours s'expliquer.</p>` },
+
+      { id: 'selzone', titre: '🏘 Sélection rapide : en ville / hors ville', corps: `
+        <p>Deux boutons, sous <b>Analyser la commune</b>, qui <b>ne lancent aucune analyse</b> :
+          ils sélectionnent dans WME, d'un clic, les segments selon ce que leur
+          <b>nom principal déclare</b>.</p>
+        <table class="agn-aide-t">
+          <tr><td><b>🏘 En ville</b></td><td>Les segments dont le nom principal porte la ville — donc ceux qui <b>se déclarent en agglomération</b>. Le format <b>Village (Commune)</b> compte aussi.</td></tr>
+          <tr><td><b>🌾 Hors ville</b></td><td>Les segments dont le nom principal ne porte <b>aucune</b> ville — donc ceux qui se déclarent hors agglomération.</td></tr>
+        </table>
+        <p>À quoi ça sert : <b>comparer d'un coup d'œil ce que les segments déclarent et où ils
+          sont réellement</b>. Un segment sélectionné par 🏘 mais posé hors de ton polygone
+          d'agglomération porte une ville de trop ; un segment resté non sélectionné à l'intérieur
+          du polygone en a probablement une qui manque.</p>
+        <div class="agn-aide-note">⚠️ <b>Ces boutons ne voient que ce qui est affiché.</b>
+          WME ne charge que la vue courante : contrairement à l'analyse, qui lit toute la commune,
+          la sélection ne peut porter que sur les segments présents à l'écran. Le compte rendu
+          sous les boutons <b>dit toujours sur combien de segments elle a porté</b>.
+          Les segments des communes voisines sont écartés, et comptés à part.
+          Une ville portée par un nom <b>alternatif</b> ne compte pas : hors agglomération,
+          c'est justement le nommage attendu.</div>` },
 
       { id: 'resultats', titre: '📋 Lire et traiter les résultats', corps: `
         <p>Trois onglets, trois sujets : <b>Segments</b> (le nommage), <b>Numérotation</b>
@@ -9171,6 +9258,7 @@
       ui.btnScan.disabled = true;
       ui.listeAgglos.innerHTML = '<div class="agn-empty">' + messagePays() + '</div>';
       majBandeauPays();
+      majBoutonsZone();
       majGuidage();
       return;
     }
@@ -9179,6 +9267,7 @@
       ui.listeAgglos.innerHTML = '<div class="agn-empty">Choisis une commune.</div>';
       majResumeSections();     // sinon l'en-tete annonce encore la commune perdue
       majBandeauPays();        // et le bandeau n'a plus de raison d'etre
+      majBoutonsZone();
       majGuidage();
       return;
     }
@@ -9221,10 +9310,12 @@
       ui.listeAgglos.appendChild(bloc);
       majResumeSections();
       majBandeauPays();
+      majBoutonsZone();
       return;
     }
     majResumeSections();
     majBandeauPays();
+    majBoutonsZone();
     majDatalistVilles();
     ui.listeAgglos.innerHTML = '';
     liste.forEach((a, i) => {
@@ -9552,6 +9643,109 @@
     if (!ui.traites) return;
     const n = findings.filter(f => f.traite).length;
     ui.traites.textContent = n ? n + ' traite' + (n > 1 ? 's' : '') : '';
+  }
+
+  /**
+   * SELECTION RAPIDE PAR DECLARATION DE ZONE (idee de Glenan56, 27/07).
+   *
+   * « Ça pourrait etre une idee pour completer Naming Auditor avec deux boutons
+   * rapides : Selection en ville / Selection hors ville, et qui feraient
+   * automatiquement le filtrage que fait Road Selector mais sans avoir a saisir
+   * le nom de la ville qu'il connaitrait. »
+   *
+   * ⚠️⚠️ CE N'EST PAS L'ANALYSE, ET IL FAUT QUE CA SE VOIE. L'analyse lit TOUTE
+   * la commune par l'API ; ici on ne peut selectionner que ce que WME a CHARGE,
+   * c'est-a-dire LA VUE (lecon de la 2.27.00 : selectionner l'inexistant est
+   * impossible, et le taire coute du travail). Le compte rendu dit donc
+   * toujours sur quoi il a porte.
+   *
+   * ⚠️ `getAll()` rend encore les segments de l'ANCIENNE vue juste apres un saut
+   * de carte : le filtre par emprise n'est pas cosmetique (meme piege que le
+   * garde-fou territorial, v2.03).
+   */
+  const TITRE_SEL = {
+    ville: 'Sélectionne, parmi les segments affichés, ceux qui portent la ville ' +
+           'en nom principal — donc ceux qui se déclarent EN agglomération. ' +
+           'Ne porte que sur ce qui est chargé à l\'écran.',
+    horsVille: 'Sélectionne, parmi les segments affichés, ceux dont le nom principal ' +
+           'ne porte AUCUNE ville — donc ceux qui se déclarent HORS agglomération. ' +
+           'Ne porte que sur ce qui est chargé à l\'écran.'
+  };
+
+  /**
+   * Les deux boutons n'ont besoin QUE d'une commune : ni polygone, ni analyse
+   * prealable. C'est tout leur interet — cette loupe sert AVANT le zonage, pour
+   * voir d'un coup d'oeil ce que les segments declarent.
+   * ⚠️ Un bouton ferme DIT pourquoi (regle d'ergonomie du 27/07) : sinon il se
+   * lit comme une panne.
+   */
+  function majBoutonsZone() {
+    const boutons = [[ui.btnSelVille, 'ville'], [ui.btnSelHors, 'horsVille']];
+    const enFr = (() => { try { return enFrance(); } catch (e) { return true; } })();
+    const dispo = !!communeActive && enFr && !edition;
+    boutons.forEach(([b, zone]) => {
+      if (!b) return;
+      b.disabled = !dispo;
+      b.title = !communeActive
+        ? 'Choisis d\'abord une commune : le script a besoin de son nom et de son contour.'
+        : !enFr ? 'Hors de France : les règles de ce script ne s\'y appliquent pas.'
+        : edition ? 'Édition d\'un tracé en cours (💾 pour enregistrer, Échap pour annuler).'
+        : TITRE_SEL[zone];
+    });
+    if (ui.zoneInfo && !dispo) ui.zoneInfo.innerHTML = '';
+  }
+
+  function selectionnerParZone(zone) {
+    if (!communeActive) return;
+    let ext; try { ext = sdk.Map.getMapExtent(); } catch (e) { ext = null; }
+    // ⚠️ Liste d'agglos VIDE a dessein : ici on ne juge pas la zone reelle, on
+    // ne fait que verifier l'appartenance a la COMMUNE. Passer les polygones
+    // ferait calculer un `partAgglo` dont personne ne se sert, sur chaque
+    // segment de la vue.
+    const retenus = [], horsCommune = [];
+    let vus = 0;
+    for (const s of sdk.DataModel.Segments.getAll()) {
+      const co = s.geometry && s.geometry.coordinates;
+      if (!co || !co.length) continue;
+      if (ext && ext.length === 4) {
+        const p = co[Math.floor(co.length / 2)];
+        if (p[0] < ext[0] || p[0] > ext[2] || p[1] < ext[1] || p[1] > ext[3]) continue;
+      }
+      vus++;
+      let nam; try { nam = readNaming(s); } catch (e) { nam = null; }
+      if (!nam) continue;
+      if (declarationDeZone(nam, communeActive.nom) !== zone) continue;
+      // La commune d'a cote n'est pas notre chantier : un segment « hors ville »
+      // de la voisine n'apprend rien sur celle qu'on traite.
+      const loc = localiser(co, []);
+      if (loc.partCommune < 1 - options.seuil) { horsCommune.push(s.id); continue; }
+      retenus.push(s.id);
+    }
+    try {
+      if (retenus.length) sdk.Editing.setSelection({ selection: { ids: retenus, objectType: 'segment' } });
+      else sdk.Editing.setSelection({ selection: null });
+    } catch (e) { log('sélection par zone impossible', e); }
+    direSelectionZone(zone, retenus.length, vus, horsCommune.length);
+  }
+
+  /**
+   * ⭐ ZERO EST UN RESULTAT, et « seulement ce qui est a l'ecran » aussi.
+   * Sans ce compte rendu, une selection vide se lit « le bouton est casse », et
+   * une selection partielle se lit « voila toute la commune » — ce qui serait
+   * faux, et couterait exactement le genre de travail que la 2.27.00 a rendu.
+   */
+  function direSelectionZone(zone, n, vus, horsCommune) {
+    if (!ui.zoneInfo) return;
+    const quoi = zone === 'ville' ? 'avec la ville en principal'
+                                  : 'sans ville en principal';
+    let t;
+    if (!vus) t = '⚠ aucun segment chargé : déplace ou dézoome la carte.';
+    else if (!n) t = 'Aucun segment ' + quoi + ' dans ' + communeActive.nom +
+                     ', sur les ' + vus + ' de la vue.';
+    else t = '<b>' + n + '</b> segment(s) ' + quoi + ', sur les ' + vus + ' de la vue' +
+             (horsCommune ? ' · ' + horsCommune + ' écarté(s), hors de la commune' : '') + '.';
+    ui.zoneInfo.innerHTML = t + ' <span class="agn-note">Ne porte que sur ce qui est ' +
+      'affiché — WME ne charge pas le reste.</span>';
   }
 
   /** Jeton de generation : voir `allerA`. */
