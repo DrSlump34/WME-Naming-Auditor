@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.20.00
+// @version      2.20.01
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -2031,6 +2031,73 @@
   // Bombage des cotes seulement (les sommets ne bougent pas) : 15 % de la
   // longueur du cote, jamais plus de 250 m.
   const BOMBAGE_PART = 0.15, BOMBAGE_MAX_M = 250;
+  /**
+   * Largeur moyenne (aire / longueur) sous laquelle un groupe de portes n'est
+   * PAS une agglomeration mais un alignement de panneaux le long d'une voie.
+   *
+   * ⚠️⚠️ CALE SUR MESURE, PAS CHOISI (27/07, quatre communes) :
+   *   Lattes 29 m ❌ · Coursan 874 m · Laudun-l'Ardoise 1 212 m · Ploemeur 1 922 m.
+   * L'ecart entre le cas fautif et les bons est d'un facteur 30 : a 150 m on ne
+   * refuse que ce qui est manifestement une ligne, sans risquer un vrai hameau
+   * (un hameau de 3 ha fait deja ~170 m de cote).
+   */
+  const LARGEUR_MIN_AGGLO_M = 150;
+  /**
+   * Au-dela de cette part de la commune, un polygone reunit tres probablement
+   * PLUSIEURS agglomerations que le chainage a soudees. On le propose quand meme
+   * — il peut etre juste sur une commune tres urbanisee — mais on AVERTIT.
+   * ⚡ Mesure : Coursan 7,8 % · Laudun 12,8 % · Ploemeur 24,7 % (bourg + hameaux
+   * cotiers chaines en un seul bloc de 5,1 km).
+   */
+  const PART_COMMUNE_SUSPECTE = 0.20;
+  /**
+   * En dessous, le releve de panneaux est manifestement incomplet pour une
+   * commune entiere : on le DIT, sinon l'editeur croit que le pre-trace a
+   * echoue alors que c'est la SOURCE qui est muette.
+   * ⚡ Mesure du 27/07 : Gruissan (6 210 ha) et Saint-Laurent-des-Arbres
+   * (1 637 ha) rendent **0 panneau**, Lattes (3 224 ha) en rend **5**, contre 7
+   * a Coursan, 11 a Laudun et 26 a Ploemeur.
+   */
+  const PANNEAUX_RELEVE_MAIGRE = 6;
+
+  /** Previent quand la source n'a presque rien rendu — avec les chiffres. */
+  function phraseReleveMaigre(nb) {
+    if (nb >= PANNEAUX_RELEVE_MAIGRE) return '';
+    const ha = communeActive ? Math.round(aireGeomHa(communeActive.geom)) : 0;
+    return '<br>⚠️ <b>Seulement ' + nb + ' panneau(x) relevé(s)</b>' +
+      (ha ? ' sur ' + ha + ' ha' : '') + ' : le jeu de signalisation est ' +
+      '<b>très incomplet sur cette commune</b>. Ce n\'est pas un défaut du script — ' +
+      'le tracé à la main reste la voie sûre.';
+  }
+
+  /**
+   * Part de la commune couverte par une proposition, de 0 a 1.
+   * ⚠️ Rend 0 si l'aire de la commune est inconnue : dans le doute, on
+   * n'avertit pas — un faux avertissement userait la confiance dans les vrais.
+   */
+  function partDeLaCommune(prop) {
+    if (!prop || !prop.aire || !communeActive) return 0;
+    const ha = aireGeomHa(communeActive.geom);
+    return ha > 0 ? (prop.aire / 10000) / ha : 0;
+  }
+
+  /** Aire approchee d'une geometrie, en hectares (projection locale). */
+  function aireGeomHa(geom) {
+    if (!geom || !geom.coordinates) return 0;
+    const anneaux = geom.type === 'Polygon' ? [geom.coordinates[0]]
+      : geom.type === 'MultiPolygon' ? geom.coordinates.map(p => p[0]) : [];
+    let total = 0;
+    for (const r of anneaux) {
+      if (!r || r.length < 3) continue;
+      const kx = 111320 * Math.cos(r[0][1] * Math.PI / 180), ky = 110540;
+      let s = 0;
+      for (let i = 0, k = r.length - 1; i < r.length; k = i++) {
+        s += (r[k][0] * kx) * (r[i][1] * ky) - (r[i][0] * kx) * (r[k][1] * ky);
+      }
+      total += Math.abs(s / 2);
+    }
+    return total / 10000;
+  }
 
   /**
    * Des panneaux bruts aux polygones proposes.
@@ -2089,6 +2156,7 @@
     const props = groupes.map((g, i) => {
       const m = g.map(x => x.m);
       let ring = null;
+      let mesure = null;
       if (m.length >= 3) {
         const h = hullConvexe(m);
         if (h.length >= 3) {
@@ -2100,11 +2168,39 @@
           aire = Math.abs(aire) / 2;
           const lx = Math.max(...h.map(p => p[0])) - Math.min(...h.map(p => p[0]));
           const ly = Math.max(...h.map(p => p[1])) - Math.min(...h.map(p => p[1]));
-          if (aire >= 0.15 * Math.max(1, lx * ly)) ring = bomberCotes(h, BOMBAGE_PART, BOMBAGE_MAX_M);
+          // Longueur = la plus grande distance entre deux sommets ; la LARGEUR
+          // MOYENNE s'en deduit (aire / longueur). C'est elle qui distingue une
+          // agglomeration d'un alignement de panneaux le long d'une route.
+          let diam = 0;
+          for (let a = 0; a < h.length; a++) for (let b = a + 1; b < h.length; b++) {
+            diam = Math.max(diam, Math.hypot(h[a][0] - h[b][0], h[a][1] - h[b][1]));
+          }
+          const largeur = diam > 0 ? aire / diam : 0;
+          mesure = { aire, longueur: diam, largeur };
+          // ⚠️⚠️ DEUX GARDE-FOUS, PAS UN. Le test d'aire relative (v1.98) laissait
+          // passer les RUBANS : une boite deja etroite donne un bon ratio. Cas
+          // vecu a LATTES (signale par l'auteur, 27/07) — 5 panneaux pour
+          // 3 224 ha, et le « polygone » proposé faisait **1 ha, 29 m de large**,
+          // soit l'alignement des panneaux le long d'une voie rapide.
+          // ⚡ Mesures du 27/07 : Lattes 29 m · Coursan 874 m · Laudun 1 212 m ·
+          // Ploemeur 1 922 m. L'ecart est tel qu'un seuil a 150 m ne refuse que
+          // ce qui est manifestement une ligne.
+          if (aire >= 0.15 * Math.max(1, lx * ly) && largeur >= LARGEUR_MIN_AGGLO_M) {
+            ring = bomberCotes(h, BOMBAGE_PART, BOMBAGE_MAX_M);
+          }
         }
       }
       const info = { idx: i, portes: g.length,
-                     panneaux: g.reduce((s, x) => s + x.membres.length, 0) };
+                     panneaux: g.reduce((s, x) => s + x.membres.length, 0),
+                     // Les mesures suivent la proposition : l'editeur doit pouvoir
+                     // juger sur des chiffres, pas sur une forme a l'ecran.
+                     aire: mesure ? mesure.aire : 0,
+                     longueur: mesure ? mesure.longueur : 0,
+                     largeur: mesure ? mesure.largeur : 0,
+                     // Trop plat pour etre une agglomeration : dit a part, parce
+                     // que « pas de surface » et « une ligne » ne se corrigent
+                     // pas de la meme facon.
+                     ruban: !!(mesure && mesure.largeur < LARGEUR_MIN_AGGLO_M) };
       if (!ring) {
         // Groupe non tracable : on garde son centre pour pouvoir cadrer dessus,
         // mais aucun anneau — rien a proposer, rien d'invente.
@@ -2252,11 +2348,18 @@
             <div class="agn-modale-t">Polygone ${rang} / ${total} — quel nom ?</div>
             <div class="agn-modale-c">
               Ce trace vient de <b>${prop.portes}</b> entrée(s) d'agglomération
-              (${prop.panneaux} panneau(x)).
+              (${prop.panneaux} panneau(x))${prop.aire
+                ? ` : <b>${Math.round(prop.aire / 10000)} ha</b>, ${Math.round(prop.longueur)} m
+                    de long sur ${Math.round(prop.largeur)} m de large en moyenne` : ''}.
               <div class="agn-modale-geo">
                 <div class="agn-d">⚠️ <b>Trace grossier</b> : les panneaux ne sont
                   poses que sur les routes. Entre deux entrées, la ligne est
                   calculée, pas relevée — <b>à corriger aux poignées</b> ensuite.</div>
+                ${partDeLaCommune(prop) >= PART_COMMUNE_SUSPECTE ? `<div class="agn-d agn-alerte">
+                  ⚠️ Ce polygone couvre <b>${Math.round(partDeLaCommune(prop) * 100)} %</b>
+                  de la commune. Il réunit <b>probablement plusieurs agglomérations</b>
+                  que la chaîne des entrées a soudées : vérifie sur la carte, et si c'est
+                  le cas, passe-le pour les tracer séparément.</div>` : ''}
               </div>
               L'étiquette sert de repère. Le format
               <b>Village (Commune)</b> est le seul qui change la ville appliquée.
@@ -2335,6 +2438,15 @@
     const props = tous.filter(p => p.ring);
     const nonTracables = tous.filter(p => !p.ring);
     const nManuels = nonTracables.reduce((s, p) => s + p.portes, 0);
+    // ⚠️ Un RUBAN n'est pas « un groupe sans surface » : c'est une ligne de
+    // panneaux le long d'une voie, et le dire aide a comprendre pourquoi rien
+    // n'est propose (cas de Lattes, signale le 27/07).
+    const rubans = nonTracables.filter(p => p.ruban);
+    const phraseRubans = rubans.length
+      ? ' <b>' + rubans.length + '</b> groupe(s) s\'alignent le long d\'une voie (moins de ' +
+        LARGEUR_MIN_AGGLO_M + ' m de large) : c\'est une route, pas une agglomération — ' +
+        'non tracé.'
+      : '';
     const phraseManuels = nManuels
       ? ' <b>' + nManuels + ' entrée(s)</b> supplementaire(s) sont trop isolees ou ' +
         'alignées pour deviner un contour : trace-les à la main, les panneaux ' +
@@ -2346,8 +2458,10 @@
       // que de sortir des ronds arbitraires.
       ui.bilanPanneaux.innerHTML = 'Les <b>' + fiches.length + '</b> panneau(x) relevé(s) ' +
         'ne forment <b>aucune surface exploitable</b> : leurs entrées sont eparpillees ' +
-        'ou alignées le long des routes.<br>Aucun tracé proposé — <b>trace les ' +
-        'agglomérations à la main</b> en t\'appuyant sur les panneaux affiches (carres).';
+        'ou alignées le long des routes.' + phraseRubans +
+        '<br>Aucun tracé proposé — <b>trace les ' +
+        'agglomérations à la main</b> en t\'appuyant sur les panneaux affiches (carres).' +
+        phraseReleveMaigre(fiches.length);
       return;
     }
 
@@ -2377,12 +2491,13 @@
     } finally {
       redrawAgglos(); renderAgglos();
       try { sdk.Map.setMapCenter({ lonLat: vueAvant.centre, zoomLevel: vueAvant.zoom }); } catch (e) { /* */ }
-      ui.bilanPanneaux.innerHTML = crees
+      ui.bilanPanneaux.innerHTML = (crees
         ? '<b>' + crees + ' polygone(s) créé(s)</b> à partir de ' + props.length +
           ' groupe(s) d\'entrées.<br>⚠️ <b>Ces tracés sont grossiers</b> : ouvre chaque ' +
           'polygone (✎) et tire les poignees pour les ajuster au terrain avant d\'analyser.' +
           phraseManuels
-        : 'Aucun polygone créé.' + phraseManuels;
+        : 'Aucun polygone créé.' + phraseManuels) + phraseRubans +
+        phraseReleveMaigre(fiches.length);
     }
   }
 
@@ -6195,6 +6310,14 @@
   .agn-btn:hover:not(:disabled){background:#f3f3f3}
   .agn-btn:disabled{opacity:.45;cursor:default}
   .agn-btn.primary{background:var(--agn-bleu, #1e88e5);color:#fff;border-color:#1976d2;font-weight:600}
+  /* ⚠️⚠️ SANS CETTE REGLE, LE BOUTON BLEU DEVENAIT ILLISIBLE AU SURVOL (signale
+     par l'auteur, 27/07) : la regle de survol compte TROIS selecteurs
+     (classe + hover + not) contre DEUX pour le bouton bleu (classe + classe) —
+     elle l'emporte donc, et posait un fond gris clair sous un texte reste
+     BLANC. Le bouton bleu s'assombrit desormais au lieu de perdre sa couleur.
+     ⚠️ PAS DE BACKTICK DANS CE BLOC : le CSS est un template literal. */
+  .agn-btn.primary:hover:not(:disabled){background:var(--agn-bleu-fonce, #1565c0);
+    border-color:var(--agn-bleu-fonce, #1565c0);color:#fff}
   .agn-btn.primary:disabled{background:#9e9e9e;border-color:#9e9e9e}
   .agn-sel{width:100%;box-sizing:border-box;padding:5px;font-size:12px;margin:3px 0;
     border:1px solid #bbb;border-radius:4px;background:#fff}
@@ -7011,7 +7134,16 @@
           attendra alors le format <b>« Village (Commune) »</b> sur ces voies.</p>
         <div class="agn-aide-note">⚠️ Une ville que Waze porte sur des segments <b>sans aucun polygone</b>
           en face déclenche une alerte : il manque presque toujours un polygone, et sans lui le script
-          réclamerait le <b>retrait</b> de cette ville — une correction à l'envers.</div>` },
+          réclamerait le <b>retrait</b> de cette ville — une correction à l'envers.</div>
+        <p><b>Quand le pré-tracé ne propose rien — ou pas grand-chose.</b> Le relevé de panneaux
+          est <b>très inégal selon les communes</b> : mesuré sur cinq communes, deux n'ont
+          <b>aucun</b> panneau dans la source et une n'en a que cinq pour 3 200 ha. Le script
+          annonce alors le nombre relevé plutôt que de bricoler une forme.</p>
+        <table class="agn-aide-t">
+          <tr><td><b>« s'aligne le long d'une voie »</b></td><td>Les panneaux forment une ligne, pas une surface (moins de ${LARGEUR_MIN_AGGLO_M} m de large) : c'est une route. Rien n'est tracé — sinon le polygone couvrirait la voie et pas le village.</td></tr>
+          <tr><td><b>« couvre N % de la commune »</b></td><td>Le polygone proposé est probablement <b>plusieurs agglomérations soudées</b> : les entrées se sont enchaînées de proche en proche. Vérifie, et passe-le pour les tracer séparément.</td></tr>
+          <tr><td><b>« trop isolées »</b></td><td>Moins de trois entrées, ou éparpillées : aucune surface déductible. Elles restent affichées en repère pour un tracé à la main.</td></tr>
+        </table>` },
 
       { id: 'analyse', titre: '🔍 Lancer l\'analyse', corps: `
         <p><b>Analyser la commune</b> lit tout le territoire communal — pas seulement ce que
