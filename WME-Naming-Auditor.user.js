@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.27.01
+// @version      2.27.02
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -3383,7 +3383,27 @@
     if (nomRue && !route)  return fin({ cas: 'H7', primary: P(nomRue.name, ''), alts: [P(nomRue.name, vAlt)], doute });
     if (route && isCommunale(route)) return fin({ cas: 'H8', primary: P(nomRue.name, ''),
       alts: [P(route.name, vAlt), P(nomRue.name, vAlt)], doute });
-    return fin({ cas: 'H9', primary: P(route.name, ''), alts: [P(nomRue.name, vAlt)], doute });
+    // ⚠️⚠️ H9 PORTE DESORMAIS LES DEUX ALTERNATIFS (v2.27.02).
+    //
+    // Signale par Glenan56 (27/07) : « quand on a une Dxxx hors ville avec nom
+    // de rue en alt, il ne m'a pas propose de corriger en rajoutant le Dxxx +
+    // Ville en alt. Un nom de rue en alt semble donc le perturber. »
+    //
+    // Il avait raison, et c'etait une incoherence INTERNE au logigramme : H6
+    // (numero seul) reclame « Dxxx + commune » en alternatif, H8 (voie
+    // communale) reclame les DEUX — seul H9 laissait tomber le numero des qu'un
+    // nom de rue apparaissait. Le principal hors agglomeration ne porte jamais
+    // de ville : le numero n'etait donc rattache a aucune commune.
+    //
+    // ⭐ ARBITRAGE DE L'AUTEUR (CC FR, 27/07) : aligner H9 sur H8. La regle de
+    // nommage n'est pas la mienne — je ne fais que la rendre coherente avec
+    // elle-meme.
+    //
+    // ⚠️ EFFET DE VOLUME : tout segment hors agglo portant un numero de route ET
+    // un nom de rue gagne un ecart « alt manquant ». Les communes deja auditees
+    // en montreront donc de nouveaux, sans que rien n'ait change sur la carte.
+    return fin({ cas: 'H9', primary: P(route.name, ''),
+      alts: [P(route.name, vAlt), P(nomRue.name, vAlt)], doute });
   }
 
   /**
