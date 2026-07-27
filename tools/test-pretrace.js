@@ -52,9 +52,10 @@ const api = new Function([
   src.match(/const BOMBAGE_PART[^\n]+/)[0],
   relire('R_TERRE'), relire('versM'), relire('dist2'),
   relire('PORTE_FUSION_M'), relire('CLUSTER_SEUIL_M'), relire('LARGEUR_MIN_AGGLO_M'),
-  extraire('hullConvexe'), extraire('bomberCotes'), extraire('proposerPolygones'),
-  'return { proposerPolygones, LARGEUR_MIN_AGGLO_M, CLUSTER_SEUIL_M };'
+  extraire('hullConvexe'), extraire('bomberCotes'), extraire('proposerPolygones'), extraire('nomDuGroupe'),
+  'return { proposerPolygones, nomDuGroupe, LARGEUR_MIN_AGGLO_M, CLUSTER_SEUIL_M };'
 ].join('\n'))();
+const ctx = api;
 const { proposerPolygones, LARGEUR_MIN_AGGLO_M, CLUSTER_SEUIL_M } = api;
 
 let ok = 0, ko = 0;
@@ -140,6 +141,28 @@ titre('Les mesures accompagnent la proposition');
   verifier('9. longueur rendue (diagonale ~1414 m, bombage compris)',
     p.longueur > 1200 && p.longueur < 2200, true);
   verifier('9. largeur = aire / longueur', Math.round(p.largeur), Math.round(p.aire / p.longueur));
+}
+
+titre('Le NOM porté par un panneau (suggestion de Glenan56, 27/07)');
+{
+  // ⚡ « Ton système prend les EB10 sans les LIRE » — il a raison, le panneau
+  // porte le nom de l'agglomération. ⚠️ Mais la source est avare : mesure du
+  // 27/07 — 19 panneaux sur 116 en portent un a Ploemeur, 1 sur 62 a Lattes,
+  // 0 sur 53 a Coursan. On s'en sert quand il est la, jamais on ne compte dessus.
+  const groupeAvec = nom => ({ membres: [{ membres: [{ f: { p: { panneau_value: nom } } }] }] });
+  verifier('10. ⭐ le nom du panneau devient l\'étiquette du secteur',
+    ctx.nomDuGroupe(groupeAvec('Le Courégant')), 'Le Courégant');
+  verifier('11. ⚠️ « AGGLO » est GENERIQUE : ce n\'est pas un nom de lieu',
+    ctx.nomDuGroupe(groupeAvec('AGGLO')), '');
+  verifier('11. … quelle que soit la casse', ctx.nomDuGroupe(groupeAvec('agglo')), '');
+  verifier('12. aucun nom ⇒ chaîne vide, jamais d\'erreur',
+    ctx.nomDuGroupe(groupeAvec(null)), '');
+  verifier('12. groupe sans membres ⇒ chaîne vide aussi', ctx.nomDuGroupe({}), '');
+  // Un seul panneau nomme dans le groupe suffit a etiqueter le secteur.
+  const melange = { membres: [
+    { membres: [{ f: { p: { panneau_value: null } } }] },
+    { membres: [{ f: { p: { panneau_value: 'Kerroch' } } }] }] };
+  verifier('13. un seul panneau nommé suffit', ctx.nomDuGroupe(melange), 'Kerroch');
 }
 
 console.log(lignes.join('\n'));

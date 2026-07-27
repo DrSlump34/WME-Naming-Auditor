@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.22.01
+// @version      2.23.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -992,7 +992,12 @@
       const nom = litPropriete(f.properties, REF.clesNom);
       const code = litPropriete(f.properties, REF.clesCode);
       if (!nom) { sansNom++; continue; }
-      out.push({ code: code || nom, nom, geom: f.geometry, bbox: bboxOf(f.geometry) });
+      // ⚠️ `mairie` n'existe que sur les contours telecharges depuis la v2.23 :
+      // elle est facultative partout ou elle sert.
+      const m = f.properties && f.properties.mairie;
+      const mairie = (m && Array.isArray(m.coordinates)) ? m.coordinates
+        : (Array.isArray(m) && typeof m[0] === 'number') ? m : null;
+      out.push({ code: code || nom, nom, geom: f.geometry, bbox: bboxOf(f.geometry), mairie });
     }
     if (!out.length) throw new Error('aucune commune exploitable (nom introuvable dans les propriétés)');
     const depsNouveaux = new Set(out.map(c => depDuCode(c.code)));
@@ -1100,8 +1105,13 @@
     gouv: {
       libelle: 'API Découpage administratif (geo.api.gouv.fr)',
       // Contours Admin Express (IGN) + Code Officiel Geographique (INSEE).
+      // ⚠️ `mairie` est demandee depuis la v2.23 : c'est le repere du BOURG
+      // PRINCIPAL — celui qui porte le nom de la commune. Il sert a presenter
+      // les secteurs d'entrees dans le bon ordre sur les communes a hameaux.
+      // ⚠️ Les contours deja en base ne l'ont pas : tout ce qui s'en sert doit
+      // savoir s'en passer (repli sur le centre du contour).
       url: dep => 'https://geo.api.gouv.fr/departements/' + encodeURIComponent(dep) +
-        '/communes?fields=nom,code,contour&format=geojson&geometry=contour',
+        '/communes?fields=nom,code,contour,mairie&format=geojson&geometry=contour',
       aide: 'Numéro de département (01 à 95, 2A, 2B, 971…). ~3 Mo et ~10 s par département.'
     },
     wazefrance: {
@@ -2149,6 +2159,71 @@
   }
 
   /**
+   * Nom lisible porte par un panneau du groupe, s'il y en a un.
+   *
+   * ⚡ Suggestion de Glenan56 (rang 6, 27/07) : « ton systeme prend les EB10
+   * sans les LIRE ». Il a raison — le panneau porte le nom de l'agglomeration.
+   * ⚠️ Mais la source est avare : mesure du 27/07, **19 panneaux sur 116 en
+   * portent un a Ploemeur, 1 sur 62 a Lattes, 0 sur 53 a Coursan**. On s'en sert
+   * quand il est la, jamais on ne compte dessus.
+   * ⚠️ « AGGLO » est une valeur GENERIQUE, pas un nom de lieu : elle n'apprend
+   * rien et ne doit pas devenir une etiquette.
+   */
+  function nomDuGroupe(groupe) {
+    // Chaine reelle : groupe → portes → points → fiche → panneau brut.
+    for (const porte of (groupe.membres || [])) {
+      for (const pt of (porte.membres || [])) {
+        const v = pt && pt.f && pt.f.p && pt.f.p.panneau_value;
+        const t = v == null ? '' : String(v).trim();
+        if (t && !/^agglo$/i.test(t)) return t;
+      }
+    }
+    return '';
+  }
+
+  /**
+   * Presente les secteurs d'entrees quand aucun contour n'est deductible, avec
+   * un cadrage sur chacun. Le BOURG PRINCIPAL vient en tete.
+   *
+   * ⚠️ « Principal » = le secteur le plus proche de la MAIRIE (donnee INSEE) :
+   * c'est lui qui porte le nom de la commune. A defaut de mairie — contours
+   * charges avant la v2.23 — on retombe sur le nombre d'entrees, qui est un
+   * indice raisonnable mais pas une preuve : on ne l'annonce alors pas comme
+   * « principal ».
+   */
+  function listerSecteurs(groupes) {
+    if (!ui.bilanPanneaux || !groupes || !groupes.length || !communeActive) return;
+    const mairie = communeActive.mairie;
+    const avec = groupes.map((g, i) => ({
+      g, i, nom: nomDuGroupe(g),
+      d: mairie && g.centre ? distanceM([g.centre.lon, g.centre.lat], mairie) : Infinity
+    }));
+    // Le plus proche de la mairie d'abord ; sinon le plus fourni en entrees.
+    avec.sort((a, b) => (a.d - b.d) || (b.g.portes - a.g.portes));
+    const principal = mairie && isFinite(avec[0].d) ? avec[0] : null;
+    const bloc = el('<div class="agn-secteurs"></div>');
+    bloc.innerHTML = '<div class="agn-secteurs-t">' + avec.length +
+      ' secteur(s) d\'entrées repéré(s) — <b>trace-les un par un</b>' +
+      (principal ? ', en commençant par le bourg' : '') + ' :</div>';
+    avec.forEach((x, rang) => {
+      const b = el('<button class="agn-secteur"></button>');
+      b.innerHTML = '<b>' + (rang + 1) + '.</b> ' +
+        (x.nom ? '<b>' + esc(x.nom) + '</b> · ' : '') +
+        x.g.portes + ' entrée(s)' +
+        (x === principal ? ' <span class="agn-secteur-p">bourg principal</span>' : '');
+      b.title = 'Cadrer la carte sur ce secteur pour le tracer';
+      b.onclick = () => {
+        if (!x.g.centre) return;
+        // Zoom 15 : on voit le bourg entier et ses entrees, de quoi tracer.
+        try { centrerSurZoneVisible(x.g.centre, 15); }
+        catch (e) { try { sdk.Map.setMapCenter({ lonLat: x.g.centre, zoomLevel: 15 }); } catch (e2) { /* */ } }
+      };
+      bloc.appendChild(b);
+    });
+    ui.bilanPanneaux.appendChild(bloc);
+  }
+
+  /**
    * Des panneaux bruts aux polygones proposes.
    * 1. les panneaux d'un meme poteau deviennent UNE porte (EB10 + EB20) ;
    * 2. les portes proches se regroupent — une commune a souvent plusieurs
@@ -2241,6 +2316,9 @@
       }
       const info = { idx: i, portes: g.length,
                      panneaux: g.reduce((s, x) => s + x.membres.length, 0),
+                     // Les portes suivent la proposition : c'est par elles qu'on
+                     // retrouve le NOM porte par un panneau (quand il y en a un).
+                     membres: g,
                      // Les mesures suivent la proposition : l'editeur doit pouvoir
                      // juger sur des chiffres, pas sur une forme a l'ecran.
                      aire: mesure ? mesure.aire : 0,
@@ -2581,6 +2659,12 @@
         (ha ? ' sur ' + ha + ' ha' : '') +
         (raisonCourte ? ', ' + raisonCourte : '') +
         ' : <b>aucun tracé possible</b>. Trace à la main — les panneaux restent affichés.';
+      // ⚠️ Sur une commune a hameaux (La Hague : 19 communes deleguees, 32
+      // panneaux, 6 secteurs, AUCUN tracable), s'arreter la laisse l'editeur
+      // devant une carte muette. On ne DEVINE pas la surface — doctrine v1.98 —
+      // mais on donne l'ORDRE DE MARCHE : voici les secteurs d'entrees, va les
+      // tracer un par un, en commencant par le bourg principal.
+      listerSecteurs(tous);
       return;
     }
 
@@ -2623,6 +2707,9 @@
         ? '<b>' + crees + ' polygone(s) créé(s)</b> — <b>ajuste-les aux poignées (✎)</b>, ' +
           'les panneaux ne marquent que les routes' + reste + '.'
         : '<b>Aucun polygone créé</b>' + reste + '.';
+      // Les secteurs qu'aucun tracé ne couvre restent a faire a la main : on
+      // les liste avec leur cadrage, plutot que de les reduire a un compteur.
+      if (nonTracables.length) listerSecteurs(nonTracables);
     }
   }
 
@@ -6635,6 +6722,16 @@
     font-style:normal;opacity:1;cursor:pointer;color:var(--agn-brun, #a34a00)}
   .agn-sansagglo span{flex:1;min-width:0}
   .agn-sansagglo input{flex:0 0 auto;margin-top:2px}
+  /* Secteurs d'entrees : la ou aucun contour ne se deduit, on donne au moins
+     l'ordre de marche — un bouton par secteur, qui cadre la carte dessus. */
+  .agn-secteurs{margin-top:8px}
+  .agn-secteurs-t{font-size:11px;color:var(--agn-gris, #546e7a);margin-bottom:4px;font-style:normal}
+  .agn-secteur{display:block;width:100%;text-align:left;margin:3px 0;padding:5px 8px;
+    border:1px solid #cfd8dc;border-radius:4px;background:#fff;cursor:pointer;
+    font-size:11px;font-style:normal;color:var(--agn-texte, #1f2933)}
+  .agn-secteur:hover{background:#e3f2fd;border-color:var(--agn-bleu, #1e88e5)}
+  .agn-secteur-p{background:var(--agn-bleu, #1e88e5);color:#fff;border-radius:8px;
+    padding:1px 6px;font-size:10px;margin-left:4px}
   #agn-modale{position:fixed;inset:0;z-index:9700;background:rgba(0,0,0,.35);
     display:flex;align-items:center;justify-content:center;
     font:12px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--agn-texte, #1f2933)}
@@ -7077,7 +7174,14 @@
       // changeant de commune afficherait un bilan qui ne parle plus de rien.
       oublierPanneaux();
       redrawCommune(); redrawAgglos(); renderAgglos();
-      if (communeActive) replierSection('commune', false);   // choix fait
+      if (communeActive) {
+        replierSection('commune', false);   // choix fait
+        // ⚠️ ET ON ROUVRE L'AGGLOMERATION : c'est l'etape suivante. Sans ca,
+        // apres un retour force a l'etape 1 (la carte avait quitte la commune),
+        // le volet restait plie sur la suite du parcours — signale par l'auteur
+        // le 27/07. Replier une etape, c'est s'engager a rouvrir la suivante.
+        replierSection('agglo', true);
+      }
       // Cadrage sur la commune choisie, dans la zone reellement visible (v2.12).
       if (communeActive) {
         const em = empriseDeGeom(communeActive.geom);
