@@ -128,7 +128,7 @@ verifier('22. ⚠️ et elle filtre par emprise (getAll rend l\'ancienne vue)',
 verifier('23. les segments de la commune voisine sont ecartes',
   /partCommune < 1 - options\.seuil/.test(extraire('selectionnerParZone')), true);
 verifier('24. ⭐ le compte rendu dit toujours sur quoi la selection a porte',
-  /direSelectionZone\(zone, retenus\.length, vus, horsCommune\.length\)/
+  /direSelectionZone\(zone, retenus\.length, vus, horsCommune\.length, elargi\)/
     .test(extraire('selectionnerParZone')), true);
 verifier('25. le cas ZERO a sa propre branche',
   /if \(!vus\)/.test(extraire('direSelectionZone')) &&
@@ -138,8 +138,41 @@ verifier('26. un bouton ferme DIT pourquoi',
 verifier('27. les deux boutons existent dans l\'interface',
   /id="agn-sel-ville"/.test(src) && /id="agn-sel-hors"/.test(src), true);
 verifier('28. et ils sont branches',
-  /selectionnerParZone\('ville'\)/.test(src) &&
-  /selectionnerParZone\('horsVille'\)/.test(src), true);
+  /lancerSel\(ui\.btnSelVille, 'ville'\)/.test(src) &&
+  /lancerSel\(ui\.btnSelHors, 'horsVille'\)/.test(src), true);
+
+// ===========================================================================
+// 4. ELARGIR AVANT DE SELECTIONNER (v2.27.10)
+//
+// ⚠️⚠️ Signale par l'auteur : « la selection ne prend que les segments plus ou
+// moins visibles, il en manque, faut bouger la map et recliquer ».
+//
+// ⚡ Les chiffres qui commandent : WME ne charge RIEN sous le zoom 14,
+// partiellement jusqu'a 15, COMPLETEMENT a partir de 16. Au zoom 18 la vue
+// couvre ~0,6 km, au zoom 16 ~2,4 km : reculer de deux crans multiplie par
+// SEIZE la surface prise en un clic.
+// ===========================================================================
+{
+  const el = extraire('elargirPourSelection');
+  verifier('30. on recule jusqu\'au zoom de chargement COMPLET, pas plus bas',
+    /zoomLevel: ZOOM_BALAYAGE/.test(el), true);
+  verifier('30. ⭐ et SEULEMENT si on est plus zoome que ca',
+    /if \(!\(z > ZOOM_BALAYAGE\)\) return false;/.test(el), true);
+  verifier('30. on attend le chargement avant de selectionner',
+    /await attendreChargement\(null\)/.test(el), true);
+  verifier('30. l\'elargissement precede bien la lecture des segments',
+    /const elargi = await elargirPourSelection\(\);[\s\S]{0,200}getMapExtent/
+      .test(extraire('selectionnerParZone')), true);
+  verifier('30. ⭐ et on DIT qu\'on a bouge la carte',
+    /elargi \? ' <span class="agn-note">Carte reculée au zoom '/
+      .test(extraire('direSelectionZone')), true);
+  // ⚠️ La limite de WME doit rester dite : elargir ne la supprime pas.
+  verifier('30. ⚠️ le message rappelle que ca ne couvre pas toute la commune',
+    /secteur par secteur/.test(extraire('direSelectionZone')), true);
+  // Le bouton doit dire qu'il travaille : l'attente peut durer 9 s.
+  verifier('30. le bouton annonce le chargement et se verrouille',
+    /btn\.disabled = true; btn\.textContent = '⏳ chargement…'/.test(src), true);
+}
 // L'extracteur lit-il encore quelque chose ? (lecon de la v2.26)
 verifier('29. l\'extracteur a bien lu declarationDeZone',
   /cityName/.test(extraire('declarationDeZone')), true);
