@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.22.00
+// @version      2.22.01
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -1495,7 +1495,16 @@
         `<optgroup label="Commune en cours">${opt(communeActive)}</optgroup>`);
       ui.selCommune.value = avant;
     }
-    else if (communeActive) { communeActive = null; oublierPanneaux(); redrawCommune(); }
+    else if (communeActive) {
+      // ⚠️⚠️ LA CARTE A QUITTE LA COMMUNE. On la lachait deja, mais en silence :
+      // le volet restait ouvert sur « Agglomeration », dont les boutons venaient
+      // de se griser, et rien ne disait pourquoi (auteur, 27/07). On RAMENE donc
+      // l'editeur a l'etape 1, et le guidage nomme la commune perdue.
+      ui.communePerdue = communeActive.nom;
+      communeActive = null; oublierPanneaux(); redrawCommune();
+      replierSection('commune', true);      // l'etape a refaire s'ouvre
+      replierSection('agglo', false);       // celle qui n'a plus d'objet se ferme
+    }
     // ⚠️ Sondage des panneaux dès qu'une commune est en cours : c'est lui qui
     // décide si « 🪧 Panneaux » et « ✏️ Proposer un tracé » ont un sens. Il ne
     // part qu'UNE FOIS par commune (cache), et son retour rafraîchit les boutons.
@@ -2355,6 +2364,12 @@
       majBilanPreTrace();
       redrawPanneaux();
       renderBilanPanneaux();
+      // ⚠️⚠️ INDISPENSABLE : c'est `renderAgglos` qui recalcule l'etat ET LES
+      // INFOBULLES des boutons. Sans lui, « ✏️ Proposer un tracé » continuait
+      // d'afficher « relève d'abord les panneaux » alors qu'ils venaient d'etre
+      // releves (signale par l'auteur, 27/07). Un bouton qui ment sur son etat
+      // est pire qu'un bouton muet.
+      renderAgglos();
     } catch (e) {
       panneaux = []; bilanPanneaux = null;
       redrawPanneaux();
@@ -6611,8 +6626,15 @@
   .agn-lien{border:none;background:none;color:var(--agn-bleu, #1e88e5);cursor:pointer;font-size:11px;
     text-decoration:underline;padding:2px;margin-left:auto}
   .agn-empty{opacity:.6;font-style:italic;padding:8px 0;font-size:11px}
+  /* ⚠️⚠️ EN FLEX, CHAQUE MORCEAU DE TEXTE DEVIENT UNE CELLULE. Le libelle
+     contient un <b> : sans le <span> qui enveloppe la phrase, elle se decoupait
+     en quatre colonnes cote a cote — « organise en cellules, illisible »
+     (auteur, 27/07). La regle vaut pour TOUT label en flex qui melange du texte
+     et des balises. */
   .agn-sansagglo{display:flex;align-items:flex-start;gap:6px;margin-top:6px;
     font-style:normal;opacity:1;cursor:pointer;color:var(--agn-brun, #a34a00)}
+  .agn-sansagglo span{flex:1;min-width:0}
+  .agn-sansagglo input{flex:0 0 auto;margin-top:2px}
   #agn-modale{position:fixed;inset:0;z-index:9700;background:rgba(0,0,0,.35);
     display:flex;align-items:center;justify-content:center;
     font:12px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--agn-texte, #1f2933)}
@@ -7048,6 +7070,9 @@
     };
     ui.selCommune.onchange = () => {
       communeActive = communes.find(c => c.code === ui.selCommune.value) || null;
+      // Le rappel « la carte a quitté X » a fait son office : il ne doit pas
+      // survivre au choix suivant.
+      if (communeActive) delete ui.communePerdue;
       // ⚠️ Un releve de panneaux appartient a UNE commune : le garder en
       // changeant de commune afficherait un bilan qui ne parle plus de rien.
       oublierPanneaux();
@@ -7354,8 +7379,13 @@
     if (!bandeau) return;
     if (!etape || aideOuverte) { bandeau.className = ''; bandeau.innerHTML = ''; return; }
     const g = GUIDAGE[etape];
+    // La carte vient de quitter la commune en cours : on le DIT, en la nommant.
+    // Sans ca, « Choisis ta commune » ressemble a un retour en arriere inexplique.
+    const perdue = etape === 'commune' && ui.communePerdue;
     bandeau.className = 'on';
-    bandeau.innerHTML = '<span class="agn-guide-n">' + g.n + '</span><b>' + esc(g.texte) + '</b>' +
+    bandeau.innerHTML = '<span class="agn-guide-n">' + g.n + '</span><b>' +
+      (perdue ? 'La carte a quitté ' + esc(ui.communePerdue) + ' — choisis la commune à traiter.'
+              : esc(g.texte)) + '</b>' +
       (g.suite ? '<div class="agn-guide-suite">' + esc(g.suite) + '</div>' : '');
     // ⚠️ Le volet est ferme : on montre le chemin (☰) plutot qu'un element que
     // personne ne voit.
@@ -8281,8 +8311,8 @@
       ui.listeAgglos.innerHTML = '';
       const bloc = el(`<div class="agn-empty">
           Aucune agglomération tracée pour <b>${esc(communeActive.nom)}</b>.<br>
-          <label class="agn-sansagglo" title="À cocher seulement si la commune n'a RÉELLEMENT aucun panneau d'agglomération : toute la commune sera alors analysée comme hors agglomération."><input type="checkbox" ${declaree ? 'checked' : ''}>
-            cette commune n'a <b>aucune agglomération</b> (tout est hors agglo)</label>
+          <label class="agn-sansagglo" title="À cocher seulement si la commune n'a RÉELLEMENT aucun panneau d'agglomération : toute la commune sera alors analysée comme hors agglomération."><input type="checkbox" ${declaree ? 'checked' : ''}><span>cette
+            commune n'a <b>aucune agglomération</b> (tout est hors agglo)</span></label>
         </div>`);
       bloc.querySelector('input').onchange = e => {
         if (e.target.checked) sansAgglo[communeActive.code] = true;
