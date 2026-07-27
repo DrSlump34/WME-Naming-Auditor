@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.23.01
+// @version      2.24.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -6761,12 +6761,19 @@
     font-size:11px;color:var(--agn-gris, #546e7a);text-align:center}
   .agn-aide-pied a{color:var(--agn-bleu, #1e88e5)}
   /* ── Guidage pas a pas : mettre en avant LE geste suivant ───────────────── */
-  .agn-guide{position:relative;animation:agn-pulse 2s ease-in-out infinite;
-    border-radius:5px;outline:2px solid var(--agn-bleu, #1e88e5);outline-offset:1px}
+  /* ⚠️ Le halo doit se REMARQUER : un liseré fin passait inaperçu au milieu de
+     boutons deja bordes (l'auteur est revenu deux fois dessus). Trait epais,
+     fond teinte, et une pulsation plus large. */
+  .agn-guide{position:relative;z-index:1;animation:agn-pulse 1.6s ease-in-out infinite;
+    border-radius:5px;outline:3px solid var(--agn-bleu, #1e88e5);outline-offset:2px;
+    background-color:#e3f2fd !important}
   @keyframes agn-pulse{
-    0%,100%{box-shadow:0 0 0 0 rgba(30,136,229,.55)}
-    50%{box-shadow:0 0 0 6px rgba(30,136,229,0)}
+    0%,100%{box-shadow:0 0 0 0 rgba(30,136,229,.65)}
+    50%{box-shadow:0 0 0 9px rgba(30,136,229,0)}
   }
+  /* Le crayon et les petits boutons : meme halo, sans le fond qui masquerait
+     leur propre couleur. */
+  .agn-mini.agn-guide{background-color:transparent !important}
   /* Le bandeau qui DIT quoi faire : le halo seul ne dit pas pourquoi. */
   #agn-guide{display:none;margin:0 0 6px;padding:7px 9px;border-radius:4px;
     background:#e3f2fd;border-left:3px solid var(--agn-bleu, #1e88e5);font-size:12px;line-height:1.45}
@@ -6819,6 +6826,12 @@
     font:13px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
     box-shadow:0 4px 16px rgba(0,0,0,.35);pointer-events:none;max-width:90vw;text-align:center}
   #agn-trace-aide span{opacity:.85;font-size:12px}
+  /* Ce qu'il reste a couvrir : une agglomeration oubliee fausse toute l'analyse,
+     l'avertissement se lit donc AVANT le bouton « Terminer ». */
+  .agn-avert-exh{margin-top:8px;padding:7px 9px;border-radius:4px;font-size:11px;line-height:1.45;
+    background:#fff3e0;border-left:3px solid var(--agn-orange, #e65100);color:var(--agn-texte, #1f2933)}
+  .agn-avert-doux{background:#f1f8e9;border-left-color:var(--agn-vert, #2e7d32)}
+  #agn-tracer-encore{margin-top:8px}
   #agn-modale{position:fixed;inset:0;z-index:9700;background:rgba(0,0,0,.35);
     display:flex;align-items:center;justify-content:center;
     font:12px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--agn-texte, #1f2933)}
@@ -7525,6 +7538,10 @@
     // Des polygones existent : ceux qui viennent du pre-trace sont GROSSIERS et
     // demandent un passage aux poignees — on le dit une fois, pas a chaque fois.
     if (zones.some(z => z.aAffiner)) return 'affiner';
+    // ⚠️ Et surtout : reste-t-il des secteurs d'entrees DECOUVERTS ? Une
+    // agglomeration oubliee passe en hors agglomeration et fausse tous ses
+    // ecarts — c'est la faute la plus couteuse du parcours.
+    if (secteursCourants.some(x => x.g && x.g.centre && !secteurCouvert(x.g))) return 'agglo-encore';
     if (!lastScan) return 'analyse';
     return null;
   }
@@ -7548,7 +7565,13 @@
       texte: 'Trace l\'agglomération à la main.',
       suite: 'Les panneaux ne suffisent pas ici. Double-clic pour fermer le tracé — ' +
              'ou coche « sans agglomération » si la commune n\'en a pas.' },
-    affiner: { n: 2, cible: '.agn-edit', dansVolet: true,
+    'agglo-encore': { n: 2, cible: '#agn-tracer-encore', dansVolet: true,
+      texte: 'Il reste des agglomérations à tracer.',
+      suite: 'Des secteurs d\'entrées ne sont couverts par aucun polygone. ' +
+             'Une agglomération oubliée passe en hors agglomération — et tous ses écarts seront faux.' },
+    // ⚠️ On vise le crayon DU polygone concerné, pas le premier venu : avec
+    // plusieurs agglomérations, le halo se serait posé n'importe où.
+    affiner: { n: 2, cible: '.agn-a-affiner .agn-edit', dansVolet: true,
       texte: 'Ajuste le tracé proposé (✎).',
       suite: 'Les panneaux ne marquent que les routes : entre deux entrées, la ligne ' +
              'est calculée. Tire les poignées pour la coller au terrain.' },
@@ -8549,6 +8572,9 @@
         centrerSurZoneVisible(em.centre, zoomPour(2 * em.rx, 2 * em.ry, em.centre.lat));
       };
       node.querySelector('.agn-edit').onclick = () => entrerEdition(a);
+      // Marque le polygone que le guidage doit designer : celui qui sort du
+      // pre-trace et n'a pas encore ete repris a la main.
+      if (a.aAffiner) node.classList.add('agn-a-affiner');
       if (edition && edition.agglo === a) {
         node.classList.add('agn-en-edition');
         const barre = el(`<div class="agn-edit-barre">
@@ -8561,10 +8587,52 @@
       }
       ui.listeAgglos.appendChild(node);
     });
+    // ⚠️⚠️ UNE COMMUNE A SOUVENT PLUSIEURS AGGLOMERATIONS (bourg + hameaux +
+    // villages rattaches). Apres le premier polygone, rien ne le disait : le
+    // geste suivant visible etait « Terminer et replier », ce qui invite a
+    // s'arreter — et **une agglomeration oubliee fausse toute l'analyse**, tous
+    // ses segments etant alors juges hors agglomeration. D'ou ce bouton, juste
+    // sous la liste, et l'avertissement ci-dessous (auteur, 27/07).
+    const suite = el('<button class="agn-btn" id="agn-tracer-encore">' +
+      '＋ Ajouter une autre agglomération</button>');
+    suite.title = 'Bourg, hameau, village rattaché : chaque agglomération de la commune ' +
+      'a son propre polygone. La carte se cadrera sur le prochain secteur d\'entrées à couvrir.';
+    suite.onclick = tracerAgglo;
+    ui.listeAgglos.appendChild(suite);
+    ui.listeAgglos.appendChild(avertissementExhaustivite());
     // ⚠️ Point d'accroche du guidage : `renderAgglos` est rappelee a CHAQUE
     // changement d'etat (contours charges, commune choisie, polygone ajoute ou
     // retire). Le brancher ici evite d'oublier un chemin.
     majGuidage();
+  }
+
+  /**
+   * Dit ce qu'il reste a couvrir AVANT de laisser refermer le volet.
+   *
+   * ⚠️ On ne se contente pas d'un conseil general : quand les panneaux ont ete
+   * releves, on SAIT quels secteurs d'entrees ne sont dans aucun polygone. Un
+   * chiffre precis vaut mieux qu'une recommandation.
+   */
+  function avertissementExhaustivite() {
+    const restants = secteursCourants.filter(x => x.g && x.g.centre && !secteurCouvert(x.g));
+    if (restants.length) {
+      const n = el('<div class="agn-avert-exh"></div>');
+      n.innerHTML = '⚠️ <b>' + restants.length + ' secteur(s) d\'entrées</b> ne sont couverts par ' +
+        'aucun polygone : ' +
+        restants.slice(0, 4).map(x => esc(x.nom || (x.g.portes + ' entrée(s)'))).join(', ') +
+        (restants.length > 4 ? '…' : '') +
+        '<br>Trace-les avant de terminer — <b>une agglomération oubliée passe en hors ' +
+        'agglomération</b>, et tous ses écarts seront faux.';
+      return n;
+    }
+    const n = el('<div class="agn-avert-exh agn-avert-doux"></div>');
+    n.innerHTML = secteursCourants.length
+      ? '✔ Tous les secteurs d\'entrées relevés sont couverts. Vérifie tout de même les ' +
+        'hameaux sans panneau avant de terminer.'
+      : '⚠️ Assure-toi d\'avoir tracé <b>toutes</b> les agglomérations de la commune ' +
+        '(bourg, hameaux, villages rattachés) : une agglomération oubliée passe en hors ' +
+        'agglomération, et tous ses écarts seront faux.';
+    return n;
   }
 
   let indexCourant = -1;

@@ -52,15 +52,20 @@ function etape(etat) {
   const e = Object.assign({
     guidage: true, paysEtat: 'fr', communes: [{}], communeActive: null,
     edition: null, agglos: {}, sansAgglo: {}, panneaux: [],
-    bilanPreTrace: null, sondage: null, lastScan: null
+    bilanPreTrace: null, sondage: null, lastScan: null,
+    // v2.23 : les secteurs d'entrees non couverts retiennent le parcours — une
+    // agglomeration oubliee fausse toute l'analyse.
+    secteurs: [], couverts: []
   }, etat);
   const fn = new Function(
     'options', 'pays', 'communes', 'communeActive', 'edition', 'agglos', 'sansAgglo',
     'panneaux', 'bilanPreTrace', 'sondageCourant', 'lastScan',
+    'secteursCourants', 'secteurCouvert',
     extraire('etapeCourante') + '\nreturn etapeCourante();');
   return fn({ guidage: e.guidage }, { etat: e.paysEtat }, e.communes, e.communeActive,
             e.edition, e.agglos, e.sansAgglo, e.panneaux, e.bilanPreTrace,
-            () => e.sondage, e.lastScan);
+            () => e.sondage, e.lastScan,
+            e.secteurs, g => e.couverts.includes(g));
 }
 
 const COMMUNE = { code: '83119', nom: 'Saint-Tropez' };
@@ -99,6 +104,26 @@ verifier('11. ⚠️ une edition ouverte passe AVANT tout : rien n\'est enregist
           edition: { agglo: {} } }), 'terminer');
 verifier('12. trace affine (drapeau retire) ⇒ on passe a l\'analyse',
   etape({ communeActive: COMMUNE, agglos: { '83119': [{ ring: [] }] } }), 'analyse');
+
+titre('⚠️ EXHAUSTIVITE : une agglomeration oubliee fausse toute l\'analyse');
+{
+  // Deux secteurs releves, un seul couvert par un polygone : il reste du travail,
+  // et le guidage doit le dire AVANT de laisser passer a l'analyse.
+  const s1 = { g: { centre: { lon: 0, lat: 0 }, portes: 4 } };
+  const s2 = { g: { centre: { lon: 1, lat: 1 }, portes: 2 } };
+  verifier('17. ⭐ un secteur non couvert ⇒ inviter a tracer la suite',
+    etape({ communeActive: COMMUNE, agglos: { '83119': [{ ring: [] }] },
+            secteurs: [s1, s2], couverts: [s1.g] }), 'agglo-encore');
+  verifier('18. tous les secteurs couverts ⇒ on passe a l\'analyse',
+    etape({ communeActive: COMMUNE, agglos: { '83119': [{ ring: [] }] },
+            secteurs: [s1, s2], couverts: [s1.g, s2.g] }), 'analyse');
+  verifier('19. ⚠️ le trace a affiner passe AVANT le rappel d\'exhaustivite',
+    etape({ communeActive: COMMUNE, agglos: { '83119': [{ ring: [], aAffiner: true }] },
+            secteurs: [s1, s2], couverts: [] }), 'affiner');
+  verifier('20. aucun panneau relevé ⇒ pas de faux rappel (on ne sait rien)',
+    etape({ communeActive: COMMUNE, agglos: { '83119': [{ ring: [] }] },
+            secteurs: [], couverts: [] }), 'analyse');
+}
 
 titre('Les cas ou le guidage doit se TAIRE');
 verifier('13. guidage decoche ⇒ rien, jamais', etape({ guidage: false }), null);
