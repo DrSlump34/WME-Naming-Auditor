@@ -187,6 +187,46 @@ console.log('\n=== Voie qui longe la limite : l\'adresse d\'en face est conserve
 }
 
 // ---------------------------------------------------------------------------
+// 4 bis. ⭐ LA DOCTRINE DE L'AUTEUR, FIGEE (27/07)
+//
+// Question posee : « quand une voie mitoyenne est hors agglo des DEUX cotes,
+// la cible reste-t-elle pas de ville en principal, les deux communes en
+// alternatif ? » — Reponse : « Doctrine : pas de ville en main, les villes en
+// Alt ».
+//
+// ⚠️ Son cas reel : segments 237389666, 63411311, 63412823, 63412355 (Rue de la
+// Republique / Saint-Geniès-de-Comolas / Montfaucon), hors agglomeration sur
+// les deux communes, avec des noms differents.
+//
+// ⚠️⚠️ CE TEST FIGE UNE REGLE DE NOMMAGE, PAS UNE IMPLEMENTATION. Le modifier
+// demande l'accord de l'auteur (CC FR).
+// ---------------------------------------------------------------------------
+{
+  // Ce que WME porte : le nom de rue, avec la commune VOISINE en principal.
+  const porte = nam(e('Chemin des Vignes', LA), []);
+  // Cible H7 (nom de rue seul, hors agglo) : principal SANS ville, nom + commune
+  // d'ici en alternatif.
+  const cibleH7 = { cas: 'H7', primary: e('Chemin des Vignes', ''),
+                    alts: [e('Chemin des Vignes', ICI)] };
+  const r = api.conserverAdressesVoisines(porte, cibleH7, [LA]);
+
+  verifier('DOCTRINE. aucune ville en principal',
+    r.primary.cityName, '');
+  verifier('DOCTRINE. le nom de rue reste en principal',
+    r.primary.name, 'Chemin des Vignes');
+  verifier('DOCTRINE. ⭐ LES DEUX communes en alternatif', alts(r),
+    ['Chemin des Vignes / ' + ICI, 'Chemin des Vignes / ' + LA]);
+
+  // Et ce que l'editeur voit : les deux alternatifs sont reclames.
+  const d = api.diffNaming(porte, r);
+  const manquants = d.filter(x => x.champ === 'alt manquant').map(x => x.apres);
+  verifier('DOCTRINE. les deux adresses sont proposees a l\'ajout',
+    manquants.length, 2);
+  verifier('DOCTRINE. et le principal est bien signale comme fautif',
+    d.some(x => x.champ === 'principal'), true);
+}
+
+// ---------------------------------------------------------------------------
 // 5. VERROUS DE CONTRAT — la geometrie tranche, pas le nom
 // ---------------------------------------------------------------------------
 verifier('19. ⚠️⚠️ la conservation est CONDITIONNEE a « longe la limite »',
