@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.27.10
+// @version      2.27.11
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -7420,6 +7420,9 @@
   .agn-zone-btns .agn-btn{flex:1;margin:0}
   .agn-zone-info{font-size:11px;color:var(--agn-gris, #546e7a);margin-top:4px;line-height:1.35}
   .agn-zone-info b{color:var(--agn-bleu-fonce, #1565c0)}
+  /* « Il en manque probablement » : un CONSTAT qui doit se voir, pas se lire
+     entre les lignes — c'est ce qui evite de croire qu'on a fait le tour. */
+  .agn-zone-manque{color:var(--agn-orange, #e65100);font-weight:600}
   .agn-traites{color:var(--agn-vert, #2e7d32);font-weight:600}
   /* Selection partielle : orange, parce qu'il y a un geste a faire (dezoomer). */
   .agn-selinfo{color:var(--agn-orange, #e65100);font-weight:600;cursor:help}
@@ -7966,21 +7969,15 @@
     ui.btnSelVille = o.querySelector('#agn-sel-ville');
     ui.btnSelHors = o.querySelector('#agn-sel-hors');
     ui.zoneInfo = o.querySelector('#agn-zone-info');
-    // ⚠️ La selection peut ELARGIR la carte et attendre le chargement (jusqu'a
-    // 9 s) : sans ce verrou et ce libelle, le bouton reste muet pendant que la
-    // carte bouge toute seule — et l'editeur reclique, ce qui relance tout.
-    const lancerSel = async (btn, zone) => {
+    // La selection est instantanee : elle ne lit que le modele deja charge, ne
+    // touche NI au zoom NI au centre de la carte (arbitrage de l'auteur).
+    const lancerSel = (btn, zone) => {
       if (!btn || btn.disabled) return;
-      const texte = btn.textContent;
-      btn.disabled = true; btn.textContent = '⏳ chargement…';
-      if (ui.zoneInfo) ui.zoneInfo.innerHTML = '';
-      try { await selectionnerParZone(zone); }
+      try { selectionnerParZone(zone); }
       catch (e) {
         log('sélection par zone impossible', e);
         if (ui.zoneInfo) ui.zoneInfo.textContent = 'Sélection impossible : ' + (e.message || e);
       }
-      btn.textContent = texte;
-      majBoutonsZone();
     };
     if (ui.btnSelVille) ui.btnSelVille.onclick = () => lancerSel(ui.btnSelVille, 'ville');
     if (ui.btnSelHors) ui.btnSelHors.onclick = () => lancerSel(ui.btnSelHors, 'horsVille');
@@ -8584,12 +8581,14 @@
           c'est une limite de WME, pas du script : la carte ne descend les segments que
           <b>par vue</b>, et <b>lâche ceux qui en sortent</b> — on ne peut donc même pas cumuler
           les sélections en déplaçant la carte. <b>Sélectionner toute une commune d'un coup est
-          impossible</b> (Road Selector a exactement la même limite).<br>
-          Pour en prendre le plus possible, le script <b>recule d'abord la carte au zoom 16</b>
-          si tu es plus près — c'est le dernier niveau où WME charge <b>tout</b>, et il couvre
-          ~2,4 km contre ~0,6 km au zoom 18, soit <b>16 fois plus de terrain</b>. Il te le dit
-          quand il l'a fait. Au-delà, <b>déplace la carte et reclique</b> : secteur par secteur.
-          Le compte rendu <b>dit toujours sur combien de segments la sélection a porté</b>.
+          impossible</b> (Road Selector a exactement la même limite). Le compte rendu te prévient
+          à chaque fois qu'<b>il en manque probablement</b>.<br>
+          <b>Ces boutons ne touchent jamais à ta carte</b> — ni au zoom, ni au centrage. À toi
+          de cadrer : un zoom plus large en prend davantage, jusqu'au <b>zoom 16</b>, dernier
+          niveau où WME charge encore <b>toutes</b> les rues (il y couvre ~2,4 km, contre ~0,6 km
+          au zoom 18). En dessous de 16, WME cesse de descendre les petites rues : tu verrais
+          plus grand en sélectionnant moins. Au-delà, <b>déplace la carte et reclique</b> :
+          secteur par secteur.
           Les segments des communes voisines sont écartés, et comptés à part.
           Une ville portée par un nom <b>alternatif</b> ne compte pas : hors agglomération,
           c'est justement le nommage attendu.</div>` },
@@ -9896,40 +9895,20 @@
   }
 
   /**
-   * ⚠️⚠️ ELARGIR AVANT DE SELECTIONNER — sinon on ne prend qu'un pate de maisons.
+   * ⚠️⚠️ CE BOUTON NE TOUCHE JAMAIS A LA CARTE — arbitrage de l'auteur (27/07).
    *
-   * Signale par l'auteur (27/07) : « la selection ne prend que les segments plus
-   * ou moins visibles, il en manque, faut bouger la map et recliquer ».
+   * Une version precedente reculait la vue au zoom 16 avant de selectionner,
+   * pour en prendre seize fois plus. Essayee, puis RETIREE : « Reviens en
+   * arriere. Je regrette. On touche plus au zoom en cliquant sur les boutons.
+   * Juste on informe qu'il peut manquer des segments. »
    *
-   * ⚡ LES CHIFFRES QUI COMMANDENT : WME ne charge RIEN sous le zoom 14,
-   * PARTIELLEMENT jusqu'a 15 (les grands axes), et COMPLETEMENT a partir de 16 —
-   * c'est pourquoi le balayage de l'analyse travaille a `ZOOM_BALAYAGE`. Or au
-   * zoom 18 la vue couvre ~0,6 km, contre ~2,4 km au zoom 16 : reculer de deux
-   * crans multiplie par SEIZE la surface prise en un clic.
-   *
-   * ⚠️ On ne va PAS plus loin que 16 : en dessous, WME cesse de descendre les
-   * petites rues, et on selectionnerait moins en croyant voir plus.
-   *
-   * ⚠️⚠️ ET CA NE RENDRA JAMAIS LA COMMUNE ENTIERE : au zoom 16 une vue fait
-   * ~2,4 x 2,1 km, et WME LACHE les objets sortis de l'ecran — on ne peut donc
-   * meme pas cumuler en deplaçant la carte. La limite est celle de WME, pas
-   * celle du script : elle se dit, elle ne se contourne pas.
+   * ⭐ La lecon vaut au-dela de ce bouton : une aide qui deplace le travail de
+   * l'editeur sans qu'il l'ait demande n'est pas une aide. On l'INFORME, il
+   * decide. C'est la meme regle que « on avertit la ou l'editeur DECIDE, pas en
+   * le renvoyant en arriere » (v2.25.01).
    */
-  async function elargirPourSelection() {
-    let z; try { z = sdk.Map.getZoomLevel(); } catch (e) { return false; }
-    if (!(z > ZOOM_BALAYAGE)) return false;
-    try {
-      const ext = sdk.Map.getMapExtent();
-      const centre = { lon: (ext[0] + ext[2]) / 2, lat: (ext[1] + ext[3]) / 2 };
-      sdk.Map.setMapCenter({ lonLat: centre, zoomLevel: ZOOM_BALAYAGE });
-    } catch (e) { log('élargissement impossible', e); return false; }
-    await attendreChargement(null);
-    return true;
-  }
-
-  async function selectionnerParZone(zone) {
+  function selectionnerParZone(zone) {
     if (!communeActive) return;
-    const elargi = await elargirPourSelection();
     let ext; try { ext = sdk.Map.getMapExtent(); } catch (e) { ext = null; }
     // ⚠️ Liste d'agglos VIDE a dessein : ici on ne juge pas la zone reelle, on
     // ne fait que verifier l'appartenance a la COMMUNE. Passer les polygones
@@ -9958,7 +9937,7 @@
       if (retenus.length) sdk.Editing.setSelection({ selection: { ids: retenus, objectType: 'segment' } });
       else sdk.Editing.setSelection({ selection: null });
     } catch (e) { log('sélection par zone impossible', e); }
-    direSelectionZone(zone, retenus.length, vus, horsCommune.length, elargi);
+    direSelectionZone(zone, retenus.length, vus, horsCommune.length);
   }
 
   /**
@@ -9967,7 +9946,7 @@
    * une selection partielle se lit « voila toute la commune » — ce qui serait
    * faux, et couterait exactement le genre de travail que la 2.27.00 a rendu.
    */
-  function direSelectionZone(zone, n, vus, horsCommune, elargi) {
+  function direSelectionZone(zone, n, vus, horsCommune) {
     if (!ui.zoneInfo) return;
     const quoi = zone === 'ville' ? 'avec la ville en principal'
                                   : 'sans ville en principal';
@@ -9977,14 +9956,16 @@
                      ', sur les ' + vus + ' de la vue.';
     else t = '<b>' + n + '</b> segment(s) ' + quoi + ', sur les ' + vus + ' de la vue' +
              (horsCommune ? ' · ' + horsCommune + ' écarté(s), hors de la commune' : '') + '.';
-    // ⭐ On DIT qu'on a bouge la carte : une vue qui recule toute seule sans
-    // explication se lit comme un bug, pas comme un service.
+    // ⭐ « Juste on informe qu'il peut manquer des segments » (l'auteur). On ne
+    // touche pas a la carte : on dit ce qu'on n'a PAS pu voir, et l'editeur
+    // decide. ⚠️ Ce n'est pas une note en fin de phrase : c'est l'avertissement
+    // qui evite de croire qu'on a fait le tour de la commune.
     ui.zoneInfo.innerHTML = t +
-      (elargi ? ' <span class="agn-note">Carte reculée au zoom ' + ZOOM_BALAYAGE +
-        ' pour en prendre le plus possible.</span>' : '') +
-      ' <span class="agn-note">⚠️ Ne porte que sur ce qui est affiché : WME ne descend ' +
-      'les segments que par vue, et lâche ceux qui en sortent. Pour couvrir toute la ' +
-      'commune, déplace la carte et reclique — secteur par secteur.</span>';
+      ' <span class="agn-zone-manque">⚠️ Il en manque probablement.</span> ' +
+      '<span class="agn-note">WME ne descend les segments que par vue, et lâche ceux ' +
+      'qui en sortent : la sélection ne peut porter que sur ce qui est affiché. Un zoom ' +
+      'plus large (jusqu\'à ' + ZOOM_BALAYAGE + ', où WME charge encore tout) en prend ' +
+      'davantage ; au-delà, déplace la carte et reclique — secteur par secteur.</span>';
   }
 
   /** Jeton de generation : voir `allerA`. */
