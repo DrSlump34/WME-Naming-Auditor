@@ -230,7 +230,23 @@ console.log('\n=== Voie qui longe la limite : l\'adresse d\'en face est conserve
 // 5. VERROUS DE CONTRAT — la geometrie tranche, pas le nom
 // ---------------------------------------------------------------------------
 verifier('19. ⚠️⚠️ la conservation est CONDITIONNEE a « longe la limite »',
-  /if \(longeLaLimite\) exp = conserverAdressesVoisines\(nam, exp, etrangeres\)/.test(src), true);
+  /if \(longeLaLimite\) \{[\s\S]{0,600}?conserverAdressesVoisines\(nam, exp, etrangeres\)/.test(src), true);
+// ⚠️⚠️ « Tant qu'on sait pas, on fait comme si on savait pas » (auteur, 27/07) :
+// sans le zonage de la voisine, on ne touche PAS au principal — mais les
+// alternatifs restent proposes, eux sont surs.
+verifier('19 bis. ⭐ zonage voisin inconnu ⇒ l\'ecart de PRINCIPAL est retire',
+  /if \(mitoyenIndecis\) ecartsNom = ecartsNom\.filter\(e => e\.champ !== 'principal'\)/
+    .test(src), true);
+// ⚠️ Cible le SEUL filtre pose sur `ecartsNom` : chercher « alt manquant »
+// dans tout le fichier tombait sur `planDeCorrection`, qui l'utilise
+// legitimement — un test trop large rend un verdict qui ment.
+verifier('19 ter. et SEUL le principal l\'est (les alternatifs restent)',
+  (src.match(/ecartsNom = ecartsNom\.filter\([^)]*\)/g) || [])
+    .every(f => /'principal'/.test(f) && !/alt/.test(f)), true);
+verifier('19 quater. le zonage d\'une voisine JAMAIS tracee vaut « inconnu »',
+  /return sansAgglo\[code\] \? 'hors' : 'inconnu'/.test(src), true);
+verifier('19 quinquies. une agglo chez la voisine lui donne le principal',
+  /if \(zonages\.some\(z => z === 'agglo'\)\) return 'voisine'/.test(src), true);
 verifier('20. et « longe la limite » est MESURE, pas suppose',
   /partLeLongDeLaLimite\(coords, communeActive\) > 0/.test(src), true);
 verifier('21. la note ne dit plus « alors que ce segment est dans X » a tort',

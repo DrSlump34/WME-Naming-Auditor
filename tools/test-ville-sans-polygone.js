@@ -229,8 +229,12 @@ const GARD = [
   // elle entre dans la cle de regroupement, donc ils ne sont plus fondus avec
   // les autres ecarts « Hors agglomération ».
   const mn2 = src.match(/const\s+normSansAccent\s*=\s*([^;]+);/);
+  // ⚠️ Depuis la v2.27.07, `communesEtrangeresDuSegment` delegue a
+  // `communesVoisinesDuSegment` (qui rend les CODES, necessaires pour retrouver
+  // le zonage d'une voisine) : il faut donc extraire les deux.
   const etr = new Function('normSansAccent', 'nam', 'liste', 'code',
-    extraire('communeVoisineDeNom') + '\n' + extraire('communesEtrangeresDuSegment') +
+    extraire('communeVoisineDeNom') + '\n' + extraire('communesVoisinesDuSegment') +
+    '\n' + extraire('communesEtrangeresDuSegment') +
     '\nreturn communesEtrangeresDuSegment(nam, liste, code);');
   const norm = new Function('return ' + mn2[1] + ';')();
   const seg = (p, alts) => ({ primary: p, alts: alts || [] });

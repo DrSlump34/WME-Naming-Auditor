@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.27.06
+// @version      2.27.07
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -1635,15 +1635,56 @@
               apres: (nam.primary.name || '‹sans nom›') + ' / ‹sans ville›' }];
   }
 
-  function communesEtrangeresDuSegment(nam, liste, codeActif) {
+  /**
+   * Les communes voisines annoncees par ce segment, EN OBJETS (code + nom).
+   * ⚠️ Il faut le CODE, pas seulement le nom : c'est par lui qu'on retrouve le
+   * zonage d'agglomeration de la voisine (`agglos` est indexe par INSEE).
+   * PURE.
+   */
+  function communesVoisinesDuSegment(nam, liste, codeActif) {
     const vues = new Map();
     const ajoute = v => {
       const c = communeVoisineDeNom(v, liste, codeActif);
-      if (c) vues.set(c.code, c.nom);
+      if (c) vues.set(c.code, c);
     };
     if (nam && nam.primary) ajoute(nam.primary.cityName);
     if (nam && nam.alts) nam.alts.forEach(a => ajoute(a && a.cityName));
     return [...vues.values()];
+  }
+
+  function communesEtrangeresDuSegment(nam, liste, codeActif) {
+    return communesVoisinesDuSegment(nam, liste, codeActif).map(c => c.nom);
+  }
+
+  /**
+   * ⭐ DECIDE DU NOM PRINCIPAL D'UNE VOIE QUI LONGE LA LIMITE COMMUNALE.
+   *
+   * ⚠️⚠️ REGLE DE L'AUTEUR (27/07, Rue de la Republique) : « c'est a Montfaucon
+   * en agglo (et avec des habitations) donc on privilegie Montfaucon en
+   * principal ; et hors agglo a Saint Genies, donc Saint Genies en Alt ». Et
+   * quand c'est hors agglo des deux cotes : « pas de ville en main, les villes
+   * en Alt ».
+   *
+   * ⭐ C'est la regle FR appliquee a une voie qui appartient aux DEUX communes :
+   * le principal porte la ville LA OU L'ON EST EN AGGLOMERATION. Le script ne
+   * raisonnait jusqu'ici que sur la commune active — il ne pouvait donc pas voir
+   * que l'agglomeration etait en face.
+   *
+   * ⚠️⚠️ ET SURTOUT : « tant qu'on sait pas, on fait comme si on savait pas »
+   * (l'auteur). Le zonage d'une commune voisine n'est connu que si l'editeur l'a
+   * trace, ou l'a declaree sans agglomeration. Sans ca, le script N'AFFIRME
+   * RIEN sur le principal — il ne le corrige pas, et il DIT pourquoi. Proposer
+   * « ville → ‹sans ville› » reviendrait a parier sur un zonage qu'on n'a pas
+   * regarde, et a effacer une adresse peut-etre juste.
+   *
+   * PURE. Rend 'voisine' (la voisine prend le principal) | 'ici' (hors agglo des
+   * deux cotes : pas de ville) | 'inconnu' (on s'abstient).
+   */
+  function decisionPrincipalMitoyen(zonages) {
+    if (!zonages || !zonages.length) return 'ici';
+    if (zonages.some(z => z === 'agglo')) return 'voisine';
+    if (zonages.some(z => z === 'inconnu')) return 'inconnu';
+    return 'ici';
   }
 
   /**
@@ -4148,6 +4189,29 @@
       .some(e => e && e.cityName && normSansAccent(e.cityName.trim()) === cible);
   }
 
+  /**
+   * Le zonage d'une commune VOISINE, vu depuis un segment.
+   *
+   * Rend 'agglo' (le segment touche une de ses agglomerations), 'hors' (son
+   * zonage est CONNU et le segment n'y est pas) ou 'inconnu' — elle n'a jamais
+   * ete zonee : ni polygone trace, ni declaration « sans agglomeration ».
+   *
+   * ⚠️⚠️ CE QUI N'A PAS PU ETRE CALIBRE : le critere de la branche 'agglo' est
+   * « au moins un point du segment tombe dans un polygone de la voisine ». Il
+   * est volontairement PERMISSIF — une voie qui longe la limite n'a par
+   * construction qu'une faible part de son trace du cote d'en face. Mais AUCUNE
+   * commune voisine n'etait zonee au moment ou ceci a ete ecrit (verifie avec
+   * l'auteur, 27/07) : ce seuil n'a donc jamais ete mesure sur un cas reel,
+   * contrairement a tous les autres seuils du projet. A eprouver le jour ou une
+   * voisine sera tracee — c'est la seule branche du script dans ce cas.
+   */
+  function zonageChezLaVoisine(coords, code) {
+    const liste = agglos[code] || [];
+    if (!liste.length) return sansAgglo[code] ? 'hors' : 'inconnu';
+    const r = partDedans(coords, (x, y) => liste.some(a => pointInRings(x, y, [a.ring])));
+    return (r.total && r.dans > 0) ? 'agglo' : 'hors';
+  }
+
   function localiser(coords, listeAgglos) {
     const dansCommune = (x, y) => pointInGeom(x, y, communeActive.geom);
     const rc = partDedans(coords, dansCommune);
@@ -5920,14 +5984,28 @@
       if (enAgglo) zones.agglo++; else zones.hors++;
 
       // ⚠️⚠️ Calcule ICI, et plus bas avec les notes : la cible en a besoin.
-      const etrangeres = communesEtrangeresDuSegment(nam, communes, communeActive.code);
+      const voisines = communesVoisinesDuSegment(nam, communes, communeActive.code);
+      const etrangeres = voisines.map(cv => cv.nom);
       // ⭐ UNE VOIE QUI LONGE LA LIMITE DESSERT LES DEUX COMMUNES : son adresse
       // « d'en face » est LEGITIME, et la cible ne doit pas la jeter.
-      const longeLaLimite = etrangeres.length > 0 &&
+      const longeLaLimite = voisines.length > 0 &&
                             partLeLongDeLaLimite(coords, communeActive) > 0;
       let exp = REF.etatCible(nam, enAgglo ? loc.agglo : null, communeActive.nom);
-      if (longeLaLimite) exp = conserverAdressesVoisines(nam, exp, etrangeres);
-      const ecartsNom = c.nommageZone ? diffNaming(nam, exp) : [];
+      // ⭐ Qui porte le principal ? Voir `decisionPrincipalMitoyen`.
+      let mitoyenIndecis = null;
+      if (longeLaLimite) {
+        const decision = decisionPrincipalMitoyen(
+          voisines.map(cv => zonageChezLaVoisine(coords, cv.code)));
+        if (decision === 'inconnu') mitoyenIndecis = etrangeres.join(' », « ');
+        exp = conserverAdressesVoisines(nam, exp, etrangeres);
+      }
+      let ecartsNom = c.nommageZone ? diffNaming(nam, exp) : [];
+      // ⚠️⚠️ « Tant qu'on sait pas, on fait comme si on savait pas » (l'auteur,
+      // 27/07). Le zonage de la voisine n'a jamais ete trace : on ne peut donc
+      // pas savoir si c'est ELLE qui doit porter le principal. On retire l'ecart
+      // plutot que de proposer d'effacer une adresse peut-etre juste — les
+      // ALTERNATIFS, eux, restent proposes : ceux-la sont surs.
+      if (mitoyenIndecis) ecartsNom = ecartsNom.filter(e => e.champ !== 'principal');
       const ecartsCart = REF.controles
         .filter(ct => ct.portee === 'segment' && c[ct.cle] && ct.executer)
         .reduce((acc, ct) => acc.concat(ct.executer(nam)), []);
@@ -5974,7 +6052,12 @@
         // communes : son adresse d'en face est juste, et le dire « alors que ce
         // segment est dans X » etait un contresens — signale par l'auteur sur la
         // Rue de la Republique (Montfaucon / Saint-Geniès), 7 segments.
-        notes.push(longeLaLimite
+        notes.push(mitoyenIndecis
+          ? 'longe la limite avec « ' + mitoyenIndecis + '  » : si cette voie est en ' +
+            'agglomération de ce côté-là, c\'est cette commune qui doit porter le nom ' +
+            'principal. Le script ne connaît pas son zonage — trace son agglomération ' +
+            'pour qu\'il puisse conclure. En attendant, il ne touche pas au principal.'
+          : longeLaLimite
           ? 'longe la limite avec « ' + etrangeres.join(' », « ') + ' » : cette voie ' +
             'dessert les deux communes, son adresse est conservée en alternatif'
           : 'adressé à « ' + etrangeres.join(' », « ') + ' » — ' +
