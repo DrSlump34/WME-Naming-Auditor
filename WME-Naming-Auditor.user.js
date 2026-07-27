@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.23.00
+// @version      2.23.01
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -2191,15 +2191,35 @@
    * indice raisonnable mais pas une preuve : on ne l'annonce alors pas comme
    * « principal ».
    */
-  function listerSecteurs(groupes) {
-    if (!ui.bilanPanneaux || !groupes || !groupes.length || !communeActive) return;
-    const mairie = communeActive.mairie;
-    const avec = groupes.map((g, i) => ({
+  /**
+   * Les secteurs, dans l'ordre ou on doit les traiter : le plus proche de la
+   * MAIRIE d'abord (c'est le bourg qui porte le nom de la commune), puis les
+   * autres, du mieux fourni au moins fourni.
+   * ⚠️ Sans mairie — contours charges avant la v2.23 — on trie par nombre
+   * d'entrees, et l'appelant n'annonce alors PAS de « bourg principal » : c'est
+   * un indice, pas une preuve.
+   */
+  function trierSecteurs(groupes) {
+    const mairie = communeActive && communeActive.mairie;
+    const avec = (groupes || []).map((g, i) => ({
       g, i, nom: nomDuGroupe(g),
       d: mairie && g.centre ? distanceM([g.centre.lon, g.centre.lat], mairie) : Infinity
     }));
-    // Le plus proche de la mairie d'abord ; sinon le plus fourni en entrees.
     avec.sort((a, b) => (a.d - b.d) || (b.g.portes - a.g.portes));
+    return avec;
+  }
+
+  /** Le secteur est-il deja couvert par un polygone trace ? */
+  function secteurCouvert(g) {
+    if (!g || !g.centre || !communeActive) return false;
+    return (agglos[communeActive.code] || [])
+      .some(z => z.ring && pointInRing(g.centre.lon, g.centre.lat, z.ring));
+  }
+
+  function listerSecteurs(groupes) {
+    if (!ui.bilanPanneaux || !groupes || !groupes.length || !communeActive) return;
+    const mairie = communeActive.mairie;
+    const avec = trierSecteurs(groupes);
     const principal = mairie && isFinite(avec[0].d) ? avec[0] : null;
     const bloc = el('<div class="agn-secteurs"></div>');
     bloc.innerHTML = '<div class="agn-secteurs-t">' + avec.length +
@@ -2380,8 +2400,11 @@
    */
   let bilanPreTrace = null;
 
+  /** Secteurs du dernier relevé, triés — sert aussi de point de départ au tracé. */
+  let secteursCourants = [];
+
   function majBilanPreTrace() {
-    if (!panneaux.length) { bilanPreTrace = null; return; }
+    if (!panneaux.length) { bilanPreTrace = null; secteursCourants = []; return; }
     try {
       // ⚠️ EXACTEMENT les fiches qu'utilisera `preTracerDepuisPanneaux` : les
       // calculer autrement ici, c'est risquer d'annoncer un tracé possible que
@@ -2395,7 +2418,9 @@
         rubans: props.filter(p => p.ruban).length,
         isoles: props.filter(p => !p.ring && !p.ruban).length
       };
-    } catch (e) { bilanPreTrace = null; }   // dans le doute, on ne ferme rien
+      // Gardes pour le tracé manuel : c'est par le bourg qu'on commence.
+      secteursCourants = trierSecteurs(props);
+    } catch (e) { bilanPreTrace = null; secteursCourants = []; }   // dans le doute, on ne ferme rien
   }
 
   async function sonderPanneaux(commune) {
@@ -2740,12 +2765,66 @@
    * par l'editeur avant le clic doit le rester. Le `finally` garantit le
    * retour meme si le trace est annule (double-clic a vide, echappement).
    */
+  /**
+   * Ou poser la carte avant un trace a la main.
+   *
+   * ⚠️⚠️ Sans ca, cliquer « ＋ Tracer » repliait toute l'interface et laissait
+   * l'editeur devant la vue courante, sans savoir par ou commencer — vecu par
+   * l'auteur sur LA HAGUE (19 communes deleguees, 14 963 ha) : « la vue ne zoome
+   * sur rien, je ne vois ni le bourg ni la mairie, je suis perdu ».
+   *
+   * Trois repli successifs, du plus precis au plus grossier :
+   *   1. le premier secteur d'entrees PAS ENCORE couvert par un polygone —
+   *      c'est le bourg principal tant qu'il n'est pas trace ;
+   *   2. la MAIRIE (donnee INSEE) : par definition le bourg qui porte le nom ;
+   *   3. le centre du contour, faute de mieux.
+   */
+  function departDuTrace() {
+    if (!communeActive) return null;
+    const libre = secteursCourants.find(x => x.g && x.g.centre && !secteurCouvert(x.g));
+    if (libre) {
+      return { centre: libre.g.centre, zoom: 15,
+               quoi: libre.nom || (isFinite(libre.d) ? 'le bourg' : 'un secteur d\'entrées'),
+               entrees: libre.g.portes };
+    }
+    if (communeActive.mairie) {
+      return { centre: { lon: communeActive.mairie[0], lat: communeActive.mairie[1] },
+               zoom: 15, quoi: 'le bourg (mairie)' };
+    }
+    const em = empriseDeGeom(communeActive.geom);
+    return em ? { centre: em.centre, zoom: zoomPour(2 * em.rx, 2 * em.ry, em.centre.lat),
+                  quoi: communeActive.nom } : null;
+  }
+
+  /**
+   * Rappel affiche PENDANT le trace. Indispensable : l'interface est repliee a
+   * ce moment-la, donc le bouton qui disait « double-clic pour fermer » n'est
+   * plus visible — c'etait la seule consigne, et elle disparaissait.
+   */
+  function bandeauTrace(texte) {
+    let n = document.getElementById('agn-trace-aide');
+    if (!texte) { if (n) n.remove(); return; }
+    if (!n) { n = el('<div id="agn-trace-aide"></div>'); document.body.appendChild(n); }
+    n.innerHTML = texte;
+  }
+
   async function tracerAgglo() {
     if (!communeActive) return;
     ui.btnTracer.disabled = true;
     ui.btnTracer.textContent = 'Tracé en cours… (double-clic pour fermer)';
     const etaitReplie = ui.overlay.classList.contains('agn-replie');
     const voletEtaitOuvert = ui.volet && ui.volet.classList.contains('agn-volet-ouvert');
+    // ⚠️ CADRER AVANT DE REPLIER : une fois l'interface fermee, l'editeur n'a
+    // plus aucun repere pour se placer lui-meme.
+    const depart = departDuTrace();
+    if (depart) {
+      try { centrerSurZoneVisible(depart.centre, depart.zoom); }
+      catch (e) { try { sdk.Map.setMapCenter({ lonLat: depart.centre, zoomLevel: depart.zoom }); }
+                  catch (e2) { /* on trace quand meme */ } }
+    }
+    bandeauTrace('✏️ <b>Trace le contour de ' + esc(depart ? depart.quoi : communeActive.nom) + '</b>' +
+      (depart && depart.entrees ? ' <span>· ' + depart.entrees + ' entrée(s) relevée(s) ici</span>' : '') +
+      '<span> · clique les sommets, <b>double-clic pour fermer</b> · Échap pour renoncer</span>');
     if (!etaitReplie) basculerRepli(true);   // ferme aussi le volet (voir basculerRepli)
     else basculerVolet(false);
     try {
@@ -2759,6 +2838,7 @@
       saveAgglos(); redrawAgglos(); renderAgglos();
     } catch (e) { log('tracé annulé ou échoué', e); }
     finally {
+      bandeauTrace('');                       // le rappel ne survit pas au tracé
       if (!etaitReplie) basculerRepli(false);
       if (voletEtaitOuvert) basculerVolet(true);
       // La section « agglomeration » porte le nom a donner au polygone qu'on
@@ -6732,6 +6812,13 @@
   .agn-secteur:hover{background:#e3f2fd;border-color:var(--agn-bleu, #1e88e5)}
   .agn-secteur-p{background:var(--agn-bleu, #1e88e5);color:#fff;border-radius:8px;
     padding:1px 6px;font-size:10px;margin-left:4px}
+  /* Rappel pendant le trace : l'interface est repliee, c'est le SEUL repere a
+     l'ecran. En haut, centre, au-dessus de la carte et sous les modales. */
+  #agn-trace-aide{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:9500;
+    background:rgba(21,101,192,.95);color:#fff;padding:8px 14px;border-radius:6px;
+    font:13px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    box-shadow:0 4px 16px rgba(0,0,0,.35);pointer-events:none;max-width:90vw;text-align:center}
+  #agn-trace-aide span{opacity:.85;font-size:12px}
   #agn-modale{position:fixed;inset:0;z-index:9700;background:rgba(0,0,0,.35);
     display:flex;align-items:center;justify-content:center;
     font:12px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--agn-texte, #1f2933)}
