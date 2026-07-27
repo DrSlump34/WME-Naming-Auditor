@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.21.01
+// @version      2.21.02
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -1796,13 +1796,15 @@
     // infobulle. On resout l'objet une fois, et on compare par reference.
     const actif = (typeof idActif === 'number' && idActif >= 0) ? findings[idActif] : null;
     try {
-      const lignes = vivants.filter(f => !f.adresse).map(f => ({
-        id: 'ec-' + f.segId, type: 'Feature', geometry: f.geom,
-        properties: {
+      // ⚠️ `featuresDeGeom` et pas un objet direct : les POI surfaciques passent
+      // ici, et certains sont des MultiPolygon que le SDK refuse. Comme il
+      // valide le tableau ENTIER, un seul suffisait a faire disparaitre TOUT le
+      // surlignage de la commune (defaut trouve le 27/07 avec le contour).
+      const lignes = vivants.filter(f => !f.adresse).flatMap(f =>
+        featuresDeGeom('ec-' + f.segId, f.geom, {
           couleur: options.couleurs[familleDe(f)] || '#888888',
           epaisseur: f === actif ? 22 : 14
-        }
-      }));
+        }));
       if (lignes.length) sdk.Map.addFeaturesToLayer({ layerName: LAYER_ECARTS, features: lignes });
     } catch (e) { log('surlignage impossible', e); }
     try {
@@ -1837,14 +1839,55 @@
     } catch (e) { log('surlignage des adresses impossible', e); }
   }
 
+  /**
+   * Decoupe une geometrie en features que le SDK accepte.
+   *
+   * ⚠️⚠️ LE SDK REFUSE LES GEOMETRIES « MULTI » (mesure le 27/07 : un
+   * MultiPolygon seul, sur un calque neuf, leve « geometry must match the
+   * configured type »). Or **une commune sur deux est un MultiPolygon** des
+   * qu'elle possede un ilot, un rocher ou une enclave : Saint-Tropez en a 4,
+   * Sainte-Maxime 2, Hyeres **46**. Leur contour ne se dessinait donc PAS, sans
+   * le moindre message — l'exception etait avalee par le `catch` du dessin.
+   *
+   * ⚠️ Le probleme depassait le contour communal : le calque des ecarts recoit
+   * aussi les POI SURFACIQUES, dont certains sont des MultiPolygon. Et comme
+   * `addFeaturesToLayer` valide le tableau ENTIER, un seul POI de ce type
+   * faisait echouer **tout le surlignage** de la commune.
+   *
+   * ⚡ Verifie : plusieurs Polygon SEPARES passent sans probleme, et melanger
+   * lignes et polygones sur un meme calque aussi. C'est donc bien l'eclatement
+   * qu'il faut, pas un calque par type.
+   *
+   * ⚠️ L'analyse, elle, n'a jamais eu ce defaut : `pointInGeom` gere les
+   * MultiPolygon depuis toujours. Ces communes etaient donc analysables — seul
+   * leur contour restait invisible, ce qui est bien pire qu'une erreur franche.
+   */
+  function featuresDeGeom(id, geom, props) {
+    if (!geom || !geom.coordinates) return [];
+    const p = props || {};
+    const morceaux = geom.type === 'MultiPolygon'
+      ? geom.coordinates.map(c => ({ type: 'Polygon', coordinates: c }))
+      : geom.type === 'MultiLineString'
+        ? geom.coordinates.map(c => ({ type: 'LineString', coordinates: c }))
+        : geom.type === 'MultiPoint'
+          ? geom.coordinates.map(c => ({ type: 'Point', coordinates: c }))
+          : [geom];
+    // ⚠️ Un identifiant par morceau : deux features de meme id se recouvrent et
+    // le SDK n'en garde qu'une.
+    return morceaux.map((g, i) => ({
+      id: morceaux.length > 1 ? id + '-' + i : id,
+      type: 'Feature', geometry: g, properties: p
+    }));
+  }
+
   function redrawCommune() {
     ensureLayers();
     try { sdk.Map.removeAllFeaturesFromLayer({ layerName: LAYER_COMMUNE }); } catch (e) { /* */ }
     if (!communeActive) return;
     try {
-      sdk.Map.addFeaturesToLayer({ layerName: LAYER_COMMUNE, features: [{
-        id: 'commune-' + communeActive.code, type: 'Feature',
-        geometry: communeActive.geom, properties: { label: communeActive.nom } }] });
+      const features = featuresDeGeom('commune-' + communeActive.code,
+        communeActive.geom, { label: communeActive.nom });
+      if (features.length) sdk.Map.addFeaturesToLayer({ layerName: LAYER_COMMUNE, features });
     } catch (e) { log('affichage du contour communal impossible', e); }
   }
 

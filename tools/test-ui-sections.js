@@ -148,6 +148,56 @@ titre('Verrou : le code source retire bien la reference apres le deplacement');
     fn.indexOf('bloc.remove()') < fn.indexOf('delete ui.sections.contours'), true);
 }
 
+// ===========================================================================
+// LES GEOMETRIES « MULTI » — le SDK les REFUSE (v2.21.02)
+//
+// ⚠️⚠️ Signale par l'auteur : « Saint-Tropez, Ramatuelle, La Croix-Valmer ne
+// dessinent pas le polygone de contour ; Gassin ou Cogolin oui ». Mesure : les
+// premieres sont des MultiPolygon (ilots, rochers), les secondes des Polygon.
+// Le SDK leve « geometry must match the configured type » — meme pour un
+// MultiPolygon seul sur un calque neuf. L'exception etait avalee par le `catch`
+// du dessin : aucun message, juste un contour absent.
+// ⚠️ Le piege ne se limitait pas au contour : le calque des ECARTS recoit les
+// POI surfaciques, et `addFeaturesToLayer` valide le tableau ENTIER — un seul
+// POI MultiPolygon faisait donc disparaitre TOUT le surlignage.
+// ⚠️ « Commune cotiere » n'etait PAS le critere : Cavalaire-sur-Mer est cotiere
+// et s'affiche tres bien (c'est un Polygon). Correction faite par l'auteur.
+// ===========================================================================
+titre('Geometries « Multi » : eclatees en features simples');
+{
+  const api2 = new Function(extraire('featuresDeGeom') + '\nreturn featuresDeGeom;')();
+  const carre = (x, y) => [[[x, y], [x + 1, y], [x + 1, y + 1], [x, y + 1], [x, y]]];
+
+  const simple = api2('commune-83036', { type: 'Polygon', coordinates: carre(0, 0) }, { label: 'Cavalaire' });
+  verifier('8. un Polygon reste UNE feature', simple.length, 1);
+  verifier('8. … avec son identifiant inchange', simple[0].id, 'commune-83036');
+  verifier('8. … et sa geometrie telle quelle', simple[0].geometry.type, 'Polygon');
+  verifier('8. les proprietes suivent', simple[0].properties.label, 'Cavalaire');
+
+  const multi = api2('commune-83119',
+    { type: 'MultiPolygon', coordinates: [carre(0, 0), carre(3, 0), carre(6, 0), carre(9, 0)] },
+    { label: 'Saint-Tropez' });
+  verifier('9. ⭐ Saint-Tropez : 4 morceaux ⇒ 4 features', multi.length, 4);
+  verifier('9. toutes en Polygon (le type accepte)',
+    [...new Set(multi.map(f => f.geometry.type))], ['Polygon']);
+  verifier('9. ⚠️ des identifiants DISTINCTS (sinon elles se recouvrent)',
+    new Set(multi.map(f => f.id)).size, 4);
+  verifier('9. chaque morceau garde le libelle', multi.every(f => f.properties.label === 'Saint-Tropez'), true);
+
+  verifier('10. MultiLineString ⇒ des LineString',
+    api2('x', { type: 'MultiLineString', coordinates: [[[0, 0], [1, 1]], [[2, 2], [3, 3]]] }, {})
+      .map(f => f.geometry.type), ['LineString', 'LineString']);
+  verifier('11. MultiPoint ⇒ des Point',
+    api2('x', { type: 'MultiPoint', coordinates: [[0, 0], [1, 1]] }, {}).map(f => f.geometry.type),
+    ['Point', 'Point']);
+  verifier('12. geometrie absente ⇒ aucune feature (et pas d\'erreur)', api2('x', null, {}), []);
+  verifier('13. Hyeres et ses 46 morceaux : 46 features, 46 identifiants',
+    (() => { const g = { type: 'MultiPolygon', coordinates: [] };
+             for (let i = 0; i < 46; i++) g.coordinates.push(carre(i * 3, 0));
+             const f = api2('h', g, {});
+             return [f.length, new Set(f.map(x => x.id)).size]; })(), [46, 46]);
+}
+
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(60));
 console.log('%d verifications OK, %d ECHEC(S)', ok, ko);
