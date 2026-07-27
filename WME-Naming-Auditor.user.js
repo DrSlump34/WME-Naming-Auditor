@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.24.02
+// @version      2.24.03
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -6785,16 +6785,24 @@
   /* ⚠️ Le halo doit se REMARQUER : un liseré fin passait inaperçu au milieu de
      boutons deja bordes (l'auteur est revenu deux fois dessus). Trait epais,
      fond teinte, et une pulsation plus large. */
+  /* ⚠️⚠️ LE HALO NE TOUCHE PAS AU FOND — trait et pulsation seulement.
+     Une couleur de fond imposee ici repeignait le bouton bleu « Analyser la
+     commune » en bleu tres clair SANS toucher a son texte, reste blanc : bouton
+     illisible (auteur, 27/07). C'est la MEME faute que le survol corrige la
+     veille — et je l'ai refaite en voulant rendre le halo plus visible.
+     ⚠️ PAS DE BACKTICK DANS CE BLOC : le CSS est un template literal.
+     ⇒ Regle : ne jamais forcer une couleur de FOND sur un element dont on ne
+     maitrise pas la couleur de TEXTE. */
   .agn-guide{position:relative;z-index:1;animation:agn-pulse 1.6s ease-in-out infinite;
-    border-radius:5px;outline:3px solid var(--agn-bleu, #1e88e5);outline-offset:2px;
-    background-color:#e3f2fd !important}
+    border-radius:5px;outline:3px solid var(--agn-bleu, #1e88e5);outline-offset:2px}
   @keyframes agn-pulse{
     0%,100%{box-shadow:0 0 0 0 rgba(30,136,229,.65)}
     50%{box-shadow:0 0 0 9px rgba(30,136,229,0)}
   }
-  /* Le crayon et les petits boutons : meme halo, sans le fond qui masquerait
-     leur propre couleur. */
-  .agn-mini.agn-guide{background-color:transparent !important}
+  /* Le fond teinte est reserve aux boutons PALES, dont le texte est sombre :
+     il les fait ressortir sans jamais toucher a un bouton deja colore. */
+  .agn-btn.agn-guide:not(.primary){background-color:#e3f2fd}
+  .agn-sb-b.agn-guide{background-color:#e3f2fd}
   /* Le bandeau qui DIT quoi faire : le halo seul ne dit pas pourquoi. */
   #agn-guide{display:none;margin:0 0 6px;padding:7px 9px;border-radius:4px;
     background:#e3f2fd;border-left:3px solid var(--agn-bleu, #1e88e5);font-size:12px;line-height:1.45}
