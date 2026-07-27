@@ -1,7 +1,7 @@
-// ==UserScript==
+﻿// ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.19.04
+// @version      2.20.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -6322,6 +6322,33 @@
   .agn-grp-t b{flex:1;font-weight:600}
   .agn-pastille{width:11px;height:11px;border-radius:3px;flex:0 0 auto;box-shadow:0 0 0 1px rgba(0,0,0,.15)}
   .agn-grp-n{background:var(--agn-gris, #546e7a);color:#fff;border-radius:8px;padding:1px 7px;font-size:11px;font-weight:700}
+  /* ── Aide : accordeon de sections, sur le modele de WCT ────────────────── */
+  .agn-aide-s{border:1px solid #e0e0e0;border-radius:4px;margin:5px 0;overflow:hidden}
+  .agn-aide-h{display:flex;align-items:center;gap:6px;padding:6px 8px;cursor:pointer;user-select:none;
+    background:var(--agn-fond-survol, #f5f7f9);font-size:12px;font-weight:600}
+  .agn-aide-h:hover{background:var(--agn-fond-doux, #eceff1)}
+  .agn-aide-h.on{color:var(--agn-bleu-fonce, #1565c0);background:#e3f2fd}
+  .agn-aide-h .agn-chev{color:var(--agn-gris-clair, #78909c);width:9px;flex:0 0 auto}
+  .agn-aide-c{padding:8px 10px;font-size:12px;line-height:1.5;color:var(--agn-texte, #1f2933)}
+  .agn-aide-c p{margin:0 0 6px}
+  .agn-aide-c ol,.agn-aide-c ul{margin:0 0 6px;padding-left:18px}
+  .agn-aide-c li{margin-bottom:4px}
+  .agn-aide-c b{font-weight:600}
+  .agn-aide-t{width:100%;border-collapse:collapse;margin:2px 0 6px}
+  .agn-aide-t td{padding:3px 5px;vertical-align:top;border-bottom:1px solid #eceff1}
+  .agn-aide-t td:first-child{width:132px;color:var(--agn-gris, #546e7a);white-space:normal}
+  .agn-aide-note{background:#fff8e1;border-left:3px solid var(--agn-orange, #e65100);
+    padding:5px 8px;margin:6px 0;border-radius:0 3px 3px 0}
+  .agn-aide-pied{margin-top:10px;padding-top:8px;border-top:1px solid #e0e0e0;
+    font-size:11px;color:var(--agn-gris, #546e7a);text-align:center}
+  .agn-aide-pied a{color:var(--agn-bleu, #1e88e5)}
+  /* L'onglet Aide ne compte pas de reports : pas de pastille, et il reste
+     accessible meme quand l'analyse est fermee (territoire indetermine…). */
+  #agn-aide-btn{flex:0 0 auto;padding:7px 9px;border:none;border-bottom:2px solid transparent;
+    background:none;cursor:pointer;font-size:12px;color:var(--agn-gris, #546e7a)}
+  #agn-aide-btn:hover{background:#e3eaf0}
+  #agn-aide-btn.agn-tab-on{background:#fff;color:var(--agn-bleu-fonce, #1565c0);
+    border-bottom-color:var(--agn-bleu, #1e88e5)}
   /* Thematique entierement traitee : elle se replie et s'efface, sans
      disparaitre — on doit pouvoir la rouvrir. */
   .agn-grp.agn-fini .agn-grp-t{opacity:.55}
@@ -6596,6 +6623,7 @@
           <button class="agn-tab" data-vue="segments" title="Les écarts de nommage des segments (agglomération, cartouches, rédaction)">Segments <span class="agn-tab-n"></span></button>
           <button class="agn-tab" data-vue="adresses" title="Les écarts de numérotation : numéros de rue et POI résidentiels">Numérotation <span class="agn-tab-n"></span></button>
           <button class="agn-tab" data-vue="poi" title="Les écarts d'adresse sur les vrais POI (hors POI résidentiels)">POI <span class="agn-tab-n"></span></button>
+          <button id="agn-aide-btn" title="Mode d'emploi : à quoi sert chaque bouton, ce que chaque contrôle vérifie, et les limites connues">❓</button>
         </div>
         <div id="agn-corps">
           <!-- Garde-fou territorial (v2.03) : en tete du corps, AVANT le bouton
@@ -6608,6 +6636,14 @@
           <div id="agn-stats"></div>
           <div id="agn-fix"></div>
           <div id="agn-results"></div>
+          <!-- L'aide occupe le corps entier quand elle est ouverte : le reste
+               est masque puis RESTAURE dans son etat d'avant (voir
+               basculerAide) — plusieurs de ces blocs ont leur propre logique
+               d'affichage, les remettre a « visible » d'office les ferait
+               apparaitre a tort.
+               ⚠️ PAS DE BACKTICK ICI : ce HTML est un template literal (piege
+               vecu 5 fois dans ce projet, dont a l'instant). -->
+          <div id="agn-aide" style="display:none"></div>
         </div>
       </div>
       <div id="agn-volet"><div id="agn-volet-in">
@@ -6722,6 +6758,10 @@
     o.querySelector('#agn-donnees').onclick = () => basculerVolet();
     o.querySelector('#agn-volet-ok').onclick = () => basculerVolet(false);
     ui.onglets.forEach(t => { t.onclick = () => choisirVue(t.dataset.vue); });
+    // L'aide reste accessible MEME quand l'analyse est fermee (territoire
+    // indetermine, aucun contour charge) : c'est justement la qu'on la cherche.
+    const bAide = o.querySelector('#agn-aide-btn');
+    if (bAide) bAide.onclick = () => basculerAide();
     choisirVue(memo.vue === 'adresses' ? 'adresses' : 'segments');
     majOnglets();   // un onglet decoche la session derniere reste masque
 
@@ -6902,6 +6942,240 @@
   // decide : `familleDe`. Les tests en cascade `f.adresse ? … : …` ne tenaient
   // plus a trois, et c'est exactement le genre de duplication qui a produit le
   // defaut des giratoires (deux endroits decidant de la meme chose).
+  // ===========================================================================
+  // AIDE — le mode d'emploi, dans la fenetre
+  //
+  // Demande de l'auteur (26/07, confirmee le 27/07 : « on va d'abord se faire une
+  // aide digne de ce nom, inspire-toi de WCT pour la facon »). Meme forme que
+  // [[wct-closures-toolkit]] : un onglet a part, des sections repliables, la
+  // premiere ouverte, et des tableaux « terme → ce que ca fait ».
+  //
+  // ⚠️⚠️ UNE AIDE FAUSSE EST PIRE QUE PAS D'AIDE : les libelles cites ici sont
+  // ceux de l'interface, au caractere pres. Si un bouton est renomme, cette
+  // section doit suivre — sinon l'editeur cherche un bouton qui n'existe plus.
+  // ⚠️ Le premier retour utilisateur (Glenan56, rang 6, 27/07) tracait ses
+  // polygones a la main sur une commune a hameaux multiples, sans avoir vu le
+  // pre-trace par panneaux : le probleme n'etait pas la fonction, c'etait sa
+  // DECOUVRABILITE. D'ou l'ordre des sections — ce qu'on cherche en premier
+  // vient en premier.
+  // ===========================================================================
+
+  let aideOuverte = false;
+
+  function sectionsAide() {
+    return [
+      { id: 'demarrage', titre: '🚀 Démarrage rapide', ouvert: true, corps: `
+        <ol>
+          <li><b>Charge les contours</b> de ton département : bouton <b>☰</b> puis
+            <b>Contours communaux</b> → <b>Télécharger et charger</b>. Une fois pour toutes.</li>
+          <li><b>Choisis la commune</b> dans la liste. Celles qui sont sous tes yeux
+            remontent en tête (<b>📍 Sous les yeux</b>).</li>
+          <li><b>Délimite l'agglomération</b> : <b>🪧 Panneaux d'agglomération</b> puis
+            <b>✏️ Proposer un tracé</b> — le script place les polygones d'après les
+            panneaux d'entrée. À défaut, <b>＋ Tracer l'agglomération</b> à la main.</li>
+          <li><b>Analyser la commune</b>. Rien n'est enregistré : le script lit, compare,
+            et propose.</li>
+          <li><b>Traite les écarts</b> onglet par onglet. <b>⚡</b> applique une correction
+            dans WME (sans enregistrer), <b>✓</b> marque une ligne comme traitée.
+            <b>C'est toi qui relis et qui enregistres.</b></li>
+        </ol>
+        <div class="agn-aide-note">Le script <b>ne modifie ni n'enregistre jamais rien tout seul</b>.
+          Chaque ⚡ dépose une modification dans WME, exactement comme si tu l'avais faite à la main :
+          tu la relis, tu la gardes ou tu l'annules (Ctrl+Z), et c'est toi qui cliques Enregistrer.</div>` },
+
+      { id: 'contours', titre: '🗺️ Les contours communaux', corps: `
+        <p>Le script compare le nommage à la <b>vraie limite communale</b>, pas à ce que
+          Waze en dit. Ces contours viennent de l'<b>IGN (Admin Express)</b> via
+          <b>geo.api.gouv.fr</b>, sous Licence Ouverte.</p>
+        <table class="agn-aide-t">
+          <tr><td><b>Télécharger et charger</b></td><td>Choisis un ou plusieurs départements, le script les récupère et les garde. <b>Les contours se cumulent</b> : charger le 30 n'efface pas le 11.</td></tr>
+          <tr><td><b>Choisir un fichier GeoJSON</b></td><td>Pour charger des contours depuis un fichier local. ⚠️ Celui-là <b>remplace</b> ce qui est en place.</td></tr>
+          <tr><td><b>Champ de filtre</b></td><td>Cherche par <b>nom</b> ou par <b>code INSEE</b>, sans se soucier des accents ni de la casse.</td></tr>
+          <tr><td><b>📍 Sous les yeux</b></td><td>Quand il y a beaucoup de communes, celles qui occupent la vue passent en tête de liste.</td></tr>
+          <tr><td><b>tout vider</b></td><td>Oublie les contours chargés. Tes polygones d'agglomération, eux, sont conservés.</td></tr>
+        </table>
+        <p>Les contours sont volumineux : ils sont rangés dans le navigateur (IndexedDB) et
+          <b>ne partent jamais</b> dans les exports de partage.</p>` },
+
+      { id: 'agglo', titre: '✏️ Délimiter l\'agglomération', corps: `
+        <p>C'est <b>la</b> donnée que le script ne peut pas deviner : où commence et où finit
+          l'agglomération, au sens des panneaux. Trois façons de la poser.</p>
+        <table class="agn-aide-t">
+          <tr><td><b>🪧 Panneaux d'agglomération</b></td><td><b>À essayer en premier.</b> Relève les panneaux <b>EB10</b> (entrée) et <b>EB20</b> (sortie) de la commune, d'après le jeu officiel de signalisation. Ils s'affichent sur la carte.</td></tr>
+          <tr><td><b>✏️ Proposer un tracé</b></td><td>Transforme ces panneaux en polygones — <b>un par agglomération</b> : le bourg et chaque hameau séparément. Le script te les présente <b>un par un</b> : <b>Créer ce polygone</b>, <b>Passer celui-ci</b>, <b>Tout arrêter</b>.</td></tr>
+          <tr><td><b>＋ Tracer l'agglomération</b></td><td>Tracé à la main, point par point, quand les panneaux manquent ou ne suffisent pas.</td></tr>
+          <tr><td><b>sans agglomération</b></td><td>À cocher pour une commune qui n'en a pas. ⚠️ <b>Toute la commune passera alors en hors agglomération</b> : aucune voie ne doit plus porter de ville.</td></tr>
+        </table>
+        <p><b>Village rattaché.</b> Quand une agglomération porte un nom différent de la commune,
+          coche <b>village rattaché</b> et choisis la ville <b>dans la liste de WME</b> : le script
+          attendra alors le format <b>« Village (Commune) »</b> sur ces voies.</p>
+        <div class="agn-aide-note">⚠️ Une ville que Waze porte sur des segments <b>sans aucun polygone</b>
+          en face déclenche une alerte : il manque presque toujours un polygone, et sans lui le script
+          réclamerait le <b>retrait</b> de cette ville — une correction à l'envers.</div>` },
+
+      { id: 'analyse', titre: '🔍 Lancer l\'analyse', corps: `
+        <p><b>Analyser la commune</b> lit tout le territoire communal — pas seulement ce que
+          l'écran montre.</p>
+        <table class="agn-aide-t">
+          <tr><td><b>Voie rapide</b></td><td>Toute la commune en un appel, sans bouger ta carte. C'est le mode normal.</td></tr>
+          <tr><td><b>Balayage</b></td><td>Repli automatique si la voie rapide échoue : la carte est parcourue en damier au zoom 16. Plus lent, et <b>le bandeau te le dit</b> — l'audit des vrais POI n'y est pas disponible.</td></tr>
+          <tr><td><b>⏹ Stop</b></td><td>Interrompt l'analyse. Ce qui a été vu reste affiché, et le script <b>signale que le constat est partiel</b> plutôt que de conclure sur un échantillon.</td></tr>
+        </table>
+        <p>Ce qui est écarté est <b>compté et dit</b> dans le bilan : hors commune, voies sans
+          adressage, voies à règle propre. Un compteur qui baisse doit toujours s'expliquer.</p>` },
+
+      { id: 'resultats', titre: '📋 Lire et traiter les résultats', corps: `
+        <p>Trois onglets, trois sujets : <b>Segments</b> (le nommage), <b>Numérotation</b>
+          (numéros de rue et POI résidentiels), <b>POI</b> (l'adresse des vrais lieux).
+          Le chiffre sur l'onglet est son nombre de reports.</p>
+        <table class="agn-aide-t">
+          <tr><td><b>Les groupes</b></td><td>Les écarts sont réunis par <b>famille</b> — la pastille de couleur est celle du surlignage sur la carte. Une thématique <b>entièrement traitée se replie d'elle-même</b>, compteur au vert.</td></tr>
+          <tr><td><b>Clic sur une ligne</b></td><td>Cadre la carte sur l'écart et le sélectionne dans WME.</td></tr>
+          <tr><td><b>⚡</b></td><td>Applique la correction proposée <b>dans WME, sans enregistrer</b>. Sur un groupe, le ⚡ de l'en-tête traite d'un coup tout ce qui est automatisable.</td></tr>
+          <tr><td><b>✓</b></td><td>Marque la ligne comme traitée : elle se barre, sort de la carte, et <b>revient cochée à la prochaine analyse</b>. Ces coches sont personnelles, elles ne partent jamais dans un partage.</td></tr>
+          <tr><td><b>🔒</b></td><td>Segment verrouillé au-dessus de ton niveau : la correction est refusée, le script ne propose pas de bouton.</td></tr>
+          <tr><td><b>‹ Précédent / Suivant ›</b></td><td>Passe d'un écart au suivant en cadrant la carte à chaque fois.</td></tr>
+          <tr><td><b>Le cas (C3, H5, EB10…)</b></td><td>Le code de la situation, repris du logigramme de nommage. Survole une ligne sur la carte pour le revoir.</td></tr>
+        </table>` },
+
+      { id: 'controles', titre: '🏷️ Ce que chaque contrôle vérifie', corps: `
+        <p>Tout se décoche, dans <b>☰ → Contrôles</b>. Un contrôle décoché ne signale rien
+          et le bilan le rappelle.</p>
+        <table class="agn-aide-t">
+          <tr><td><b>Nommage agglo / hors agglo</b></td><td>Le cœur : en agglomération une voie porte la ville, hors agglomération elle ne la porte pas — et le numéro de route passe au principal.</td></tr>
+          <tr><td><b>Cartouches</b></td><td>Un numéro de route (Dxxx, Nxxx, Cxxx) doit porter son écusson. ⚠️ En agglomération, <b>aucun cartouche sur un nom de rue en principal</b>.</td></tr>
+          <tr><td><b>Bretelles · Rocades</b></td><td>Ne portent <b>jamais</b> de ville.</td></tr>
+          <tr><td><b>Voies ferrées, pistes, ferries</b></td><td>Ni ville, ni nom.</td></tr>
+          <tr><td><b>Giratoires</b></td><td>Sans nom ; la ville suit la zone (et le format « Village (Commune) » s'il y a lieu).</td></tr>
+          <tr><td><b>Abréviations</b></td><td>« Av. », « Bd », « Rte »… à écrire en toutes lettres.</td></tr>
+          <tr><td><b>Contractions</b></td><td>« St- » pour Saint-, « R. Poincaré »…</td></tr>
+          <tr><td><b>Minuscule initiale</b></td><td>Un nom de voie commence par une majuscule.</td></tr>
+          <tr><td><b>Numéro collé au nom</b></td><td>« D980 - Route de… » est <b>interdit</b> : le numéro va au principal hors agglo, ou en alternatif en agglo, jamais collé au nom.</td></tr>
+          <tr><td><b>Fonction ou direction</b></td><td>« vers X », « accès Y » n'appartiennent pas au nom.</td></tr>
+        </table>` },
+
+      { id: 'numerotation', titre: '🔢 Numérotation : numéros et POI résidentiels', corps: `
+        <p>Règle française : <b>en agglomération le numéro est porté par le segment</b> (HN),
+          <b>hors agglomération par un POI résidentiel</b> (RPP). Le script cherche donc les
+          deux situations inverses.</p>
+        <table class="agn-aide-t">
+          <tr><td><b>Numéro hors agglo</b></td><td>Proposé à la conversion en POI résidentiel. Le ⚡ crée le POI à la position du numéro, lui donne l'adresse, <b>reprend son point d'entrée</b>, puis retire le numéro — et si l'une des étapes échoue, il revient en arrière plutôt que de laisser une adresse en double.</td></tr>
+          <tr><td><b>RPP en agglo</b></td><td>Souvent <b>légitime</b> : l'entrée donne sur une autre voie que l'adresse postale, ce qu'un numéro sur segment ne sait pas exprimer. Le script ne tranche donc pas… sauf quand il peut le prouver.</td></tr>
+          <tr><td><b>… doublon</b></td><td>Le même numéro est déjà posé sur la même rue, tout près : le POI fait double emploi.</td></tr>
+          <tr><td><b>… accès sur sa propre voie</b></td><td>Le point d'accès du POI donne sur la voie de son adresse : il n'exprime aucun décalage.</td></tr>
+          <tr><td><b>… le long de sa rue</b></td><td>Faute de point d'accès, le POI longe la rue qu'il déclare — un numéro dirait la même chose.</td></tr>
+          <tr><td><b>… accès sur une AUTRE voie</b></td><td>La preuve inverse : le POI est à sa place, il n'est <b>plus signalé du tout</b> — mais il reste compté dans le bilan.</td></tr>
+          <tr><td><b>📷 photo</b></td><td>Un RPP photographié a été posé par quelqu'un venu sur place. Il reste signalé, <b>en fin de liste</b>, avec la mention : regarde-le de près avant de le supprimer.</td></tr>
+        </table>
+        <div class="agn-aide-note">La conversion <b>POI → numéro</b> n'est pas automatisée, volontairement :
+          le script ne sait dire ni sur quel segment ni à quel endroit poser le numéro, et supprimer le POI
+          emporterait son nom, son point d'entrée et ses photos. Il te guide, tu fais le geste.</div>` },
+
+      { id: 'poi', titre: '📍 POI : l\'adresse des vrais lieux', corps: `
+        <p>Cet onglet ne parle <b>pas</b> des POI résidentiels, mais des commerces, services,
+          bâtiments nommés — et de leur adresse.</p>
+        <table class="agn-aide-t">
+          <tr><td><b>Adresse incomplète</b></td><td>Rue ou commune manquante. Le script <b>propose une adresse</b> : la voie nommée la plus proche du point d'accès, et la commune du contour INSEE.</td></tr>
+          <tr><td><b>⚡ sur un POI</b></td><td>Applique rue + commune. Si plusieurs noms sont possibles, le clic <b>ouvre une liste</b> : le plus probable en tête, les numéros de route ensuite, et une saisie libre.</td></tr>
+          <tr><td><b>Le numéro</b></td><td>Proposé, <b>jamais appliqué</b> : à quelques dizaines de mètres, ce peut être celui du voisin. À saisir à la main après vérification.</td></tr>
+          <tr><td><b>Commune différente</b></td><td>Présenté comme <b>à vérifier</b>, avec la distance à la limite communale : près d'une frontière, l'adresse de la voisine peut être la bonne.</td></tr>
+          <tr><td><b>Numéro manquant</b></td><td>Contrôle <b>décoché par défaut</b> : il concerne environ la moitié des POI et noierait le reste.</td></tr>
+        </table>
+        <p><b>Ce qui est écarté volontairement</b> : les éléments du paysage (rivière, forêt, plage…),
+          qui n'ont pas d'adresse ; et le <b>bâti sans nom</b> — une zone anonyme sert à dessiner un
+          bâtiment, les commerces qu'elle abrite sont des POI à part, eux-mêmes audités. Le bilan les compte.</p>
+        <div class="agn-aide-note">⚠️ Cet onglet demande la <b>voie rapide</b> : le point d'accès et les
+          catégories n'existent pas en mode balayage. Le script le dit au lieu de paraître vide.</div>` },
+
+      { id: 'partage', titre: '💾 Sauvegarde et partage', corps: `
+        <p>Trois choses sont mémorisées : tes <b>polygones d'agglomération</b>, tes communes
+          déclarées <b>sans agglomération</b>, et tes <b>coches ✓ traité</b>.</p>
+        <table class="agn-aide-t">
+          <tr><td><b>Où</b></td><td>Dans le <b>gestionnaire de scripts</b> (Tampermonkey), pas dans le site : ça survit à un « effacer les données de navigation » et ça entre dans ses sauvegardes.</td></tr>
+          <tr><td><b>⬇️ Exporter</b></td><td>Un fichier avec les polygones et les communes sans agglo. ⚠️ <b>Tes coches « traité » n'y sont jamais</b> : elles sont personnelles.</td></tr>
+          <tr><td><b>⬆️ Importer un fichier</b></td><td>Ajoute ce qui manque et <b>ne remplace jamais</b> ce que tu as déjà. Un fichier venu d'un autre script est refusé.</td></tr>
+          <tr><td><b>🌐 Importer depuis l'URL</b></td><td>Même chose depuis une adresse (https uniquement).</td></tr>
+        </table>` },
+
+      { id: 'limites', titre: '⚠️ Limites et messages fréquents', corps: `
+        <table class="agn-aide-t">
+          <tr><td><b>Territoire indéterminé</b></td><td>Le script attend d'être sûr d'être en France avant d'appliquer des règles françaises. <b>Choisis une commune</b> : cela suffit. Sinon, zoome à 14 ou plus.</td></tr>
+          <tr><td><b>Numéros non chargés</b></td><td>WME ne descend les numéros de rue qu'<b>à partir du zoom 18</b>. La conversion cadre elle-même la carte pour les faire venir.</td></tr>
+          <tr><td><b>POI résidentiels absents</b></td><td>Ils ne sont servis qu'à partir du <b>zoom 17</b> — d'où la voie rapide, qui ne dépend pas du zoom.</td></tr>
+          <tr><td><b>« a un numéro de rue invalide »</b></td><td>Refus de WME sur <b>un numéro précis</b>, même après suppression du HN homonyme : c'est un <b>résidu côté serveur Waze</b>, invisible dans l'éditeur. Rien à corriger côté script — signale l'adresse exacte, le staff sait la purger.</td></tr>
+          <tr><td><b>Analyse interrompue</b></td><td>Les constats qui supposent d'avoir tout vu (villes sans polygone, cartouches d'une voie entière) sont alors présentés comme <b>non fiables</b>, pas cachés.</td></tr>
+          <tr><td><b>Rien n'est enregistré</b></td><td>Le compteur de la fenêtre rappelle combien de modifications attendent dans WME. <b>C'est toi qui enregistres.</b></td></tr>
+        </table>` },
+
+      { id: 'france', titre: '🇫🇷 Pourquoi la France uniquement', corps: `
+        <p>Les règles appliquées ici sont <b>françaises</b> : agglomération d'après les panneaux,
+          numéro de route au principal hors agglo, format « Village (Commune) », cartouches.
+          Les appliquer ailleurs abîmerait la carte.</p>
+        <p>Le script <b>se ferme donc hors de France</b> — métropole, Corse et outre-mer sont
+          acceptés. L'architecture est prête à accueillir d'autres pays, mais aucun référentiel
+          de nommage n'est disponible à ce jour.</p>` }
+    ];
+  }
+
+  /** Rend l'aide : sections repliables + pied de page avec les liens. */
+  function construireAide() {
+    return sectionsAide().map(s => `
+      <div class="agn-aide-s">
+        <div class="agn-aide-h${s.ouvert ? ' on' : ''}" data-aide="${s.id}">
+          <span class="agn-chev">${s.ouvert ? '▾' : '▸'}</span>${s.titre}
+        </div>
+        <div class="agn-aide-c" id="agn-aide-${s.id}"${s.ouvert ? '' : ' style="display:none"'}>${s.corps}</div>
+      </div>`).join('') +
+      `<div class="agn-aide-pied">
+        🔗 <a href="https://greasyfork.org/fr/scripts/588554-wme-naming-auditor" target="_blank">GreasyFork</a>
+        &nbsp;·&nbsp;
+        <a href="https://github.com/DrSlump34/WME-Naming-Auditor" target="_blank">GitHub</a>
+        &nbsp;·&nbsp; v${VERSION}
+      </div>`;
+  }
+
+  /**
+   * Ouvre ou ferme l'aide. Elle prend tout le corps de la fenetre.
+   *
+   * ⚠️ On MEMORISE l'affichage de chaque bloc avant de le masquer : plusieurs
+   * d'entre eux (bandeau territorial, progression, bandeau de correction) sont
+   * caches ou montres par leur propre logique. Les remettre a « visible »
+   * d'office ferait reapparaitre un bandeau qui n'avait rien a dire.
+   */
+  function basculerAide(on) {
+    const corps = document.getElementById('agn-corps');
+    const aide = document.getElementById('agn-aide');
+    if (!corps || !aide) return;
+    aideOuverte = on === undefined ? !aideOuverte : !!on;
+    if (aideOuverte && !aide.innerHTML) {
+      aide.innerHTML = construireAide();
+      aide.querySelectorAll('.agn-aide-h').forEach(h => {
+        h.onclick = () => {
+          const c = document.getElementById('agn-aide-' + h.dataset.aide);
+          if (!c) return;
+          const ouvert = c.style.display !== 'none';
+          c.style.display = ouvert ? 'none' : '';
+          h.classList.toggle('on', !ouvert);
+          h.querySelector('.agn-chev').textContent = ouvert ? '▸' : '▾';
+        };
+      });
+    }
+    for (const n of corps.children) {
+      if (n === aide) { n.style.display = aideOuverte ? '' : 'none'; continue; }
+      if (aideOuverte) {
+        if (n.dataset.agnAvant === undefined) n.dataset.agnAvant = n.style.display;
+        n.style.display = 'none';
+      } else if (n.dataset.agnAvant !== undefined) {
+        n.style.display = n.dataset.agnAvant;
+        delete n.dataset.agnAvant;
+      }
+    }
+    const btn = document.getElementById('agn-aide-btn');
+    if (btn) btn.classList.toggle('agn-tab-on', aideOuverte);
+    if (ui.onglets) ui.onglets.forEach(t => { if (aideOuverte) t.classList.remove('agn-tab-on'); });
+    if (!aideOuverte) choisirVue(vueCourante);
+  }
+
   const VUES = ['segments', 'adresses', 'poi'];
   const CASE_TABLE = { segments: 'segTable', adresses: 'adrTable', poi: 'poiTable' };
   const CASE_CARTE = { segments: 'segCarte', adresses: 'adrCarte', poi: 'poiCarte' };
@@ -6910,6 +7184,9 @@
   let vueCourante = 'segments';
   function choisirVue(vue) {
     vueCourante = VUES.includes(vue) ? vue : 'segments';
+    // ⚠️ Cliquer un onglet de resultats REFERME l'aide : sans ca, l'onglet se
+    // marquait actif mais la fenetre continuait d'afficher le mode d'emploi.
+    if (aideOuverte) basculerAide(false);
     ui.onglets.forEach(t => t.classList.toggle('agn-tab-on', t.dataset.vue === vueCourante));
     saveUI();
     renderResults();
