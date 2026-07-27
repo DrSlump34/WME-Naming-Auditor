@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.24.01
+// @version      2.24.02
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -2374,7 +2374,7 @@
     // secteurs de la commune PRECEDENTE survivaient au changement de commune :
     // le guidage reclamait de couvrir des hameaux qui n'existent pas ici, et
     // l'avertissement d'exhaustivite les nommait.
-    bilanPreTrace = null; secteursCourants = [];
+    bilanPreTrace = null; secteursCourants = []; releveFait = false;
     if (ui.btnPreTrace) ui.btnPreTrace.disabled = true;
     redrawPanneaux(); renderBilanPanneaux();
   }
@@ -2407,6 +2407,17 @@
 
   /** Secteurs du dernier relevé, triés — sert aussi de point de départ au tracé. */
   let secteursCourants = [];
+
+  /**
+   * Le relevé de panneaux a-t-il ETE FAIT sur la commune en cours ?
+   *
+   * ⚠️⚠️ A ne pas confondre avec « il y a des panneaux ». Cas vecu a LIRAC
+   * (980 ha, signale par l'auteur) : le releve tourne et ne rend RIEN. En
+   * testant `panneaux.length`, le guidage renvoyait indefiniment vers le bouton
+   * « Panneaux » qu'on venait de cliquer. Un relevé infructueux est un relevé
+   * fait : on passe a la suite.
+   */
+  let releveFait = false;
 
   function majBilanPreTrace() {
     if (!panneaux.length) { bilanPreTrace = null; secteursCourants = []; return; }
@@ -2488,6 +2499,11 @@
     } finally {
       prog.fin();
       btn.disabled = !communeActive;
+      // ⚠️ Le relevé a EU LIEU, qu'il ait rendu des panneaux ou non : c'est ce
+      // qui fait avancer le guidage. Sans ca, une commune sans panneau (Lirac)
+      // renvoyait indefiniment vers le bouton qu'on venait de cliquer.
+      releveFait = true;
+      renderAgglos();
     }
   }
 
@@ -7545,10 +7561,12 @@
     // deja tracee peut avoir gagne un hameau depuis.
     // ⚠️ Sauf si la source est muette sur cette commune : inutile d'envoyer vers
     // un bouton qu'on vient de griser.
-    if (!panneaux.length && !sourceMuette && !declaree) return 'agglo-panneaux';
+    if (!releveFait && !sourceMuette && !declaree) return 'agglo-panneaux';
     if (!zones.length && !declaree) {
       // Le parcours de l'agglomeration, dans l'ordre ou il se deroule.
-      if (sourceMuette) return 'agglo-tracer';                   // rien a exploiter
+      // ⚠️ Un relevé infructueux (Lirac : 0 panneau) mene au tracé manuel, pas
+      // au bouton qu'on vient de cliquer.
+      if (sourceMuette || !panneaux.length) return 'agglo-tracer';
       if (bilanPreTrace && !bilanPreTrace.tracables) return 'agglo-tracer';
       return 'agglo-proposer';
     }
@@ -7559,8 +7577,12 @@
     // agglomeration oubliee passe en hors agglomeration et fausse tous ses
     // ecarts — c'est la faute la plus couteuse du parcours.
     if (secteursCourants.some(x => x.g && x.g.centre && !secteurCouvert(x.g))) return 'agglo-encore';
-    if (!lastScan) return 'analyse';
-    return null;
+    // ⚠️ Le zonage est fait : deux gestes restent, dans cet ordre. Refermer le
+    // volet (il masque la fenetre de travail et le bouton d'analyse), puis
+    // analyser. Guider directement vers « Analyser » alors que le volet le
+    // recouvre ne guide personne (auteur, 27/07).
+    if (ui.volet && ui.volet.classList.contains('agn-volet-ouvert')) return 'volet-terminer';
+    return 'analyse';
   }
 
   /** Ce qu'on dit, et ce qu'on montre, pour chaque etape. */
@@ -7596,6 +7618,10 @@
       texte: 'Termine l\'édition pour enregistrer le tracé.',
       suite: 'Glisse un point plein, clique un point creux pour en ajouter, ' +
              'clic droit pour supprimer.' },
+    'volet-terminer': { n: 3, cible: '#agn-volet-ok', dansVolet: true,
+      texte: 'Le zonage est fait — referme ce volet.',
+      suite: '⚠️ Assure-toi d\'abord que TOUTES les agglomérations sont tracées : ' +
+             'une agglomération oubliée passe en hors agglomération, et tous ses écarts seront faux.' },
     analyse: { n: 3, cible: '#agn-scan',
       texte: 'Tout est prêt : lance l\'analyse.',
       suite: 'Rien ne sera enregistré — tu reliras chaque correction dans WME.' }

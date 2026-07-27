@@ -55,17 +55,22 @@ function etape(etat) {
     bilanPreTrace: null, sondage: null, lastScan: null,
     // v2.23 : les secteurs d'entrees non couverts retiennent le parcours — une
     // agglomeration oubliee fausse toute l'analyse.
-    secteurs: [], couverts: []
+    secteurs: [], couverts: [],
+    // v2.24.02 : « le releve a-t-il ete FAIT » ≠ « il y a des panneaux ».
+    releveFait: false, voletOuvert: false
   }, etat);
+  // Par commodite : renseigner `panneaux` implique que le releve a eu lieu.
+  if (e.panneaux.length) e.releveFait = true;
   const fn = new Function(
     'options', 'pays', 'communes', 'communeActive', 'edition', 'agglos', 'sansAgglo',
     'panneaux', 'bilanPreTrace', 'sondageCourant', 'lastScan',
-    'secteursCourants', 'secteurCouvert',
+    'secteursCourants', 'secteurCouvert', 'releveFait', 'ui',
     extraire('etapeCourante') + '\nreturn etapeCourante();');
   return fn({ guidage: e.guidage }, { etat: e.paysEtat }, e.communes, e.communeActive,
             e.edition, e.agglos, e.sansAgglo, e.panneaux, e.bilanPreTrace,
             () => e.sondage, e.lastScan,
-            e.secteurs, g => e.couverts.includes(g));
+            e.secteurs, g => e.couverts.includes(g), e.releveFait,
+            { volet: { classList: { contains: () => e.voletOuvert } } });
 }
 
 const COMMUNE = { code: '83119', nom: 'Saint-Tropez' };
@@ -135,6 +140,32 @@ titre('⚠️ EXHAUSTIVITE : une agglomeration oubliee fausse toute l\'analyse')
   verifier('20. aucun secteur connu ⇒ pas de faux rappel (on ne sait rien)',
     etape({ communeActive: COMMUNE, panneaux: RELEVE, agglos: { '83119': [{ ring: [] }] },
             secteurs: [], couverts: [] }), 'analyse');
+}
+
+titre('⚠️ LE CAS LIRAC : un relevé qui ne rend RIEN');
+{
+  // 980 ha, 0 panneau dans le contour. Le sondage avait repondu « incertain »
+  // (cellule pleine pres d'Avignon), donc le bouton restait actif.
+  verifier('21. ⭐ relevé FAIT mais aucun panneau ⇒ tracer a la main',
+    etape({ communeActive: COMMUNE, releveFait: true, panneaux: [],
+            sondage: { etat: 'incertain', nb: 0 } }), 'agglo-tracer');
+  verifier('22. ⚠️ et surtout PAS un retour sur le bouton qu\'on vient de cliquer',
+    etape({ communeActive: COMMUNE, releveFait: true, panneaux: [] }) !== 'agglo-panneaux', true);
+  verifier('23. relevé PAS ENCORE fait ⇒ la, on y envoie',
+    etape({ communeActive: COMMUNE, releveFait: false, panneaux: [] }), 'agglo-panneaux');
+}
+
+titre('Le zonage est fait : refermer le volet, PUIS analyser');
+{
+  const pret = { communeActive: COMMUNE, panneaux: [1], agglos: { '83119': [{ ring: [] }] } };
+  verifier('24. ⭐ volet OUVERT ⇒ inviter a le refermer (il recouvre le bouton d\'analyse)',
+    etape(Object.assign({ voletOuvert: true }, pret)), 'volet-terminer');
+  verifier('25. volet ferme ⇒ lancer l\'analyse',
+    etape(Object.assign({ voletOuvert: false }, pret)), 'analyse');
+  verifier('26. ⚠️ mais un secteur decouvert passe AVANT de proposer de terminer',
+    etape(Object.assign({ voletOuvert: true,
+      secteurs: [{ g: { centre: { lon: 0, lat: 0 }, portes: 2 } }], couverts: [] }, pret)),
+    'agglo-encore');
 }
 
 titre('Les cas ou le guidage doit se TAIRE');
