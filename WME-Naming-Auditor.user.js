@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.21.02
+// @version      2.22.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -1190,7 +1190,7 @@
    * vrai si une cellule etait encore pleine au zoom maximal, et ce doute doit
    * remonter jusqu'a l'editeur.
    */
-  async function chargerPanneauxAgglo(bbox, prog) {
+  async function chargerPanneauxAgglo(bbox, prog, sansSubdivision) {
     const vus = new Map();
     let cellules = 0, tronque = false;
     const aFaire = [];
@@ -1234,6 +1234,10 @@
       }
       // Cellule pleine = SUSPECTE, jamais complete (voir le bloc d'en-tete).
       if (liste.length < PLAFOND_API) continue;
+      // ⚠️ En mode SONDAGE, on ne descend pas : on se contente de dire que le
+      // resultat est incomplet, et l'appelant en tirera « incertain » plutot que
+      // « aucun panneau ».
+      if (sansSubdivision) { tronque = true; continue; }
       if (zoom >= ZOOM_PANNEAUX_MAX) { tronque = true; continue; }
       const { dLat, dLon } = demiEmprise(zoom + 1);
       for (const [dy, dx] of [[-dLat, -dLon], [-dLat, dLon], [dLat, -dLon], [dLat, dLon]]) {
@@ -1492,6 +1496,15 @@
       ui.selCommune.value = avant;
     }
     else if (communeActive) { communeActive = null; oublierPanneaux(); redrawCommune(); }
+    // ⚠️ Sondage des panneaux dès qu'une commune est en cours : c'est lui qui
+    // décide si « 🪧 Panneaux » et « ✏️ Proposer un tracé » ont un sens. Il ne
+    // part qu'UNE FOIS par commune (cache), et son retour rafraîchit les boutons.
+    if (communeActive && !sondages.has(communeActive.code)) {
+      const cible = communeActive.code;
+      sonderPanneaux(communeActive).then(() => {
+        if (communeActive && communeActive.code === cible) renderAgglos();
+      });
+    }
     ui.nbCommunes.textContent = !communes.length ? ''
       : (f ? vus.length + ' sur ' + liste.length + ' commune(s) dans la vue'
            : liste.length + ' commune(s) dans la vue sur ' + communes.length);
@@ -2255,6 +2268,73 @@
   }
 
   /** Va chercher les panneaux de la commune active, puis les confronte. */
+  // ===========================================================================
+  // SONDAGE DES PANNEAUX — savoir AVANT de cliquer si ca vaut le coup
+  //
+  // Demande de l'auteur (27/07) : « pour la commune choisie, checker la
+  // disponibilite des panneaux. Si pas de panneau […] on grise le bouton, on
+  // explique la raison au survol, et ne reste dispo que Tracer l'agglomeration ».
+  //
+  // ⚠️ Le sondage est VOLONTAIREMENT LEGER : la grille de depart, SANS
+  // subdivision. Le releve complet peut demander une dizaine de requetes (13 sur
+  // Lattes) — hors de question de le lancer a chaque changement de commune.
+  // ⚠️⚠️ Et une cellule PLEINE ne permet pas de conclure « aucun panneau » : la
+  // subdivision existe justement pour ces cas-la. On repond alors « incertain »
+  // et on laisse le bouton actif — un faux « aucun » priverait l'editeur d'un
+  // relevé qui aurait marche.
+  // ===========================================================================
+
+  /** code INSEE → { etat: 'aucun'|'des'|'incertain', nb } */
+  const sondages = new Map();
+
+  /**
+   * Ce que donnerait le pré-tracé avec les panneaux actuellement relevés, sans
+   * rien tracer : { tracables, rubans, isoles }. Recalculé après chaque relevé.
+   */
+  let bilanPreTrace = null;
+
+  function majBilanPreTrace() {
+    if (!panneaux.length) { bilanPreTrace = null; return; }
+    try {
+      // ⚠️ EXACTEMENT les fiches qu'utilisera `preTracerDepuisPanneaux` : les
+      // calculer autrement ici, c'est risquer d'annoncer un tracé possible que
+      // le bouton ne produira pas — ou l'inverse.
+      const cl = classerPanneaux();
+      const fiches = cl ? [...cl.dedans, ...cl.dehors] : [];
+      if (!fiches.length) { bilanPreTrace = { tracables: 0, rubans: 0, isoles: 0 }; return; }
+      const props = proposerPolygones(fiches);
+      bilanPreTrace = {
+        tracables: props.filter(p => p.ring).length,
+        rubans: props.filter(p => p.ruban).length,
+        isoles: props.filter(p => !p.ring && !p.ruban).length
+      };
+    } catch (e) { bilanPreTrace = null; }   // dans le doute, on ne ferme rien
+  }
+
+  async function sonderPanneaux(commune) {
+    if (!commune) return null;
+    if (sondages.has(commune.code)) return sondages.get(commune.code);
+    sondages.set(commune.code, { etat: 'encours', nb: 0 });
+    let res;
+    try {
+      const r = await chargerPanneauxAgglo(commune.bbox, null, true);   // sans subdivision
+      const dedans = r.panneaux.filter(p => pointInGeom(p.longitude, p.latitude, commune.geom));
+      res = dedans.length ? { etat: 'des', nb: dedans.length }
+        : r.tronque ? { etat: 'incertain', nb: 0 }
+        : { etat: 'aucun', nb: 0 };
+    } catch (e) {
+      // Reseau muet : on ne conclut RIEN. Griser sur une panne reseau ferait
+      // croire a une commune sans panneaux.
+      res = { etat: 'incertain', nb: 0 };
+    }
+    sondages.set(commune.code, res);
+    return res;
+  }
+
+  /** Ce que le sondage sait de la commune en cours (jamais d'appel reseau ici). */
+  const sondageCourant = () =>
+    (communeActive && sondages.get(communeActive.code)) || null;
+
   async function releverPanneaux() {
     if (!communeActive) return;
     const btn = ui.btnPanneaux, bilan = ui.bilanPanneaux;
@@ -2268,9 +2348,13 @@
       panneaux = r.panneaux;
       const cl = classerPanneaux();
       bilanPanneaux = { ...r, ...cl };
+      // ⚠️ On sait DES MAINTENANT si un tracé est possible : le calcul ne coûte
+      // rien (aucun réseau) et évite de proposer un bouton qui ne donnera rien.
+      // C'est ce qui ferme « Proposer un tracé » avec sa raison, à Lattes par
+      // exemple, plutôt que de laisser l'éditeur cliquer pour rien.
+      majBilanPreTrace();
       redrawPanneaux();
       renderBilanPanneaux();
-      ui.btnPreTrace.disabled = !panneaux.length;
     } catch (e) {
       panneaux = []; bilanPanneaux = null;
       redrawPanneaux();
@@ -2503,8 +2587,11 @@
         liste.splice(liste.indexOf(apercu), 1);
         if (rep === null) break;
         if (rep.passe) { redrawAgglos(); continue; }
+        // ⚠️ `aAffiner` : ce tracé vient des panneaux, il est GROSSIER par
+        // construction. Le drapeau sert au guidage (il pointe vers ✎) et tombe
+        // dès la première édition — on ne réclame pas deux fois la même chose.
         liste.push({ id: 'a' + Date.now() + '-' + i, label: rep.label,
-                     rattache: rep.rattache, ring: p.ring });
+                     rattache: rep.rattache, ring: p.ring, aAffiner: true });
         crees++;
         saveAgglos(); redrawAgglos(); renderAgglos();
       }
@@ -2611,6 +2698,9 @@
     if (sauver) {
       const p = edition.points;
       edition.agglo.ring = p.concat([p[0].slice()]);        // on referme
+      // Le tracé a été repris à la main : il n'est plus « à affiner », et le
+      // guidage passe à la suite.
+      delete edition.agglo.aAffiner;
     } else {
       edition.agglo.ring = edition.ringAvant;
     }
@@ -6859,11 +6949,15 @@
             <div class="agn-sect-t"><span class="agn-chev">▾</span><b>2. Agglomération</b>
               <span class="agn-sect-r"></span></div>
             <div class="agn-sect-c">
-              <div class="agn-sb-n" id="agn-voies">Trois façons d'obtenir le zonage :
-                tracer à la main, regarder les panneaux, ou partir d'un tracé proposé.</div>
-              <button class="agn-btn" id="agn-tracer" disabled title="Dessine à la main, sur la carte, le polygone de l'agglomération (double-clic pour fermer le tracé)">＋ Tracer l'agglomération</button>
+              <!-- ⚠️ ORDRE = PROGRESSION (auteur, 27/07) : on relève les
+                   panneaux, on en tire un tracé, et le tracé manuel ferme la
+                   marche — c'est le recours quand les deux premiers ne donnent
+                   rien. -->
+              <div class="agn-sb-n" id="agn-voies">Relève les panneaux, tires-en un tracé,
+                ou dessine à la main.</div>
               <button class="agn-btn" id="agn-panneaux" disabled title="Récupère les panneaux EB10 / EB20 (entrée et sortie d'agglomération) et les confronte aux polygones traces.">🪧 Panneaux d'agglomération</button>
               <button class="agn-btn" id="agn-pretrace" disabled title="Fabrique un polygone par groupe d'entrées d'agglomération. Tracé grossier, à ajuster aux poignées.">✏️ Proposer un tracé</button>
+              <button class="agn-btn" id="agn-tracer" disabled title="Dessine à la main, sur la carte, le polygone de l'agglomération (double-clic pour fermer le tracé)">＋ Tracer l'agglomération</button>
               <div id="agn-prog-panneaux"></div>
               <div id="agn-bilan-panneaux" class="agn-sb-n"></div>
               <div id="agn-agglos"></div>
@@ -7200,8 +7294,21 @@
     if (pays.etat !== 'fr') return null;
     if (!communes.length) return 'contours';
     if (!communeActive) return 'commune';
+    // ⚠️ Une edition ouverte passe AVANT tout : tant qu'elle n'est pas fermee,
+    // le polygone n'est pas enregistre et rien d'autre n'a de sens.
+    if (edition) return 'terminer';
     const zones = agglos[communeActive.code] || [];
-    if (!zones.length && !sansAgglo[communeActive.code]) return 'agglo';
+    if (!zones.length && !sansAgglo[communeActive.code]) {
+      // Le parcours de l'agglomeration, dans l'ordre ou il se deroule.
+      const s = sondageCourant();
+      if (s && s.etat === 'aucun') return 'agglo-tracer';        // source muette
+      if (!panneaux.length) return 'agglo-panneaux';             // relever d'abord
+      if (bilanPreTrace && !bilanPreTrace.tracables) return 'agglo-tracer';
+      return 'agglo-proposer';
+    }
+    // Des polygones existent : ceux qui viennent du pre-trace sont GROSSIERS et
+    // demandent un passage aux poignees — on le dit une fois, pas a chaque fois.
+    if (zones.some(z => z.aAffiner)) return 'affiner';
     if (!lastScan) return 'analyse';
     return null;
   }
@@ -7215,10 +7322,24 @@
     commune: { n: 1, cible: '#agn-commune', dansVolet: true,
       texte: 'Choisis ta commune dans la liste.',
       suite: 'Celle qui est sous le centre de la carte est remontée en tête.' },
-    agglo: { n: 2, cible: '#agn-panneaux', dansVolet: true,
-      texte: 'Délimite l\'agglomération.',
-      suite: '🪧 Panneaux d\'agglomération, puis ✏️ Proposer un tracé. ' +
-             'Sinon ＋ Tracer à la main — ou coche « sans agglomération ».' },
+    'agglo-panneaux': { n: 2, cible: '#agn-panneaux', dansVolet: true,
+      texte: 'Relève les panneaux d\'agglomération.',
+      suite: 'Ils marquent les entrées et sorties : c\'est le point de départ du tracé.' },
+    'agglo-proposer': { n: 2, cible: '#agn-pretrace', dansVolet: true,
+      texte: 'Tire un tracé de ces panneaux.',
+      suite: 'Un polygone par agglomération — bourg et hameaux séparément.' },
+    'agglo-tracer': { n: 2, cible: '#agn-tracer', dansVolet: true,
+      texte: 'Trace l\'agglomération à la main.',
+      suite: 'Les panneaux ne suffisent pas ici. Double-clic pour fermer le tracé — ' +
+             'ou coche « sans agglomération » si la commune n\'en a pas.' },
+    affiner: { n: 2, cible: '.agn-edit', dansVolet: true,
+      texte: 'Ajuste le tracé proposé (✎).',
+      suite: 'Les panneaux ne marquent que les routes : entre deux entrées, la ligne ' +
+             'est calculée. Tire les poignées pour la coller au terrain.' },
+    terminer: { n: 2, cible: '.agn-edit-barre .agn-btn', dansVolet: true,
+      texte: 'Termine l\'édition pour enregistrer le tracé.',
+      suite: 'Glisse un point plein, clique un point creux pour en ajouter, ' +
+             'clic droit pour supprimer.' },
     analyse: { n: 3, cible: '#agn-scan',
       texte: 'Tout est prêt : lance l\'analyse.',
       suite: 'Rien ne sera enregistré — tu reliras chaque correction dans WME.' }
@@ -8094,9 +8215,41 @@
     //    une regression — on trace au zoom 12, precisement la ou WME n'a charge
     //    aucun segment et ou le pays est donc illisible.
     const horsFrance = pays.etat === 'hors';
+    // ⚠️ Le tracé à la main reste TOUJOURS ouvert : c'est le recours quand la
+    // source de panneaux est muette, et elle l'est souvent (2 communes sur 5
+    // mesurées ne rendent aucun panneau).
     ui.btnTracer.disabled = !communeActive || horsFrance;
-    ui.btnPanneaux.disabled = !communeActive || horsFrance;
-    if (ui.btnPreTrace) ui.btnPreTrace.disabled = !communeActive || !panneaux.length || horsFrance;
+    // Les deux boutons qui dependent des panneaux disent POURQUOI ils sont
+    // fermes : un bouton grise sans raison se lit comme une panne.
+    const s = sondageCourant();
+    const sansPanneaux = s && s.etat === 'aucun';
+    ui.btnPanneaux.disabled = !communeActive || horsFrance || sansPanneaux;
+    ui.btnPanneaux.title = sansPanneaux
+      ? 'Aucun panneau d\'entrée d\'agglomération relevé sur cette commune dans le jeu ' +
+        'officiel de signalisation. Ce n\'est pas un défaut du script : la source est ' +
+        'très inégale. Trace l\'agglomération à la main.'
+      : (s && s.etat === 'encours')
+        ? 'Vérification de la disponibilité des panneaux…'
+        : 'Récupère les panneaux EB10 / EB20 (entrée et sortie d\'agglomération) et les ' +
+          'confronte aux polygones tracés.' +
+          (s && s.nb ? ' ' + s.nb + ' panneau(x) repéré(s) sur cette commune.' : '');
+    if (ui.btnPreTrace) {
+      // Trois raisons de le fermer, trois messages : rien à proposer tant que
+      // les panneaux ne sont pas relevés, et rien de traçable s'ils forment une
+      // ligne ou sont trop isolés.
+      const relevesMaisSteriles = panneaux.length && bilanPreTrace && !bilanPreTrace.tracables;
+      ui.btnPreTrace.disabled = !communeActive || horsFrance || !panneaux.length || !!relevesMaisSteriles;
+      ui.btnPreTrace.title = sansPanneaux
+        ? 'Aucun panneau sur cette commune : rien à proposer.'
+        : !panneaux.length
+          ? 'Relève d\'abord les panneaux (bouton au-dessus).'
+          : relevesMaisSteriles
+            ? 'Les ' + panneaux.length + ' panneaux relevés ne forment aucune surface exploitable' +
+              (bilanPreTrace.rubans ? ' : ils s\'alignent le long d\'une voie' : ' : ils sont trop isolés') +
+              '. Trace à la main.'
+            : 'Fabrique un polygone par groupe d\'entrées d\'agglomération. Tracé grossier, ' +
+              'à ajuster aux poignées.';
+    }
     // ⚠️⚠️ `renderAgglos` sort par PLUSIEURS chemins : mettre le guidage a la
     // seule fin de la fonction le rendait muet dans les deux cas ou il sert le
     // plus — pas de commune choisie, ou territoire hors de France. Chaque sortie
