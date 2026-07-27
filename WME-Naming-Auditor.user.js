@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.27.03
+// @version      2.27.04
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -1580,6 +1580,61 @@
    * dans le CARTOUCHE, pas dans le principal : ne regarder que le principal
    * raterait la moitie des cas.
    */
+  /**
+   * Un segment A CHEVAL sur la limite communale a-t-il quelque chose a couper ?
+   *
+   * ⚠️⚠️ Signale par Glenan56 (27/07) : « il propose de couper des segments sans
+   * nom (et sans ville) pour coller aux limites communales, ce qui est, de mon
+   * point de vue, sans interet. Surtout qu'ici c'est un chemin pieton. »
+   *
+   * ⭐ Il a raison, et la raison est simple : on coupe pour que CHAQUE MOITIE
+   * porte le nommage de sa commune. Un segment qui ne porte NI nom NI ville —
+   * ni en principal, ni en alternatif — donnerait deux moities strictement
+   * identiques a l'originale. La coupe ne corrige rien, elle ajoute juste un
+   * noeud. ⚠️ Le TYPE de voie n'entre pas dans le critere (arbitrage de
+   * l'auteur) : un sentier NOMME se coupe comme une rue.
+   *
+   * PURE : tout entre par les parametres.
+   */
+  function coupeCommunaleUtile(nam) {
+    if (!nam || !nam.primary) return false;
+    const porte = e => !!(e && ((e.name || '').trim() || (e.cityName || '').trim()));
+    return porte(nam.primary) || (nam.alts || []).some(porte);
+  }
+
+  /**
+   * Ce qu'on peut affirmer du NOMMAGE d'un segment a cheval sur la limite,
+   * SANS savoir ou la coupe tombera.
+   *
+   * ⚠️⚠️ Signale par Glenan56 : « le script ne detecte pas les segments hors
+   * ville sans nom mais qui ont la ville en principal. Il ne propose donc pas
+   * la correction en supprimant le nom de ville. » Sa capture le prouve :
+   * « limite communale : 67 % dans Caraman » — 67 %, c'est la ZONE GRISE, et le
+   * script y faisait `continue` AVANT d'auditer le nom.
+   *
+   * ⭐ LE `continue` N'ETAIT PAS UN OUBLI : « il faut couper avant de nommer, le
+   * bon nommage depend de l'endroit de la coupe ». C'est vrai — mais PAS DE
+   * TOUT. Hors agglomeration, le nom principal ne porte JAMAIS de ville : la
+   * portion qui nous concerne est fautive quoi qu'il arrive a l'autre bout.
+   * On ne dit donc QUE ca, et rien qui depende de la coupe.
+   *
+   * ⚠️ Restriction indispensable : seulement si la ville portee est celle de la
+   * COMMUNE ACTIVE. Une ville VOISINE peut etre legitime — la moitie de
+   * la-bas est peut-etre dans SON agglomeration, et nous n'avons pas ses
+   * polygones. Ce cas-la est deja traite par le bandeau des communes voisines.
+   *
+   * PURE : tout entre par les parametres.
+   */
+  function ecartsCertainsEnZoneGrise(nam, enAgglo, nomCommune) {
+    if (enAgglo || !nam || !nam.primary) return [];
+    const ville = (nam.primary.cityName || '').trim();
+    if (!ville) return [];
+    if (normSansAccent(ville) !== normSansAccent(String(nomCommune || '').trim())) return [];
+    return [{ champ: 'ville en trop (hors agglomération)',
+              avant: (nam.primary.name || '‹sans nom›') + ' / ' + ville,
+              apres: (nam.primary.name || '‹sans nom›') + ' / ‹sans ville›' }];
+  }
+
   function communesEtrangeresDuSegment(nam, liste, codeActif) {
     const vues = new Map();
     const ajoute = v => {
@@ -5569,7 +5624,7 @@
     replierTout();                 // l'analyse prend toute la place
     findings = [];
     const skipped = { horsRegle: 0, sansAdresse: 0, horsCommune: 0, sansGeom: 0 };
-    const zones = { agglo: 0, hors: 0, cheval: 0, limCom: 0, limitrophe: 0, cartouche: 0, special: 0, giratoire: 0,
+    const zones = { agglo: 0, hors: 0, cheval: 0, limCom: 0, limComRien: 0, limitrophe: 0, cartouche: 0, special: 0, giratoire: 0,
                     // `mitoyen` : voies qui epousent la limite communale — aucune
                     // coupe a faire. Comptees pour qu'on VOIE que le script les a
                     // examinees plutot que de les taire. `mitoyenSansVille` en
@@ -5735,16 +5790,30 @@
           // superposition suffit a ecarter la coupe, le nom est juge apres.
           zones.mitoyen++;
           if (!communePortee(nam, communeActive.nom)) zones.mitoyenSansVille++;
+        } else if (!coupeCommunaleUtile(nam)) {
+          // ⚠️ NI nom NI ville : couper donnerait deux moities identiques a
+          // l'originale (voir `coupeCommunaleUtile`). On ne propose rien — et on
+          // n'audite pas non plus son nommage : a cheval, on ne sait pas de
+          // quelle commune relevera chaque moitie. ⭐ Mais on le COMPTE : un
+          // segment ecarte en silence est un segment qu'on croit avoir vu.
+          zones.limComRien++;
+          continue;
         } else {
           zones.limCom++;
-          findings.push(Object.assign({}, base, { cas: 'LIM', doute: null, ecarts: [{
+          // ⭐ Le report porte AUSSI ce qu'on peut affirmer du nommage sans
+          // savoir ou la coupe tombera (voir `ecartsCertainsEnZoneGrise`) :
+          // c'est l'ecart que Glenan56 ne voyait jamais sortir. Un segment, un
+          // report — les deux gestes tiennent sur la meme ligne.
+          const ecartsLim = [{
             champ: 'limite communale',
             avant: pourcent(loc.partCommune) + ' dans ' + communeActive.nom +
                    (partLimite > bas ? ' · longe la limite sur ' + pourcent(partLimite) : ''),
             // La coupe se justifie la ou la superposition CESSE, pas n'importe ou.
             apres: partLimite > bas
               ? 'à couper là où la voie quitte la limite communale'
-              : 'à couper sur la limite communale' }] }));
+              : 'à couper sur la limite communale'
+          }].concat(ecartsCertainsEnZoneGrise(nam, enAgglo, communeActive.nom));
+          findings.push(Object.assign({}, base, { cas: 'LIM', doute: null, ecarts: ecartsLim }));
           continue;
         }
       }
@@ -10065,6 +10134,8 @@
         ${z.agglo} en agglo · ${z.hors} hors agglo · ${z.cheval} à couper (agglo) · ${z.limCom} à couper (commune)${
           z.mitoyen ? ' · <span title="Voies qui épousent la limite entre deux communes : chacune en possède un côté. Elles portent déjà le nom de la commune, il n\'y a rien à couper.">' +
             z.mitoyen + ' mitoyenne(s) conformes</span>' : ''}${
+          z.limComRien ? ' · <span title="À cheval sur la limite communale, mais sans aucun nom ni ville — ni en principal, ni en alternatif. Les couper donnerait deux moitiés identiques à l\'originale : il n\'y a rien à corriger.">' +
+            z.limComRien + ' à cheval sans rien à couper</span>' : ''}${
           z.limitrophe ? ' · ' + z.limitrophe + ' débordent légèrement' : ''}${
           z.cartouche ? ' · ' + z.cartouche + ' cartouche(s) a poser' : ''}${
           z.special ? ' · ' + z.special + ' voie(s) a règle propre' : ''}${
