@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.21.00
+// @version      2.21.01
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -6992,9 +6992,15 @@
   function replierSection(cle, ouvrir) {
     const sec = ui.sections && ui.sections[cle];
     if (!sec) return;
+    // ⚠️ Une section peut avoir ete DEPLACEE ou retiree (le chargement manuel
+    // des contours l'est depuis la v2.21). On ne suppose plus que ses morceaux
+    // sont encore la : une reference perimee ne doit pas casser le demarrage.
+    const corps = sec.querySelector('.agn-sect-c');
+    const chevron = sec.querySelector('.agn-chev');
+    if (!corps || !chevron) return;
     sec.classList.toggle('agn-ferme', !ouvrir);
-    sec.querySelector('.agn-sect-c').style.display = ouvrir ? '' : 'none';
-    sec.querySelector('.agn-chev').textContent = ouvrir ? '▾' : '▸';
+    corps.style.display = ouvrir ? '' : 'none';
+    chevron.textContent = ouvrir ? '▾' : '▸';
     majResumeSections();
   }
 
@@ -7130,6 +7136,15 @@
     if (!corps) return;
     hote.appendChild(corps);                    // le CORPS seul : plus de section repliable
     bloc.remove();                              // l'etape 1 disparait du parcours
+    // ⚠️⚠️ INDISPENSABLE — la panne du 27/07, signalee par l'auteur (« je suis
+    // alle sur Saint-Tropez, il ne charge rien »). `ui.sections` gardait une
+    // reference vers la section supprimee ; `replierSection('contours')` y
+    // cherchait `.agn-sect-c` — parti avec le deplacement — et faisait
+    // `null.style`. L'exception tombait dans `rafraichirCommunesDeLaVue`, JUSTE
+    // avant `renderAgglos`, ce qui interrompait `init()` : plus d'abonnement au
+    // deplacement de la carte, donc plus AUCUN chargement automatique de
+    // departement. Un simple deplacement de noeud, et tout le demarrage tombe.
+    if (ui.sections) delete ui.sections.contours;
   }
 
   /**
@@ -7468,7 +7483,9 @@
     if (!ui.sections) return;
     const mettre = (cle, txt) => {
       const sec = ui.sections[cle]; if (!sec) return;
-      sec.querySelector('.agn-sect-r').textContent = txt || '';
+      // Meme prudence que `replierSection` : la section peut avoir ete deplacee.
+      const r = sec.querySelector('.agn-sect-r'); if (!r) return;
+      r.textContent = txt || '';
     };
     mettre('contours', metaContours ? metaContours.nb + ' communes' : 'aucun');
     mettre('commune', communeActive ? communeActive.nom : 'aucune');
@@ -8037,10 +8054,15 @@
     ui.btnTracer.disabled = !communeActive || horsFrance;
     ui.btnPanneaux.disabled = !communeActive || horsFrance;
     if (ui.btnPreTrace) ui.btnPreTrace.disabled = !communeActive || !panneaux.length || horsFrance;
+    // ⚠️⚠️ `renderAgglos` sort par PLUSIEURS chemins : mettre le guidage a la
+    // seule fin de la fonction le rendait muet dans les deux cas ou il sert le
+    // plus — pas de commune choisie, ou territoire hors de France. Chaque sortie
+    // le rafraichit donc explicitement.
     if (horsFrance) {
       ui.btnScan.disabled = true;
       ui.listeAgglos.innerHTML = '<div class="agn-empty">' + messagePays() + '</div>';
       majBandeauPays();
+      majGuidage();
       return;
     }
     if (!communeActive) {
@@ -8048,6 +8070,7 @@
       ui.listeAgglos.innerHTML = '<div class="agn-empty">Choisis une commune.</div>';
       majResumeSections();     // sinon l'en-tete annonce encore la commune perdue
       majBandeauPays();        // et le bandeau n'a plus de raison d'etre
+      majGuidage();
       return;
     }
     const liste = agglos[communeActive.code] || [];
