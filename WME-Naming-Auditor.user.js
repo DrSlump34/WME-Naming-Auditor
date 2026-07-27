@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.27.07
+// @version      2.27.08
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -8642,7 +8642,25 @@
           <tr><td><b>⬇️ Exporter</b></td><td>Un fichier avec les polygones et les communes sans agglo. ⚠️ <b>Tes coches « traité » n'y sont jamais</b> : elles sont personnelles.</td></tr>
           <tr><td><b>⬆️ Importer un fichier</b></td><td>Ajoute ce qui manque et <b>ne remplace jamais</b> ce que tu as déjà. Un fichier venu d'un autre script est refusé.</td></tr>
           <tr><td><b>🌐 Importer depuis l'URL</b></td><td>Même chose depuis une adresse (https uniquement).</td></tr>
-        </table>` },
+        </table>
+        <p><b>Transférer ton travail d'un PC à l'autre</b> — tout se passe dans
+          <b>☰</b> → <b>Sauvegarde &amp; partage</b> :</p>
+        <ol>
+          <li>Sur le PC de départ, clique <b>⬇️ Exporter (polygones + communes)</b>.
+            Tu obtiens un fichier <b>.json</b> : transfère-le comme tu veux (clé USB,
+            courriel, cloud).</li>
+          <li>Sur le PC d'arrivée, clique <b>⬆️ Importer un fichier</b> et choisis ce
+            .json.</li>
+        </ol>
+        <div class="agn-aide-note">⚠️ <b>L'import n'écrase jamais rien</b> : il ajoute
+          seulement les communes qui te manquent. Si une commune existe des deux côtés,
+          c'est <b>la version du PC d'arrivée</b> qui est gardée — exporte donc depuis le
+          poste le plus à jour. Et tes <b>coches ✓ traité ne voyagent pas</b> : elles sont
+          personnelles, seuls les polygones et les communes « sans agglomération » sont
+          dans le fichier.<br>
+          Tu peux aussi déposer ce fichier quelque part (GitHub…) et le récupérer avec
+          <b>🌐 Importer depuis l'URL</b>, pratique pour le reprendre régulièrement sans
+          repasser par une clé.</div>` },
 
       { id: 'limites', titre: '⚠️ Limites et messages fréquents', corps: `
         <table class="agn-aide-t">
