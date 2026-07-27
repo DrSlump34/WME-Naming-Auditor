@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.26.03
+// @version      2.26.04
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -789,15 +789,94 @@
     prefsPret = true;
   }
 
-  /** Ecrit l'etat courant dans le gestionnaire (+ miroir localStorage). Appel
-   *  asynchrone volontairement « tire et oublie » : l'UI ne l'attend pas. */
+  /**
+   * ⚠️⚠️ DEUX ONGLETS WME S'ECRASAIENT L'UN L'AUTRE — defaut trouve le 27/07 en
+   * cherchant tout autre chose (l'auteur en avait deux ouverts).
+   *
+   * Chaque onglet charge les prefs UNE FOIS au demarrage et gardait sa copie en
+   * memoire. `sauverPrefs` reecrivait ensuite l'objet ENTIER : le dernier onglet
+   * a sauvegarder effacait donc, EN SILENCE, tout ce que l'autre avait fait
+   * depuis — un polygone trace dans l'onglet A disparaissait des que l'onglet B
+   * cochait une ligne. Ce ne sont pas des reglages qui se perdaient la, c'est le
+   * travail de zonage.
+   *
+   * ⇒ On RELIT le stockage juste avant d'ecrire, et on FUSIONNE par cle. C'est
+   * la meme regle que celle apprise sur les preferences d'interface : ne jamais
+   * remplacer un objet dont on ne possede qu'une partie.
+   *
+   * PURE, donc eprouvable sans navigateur ni stockage.
+   *
+   * REGLE DE FUSION, cle par cle :
+   *  - une cle que CET onglet ne connait pas (jamais chargee, jamais touchee)
+   *    est conservee telle quelle depuis le stockage ;
+   *  - une cle presente en memoire fait FOI : c'est le geste que l'editeur vient
+   *    de faire ici, y compris quand il a tout efface.
+   * ⚠️⚠️ C'est pour cela qu'une commune videe garde desormais sa cle (tableau
+   * vide) au lieu d'etre supprimee : sans cette trace, la fusion ne pourrait pas
+   * distinguer « je n'ai jamais vu cette commune » de « je viens de l'effacer »,
+   * et RESSUSCITERAIT le polygone supprime a la sauvegarde suivante.
+   */
+  function fusionnerPrefs(distant, local) {
+    const d = distant || {}, l = local || {};
+    const union = (a, b) => Object.assign({}, a || {}, b || {});
+    // `traites` a DEUX niveaux ({INSEE: {cle: true}}) : l'union au premier niveau
+    // suffit — un onglet ne travaille que sur une commune a la fois, et sa vue de
+    // CETTE commune est la bonne (decochages compris).
+    return {
+      agglos: union(d.agglos, l.agglos),
+      sansAgglo: union(d.sansAgglo, l.sansAgglo),
+      traites: union(d.traites, l.traites)
+    };
+  }
+
+  /**
+   * Ecrit l'etat courant dans le gestionnaire (+ miroir localStorage).
+   *
+   * ⚠️ Les ecritures sont SERIALISEES : deux `sauverPrefs()` lances coup sur coup
+   * (cocher plusieurs lignes vite) reliraient tous les deux l'etat d'AVANT et le
+   * second annulerait le premier — la course qu'on vient justement de corriger,
+   * en plus petit.
+   */
+  let chaineSauvegarde = Promise.resolve();
   function sauverPrefs() {
-    if (!prefsPret) return;   // avant chargement : ne rien ecraser
-    prefs.save({ agglos, sansAgglo, traites }).catch(e => log('WMEPrefs save', e));
+    if (!prefsPret) return chaineSauvegarde;   // avant chargement : ne rien ecraser
+    chaineSauvegarde = chaineSauvegarde.then(async () => {
+      let distant = {};
+      // ⚠️ Une relecture qui echoue ne doit PAS faire perdre l'ecriture : on
+      // repart alors de ce qu'on a, comme avant. Mieux vaut le comportement
+      // d'hier qu'aucune sauvegarde.
+      try { distant = (await prefs.load()) || {}; } catch (e) { log('WMEPrefs relecture', e); }
+      const fusion = fusionnerPrefs(distant, { agglos, sansAgglo, traites });
+      // La memoire de CET onglet adopte la fusion : sans ca, il continuerait a
+      // ignorer le travail de l'autre jusqu'au prochain rechargement de page.
+      agglos = fusion.agglos; sansAgglo = fusion.sansAgglo; traites = fusion.traites;
+      await prefs.save(fusion);
+    }).catch(e => log('WMEPrefs save', e));
+    return chaineSauvegarde;
   }
   const saveAgglos = () => sauverPrefs();
   const saveSansAgglo = () => sauverPrefs();
   const saveTraites = () => sauverPrefs();
+
+  /**
+   * Un AUTRE onglet vient d'ecrire : on se remet a jour au lieu de continuer sur
+   * une copie perimee. `WMEPrefs` double son stockage d'un miroir localStorage,
+   * et l'evenement `storage` ne se declenche QUE dans les autres onglets — donc
+   * aucune boucle avec nos propres sauvegardes.
+   *
+   * ⚠️ On ne touche a rien pendant une EDITION de polygone : l'objet en cours
+   * d'edition serait remplace sous les poignees.
+   */
+  function ecouterAutresOnglets() {
+    window.addEventListener('storage', e => {
+      if (!prefsPret || !e || e.key !== prefs.cle) return;
+      if (edition) return;                       // trace ouvert : on ne bouge pas
+      chargerPrefs().then(() => {
+        try { redrawAgglos(); renderAgglos(); redrawEcarts(null); }
+        catch (err) { log('rafraichissement apres ecriture d\'un autre onglet', err); }
+      }).catch(err => log('relecture apres storage', err));
+    });
+  }
 
   // ---------------------------------------------------------------------------
   // Partage communautaire — fichier exporte / importe
@@ -877,6 +956,11 @@
     }
     for (const insee of Object.keys(p.sansAgglo || {})) {
       if (!codeInseeValide(insee)) { rejetes++; continue; }
+      // ⚠️ Depuis la 2.26.04 une case DECOCHEE se stocke `false` au lieu d'etre
+      // supprimee (pour la fusion multi-onglets). Un fichier de partage peut donc
+      // en contenir : l'importer comme une declaration inverserait le choix de
+      // celui qui l'a envoye.
+      if (!p.sansAgglo[insee]) continue;
       if (!sansAgglo[insee]) { sansAgglo[insee] = true; ajoutSans++; }
     }
     if (ajoutPoly || ajoutSans) { saveAgglos(); saveSansAgglo(); }
@@ -8979,8 +9063,11 @@
             commune n'a <b>aucune agglomération</b> (tout est hors agglo)</span></label>
         </div>`);
       bloc.querySelector('input').onchange = e => {
+        // ⚠️ `false` et non `delete` : la case DECOCHEE est un choix, et la fusion
+        // multi-onglets doit pouvoir le distinguer d'une commune jamais vue —
+        // sinon un autre onglet la recocherait (v2.26.04).
         if (e.target.checked) sansAgglo[communeActive.code] = true;
-        else delete sansAgglo[communeActive.code];
+        else sansAgglo[communeActive.code] = false;
         saveSansAgglo(); renderAgglos(); majResumeSections();
       };
       ui.listeAgglos.appendChild(bloc);
@@ -9014,7 +9101,11 @@
       node.querySelector('.agn-ratt').onchange = e => { a.rattache = e.target.checked; saveAgglos(); renderAgglos(); };
       node.querySelector('.agn-del').onclick = () => {
         liste.splice(i, 1);
-        if (!liste.length) delete agglos[communeActive.code];
+        // ⚠️⚠️ ON GARDE LA CLE, MEME VIDE (v2.26.04). La supprimer effacait la
+        // TRACE du geste : a la fusion multi-onglets, « cette commune n'a plus de
+        // polygone » devenait indistinguable de « je n'ai jamais vu cette
+        // commune », et le polygone supprime revenait a la sauvegarde suivante.
+        if (!liste.length) agglos[communeActive.code] = [];
         saveAgglos(); redrawAgglos(); renderAgglos();
       };
       node.querySelector('.agn-zoom').onclick = () => {
@@ -9159,7 +9250,9 @@
       const cs = clesTraite(f);
       if (f.traite) cs.forEach(c => { t[c] = true; });
       else cs.forEach(c => { delete t[c]; });
-      if (!Object.keys(t).length) delete traites[insee];
+      // ⚠️ La cle reste, meme vide : elle dit « ici, plus rien n'est traite »,
+      // que la fusion multi-onglets doit respecter (v2.26.04).
+      if (!Object.keys(t).length) traites[insee] = {};
       saveTraites();
     }
     redrawEcarts(null);
@@ -10020,6 +10113,9 @@
 
     await chargerPrefs();   // polygones + sans-agglo + traites (WMEPrefs, repli local)
     buildOverlay();
+    // ⚠️ APRES `buildOverlay` : le rafraichissement declenche par un autre onglet
+    // touche a l'interface, qui doit donc exister.
+    ecouterAutresOnglets();
     installerFab();
     ensureLayers();
     installerInfobulle();
