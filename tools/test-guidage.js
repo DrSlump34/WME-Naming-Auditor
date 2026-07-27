@@ -86,11 +86,23 @@ verifier('4. panneaux relevés et exploitables ⇒ proposer un tracé',
   etape({ communeActive: COMMUNE, sondage: { etat: 'des', nb: 7 },
           panneaux: [1, 2, 3], bilanPreTrace: { tracables: 1, rubans: 0, isoles: 0 } }),
   'agglo-proposer');
-verifier('5. ⭐ un polygone existe, mais panneaux PAS relevés ⇒ les relever d\'abord',
-  etape({ communeActive: COMMUNE, agglos: { '83119': [{ ring: [] }] } }), 'agglo-panneaux');
-verifier('5. … c\'est le seul moyen de savoir si le polygone couvre TOUTE la commune',
+// ⚠️⚠️ TEST RETOURNE EN 2.25.01, ET C'EST VOULU. La 2.24.01 figeait l'inverse
+// (« les panneaux d'abord, MEME si un polygone existe ») : l'auteur l'a essayee
+// sur une commune deja zonee et a tranche — « on s'en fout, y'a deja une agglo
+// tracee ». Renvoyer au releve, c'est faire refaire un geste dont l'editeur n'a
+// plus besoin, avec un bandeau qui lui parle du « point de depart du trace »
+// alors que le trace est fait. Le garde-fou d'exhaustivite n'est pas perdu : il
+// est porte par le panneau de vigilance de fin de zonage (tests 24-25).
+verifier('5. ⭐ un polygone existe, panneaux PAS relevés ⇒ on ne renvoie PAS au relevé',
+  etape({ communeActive: COMMUNE, agglos: { '83119': [{ ring: [] }] } }), 'analyse');
+verifier('5. … et le volet ouvert mène au bilan de couverture, pas aux panneaux',
+  etape({ communeActive: COMMUNE, agglos: { '83119': [{ ring: [] }] }, voletOuvert: true }),
+  'volet-terminer');
+verifier('5. … idem quand les panneaux ONT été relevés',
   etape({ communeActive: COMMUNE, agglos: { '83119': [{ ring: [] }] },
           panneaux: [1, 2], bilanPreTrace: { tracables: 1 } }), 'analyse');
+verifier('5. ⚠️ mais SANS polygone, le relevé reste bien le point de départ',
+  etape({ communeActive: COMMUNE }), 'agglo-panneaux');
 verifier('6. analyse faite ⇒ plus rien a guider (et pas de retour en boucle)',
   etape({ communeActive: COMMUNE, agglos: { '83119': [{ ring: [] }] }, lastScan: {} }), null);
 verifier('6. … même sans panneaux relevés', etape({ communeActive: COMMUNE, lastScan: {} }), null);
@@ -104,6 +116,26 @@ verifier('8. ⭐ panneaux relevés mais AUCUN tracé possible (cas Lattes) ⇒ t
   'agglo-tracer');
 verifier('9. sondage incertain (source muette, reseau) ⇒ on n\'empeche rien',
   etape({ communeActive: COMMUNE, sondage: { etat: 'incertain', nb: 0 } }), 'agglo-panneaux');
+
+titre('⚠️ Le sondage n\'a pas encore repondu : on ne designe RIEN (v2.25.01)');
+// Sans ce garde, le halo se posait sur « Panneaux » puis SAUTAIT sur « Tracer »
+// une seconde plus tard, quand la source repondait « aucun ». Un guidage qui se
+// dedit sous les yeux de l'editeur vaut moins qu'un guidage qui attend.
+verifier('9 bis. sondage en cours ⇒ etape d\'attente, sans cible',
+  etape({ communeActive: COMMUNE, sondage: { etat: 'encours', nb: 0 } }), 'agglo-sondage');
+verifier('9 bis. … et surtout PAS le bouton qu\'on s\'apprete peut-etre a griser',
+  etape({ communeActive: COMMUNE, sondage: { etat: 'encours', nb: 0 } }) !== 'agglo-panneaux', true);
+verifier('9 bis. … le sondage repond « aucun » ⇒ le halo va au trace manuel',
+  etape({ communeActive: COMMUNE, sondage: { etat: 'aucun', nb: 0 } }), 'agglo-tracer');
+verifier('9 bis. ⚠️ un polygone existe deja ⇒ l\'attente ne retient plus personne',
+  etape({ communeActive: COMMUNE, sondage: { etat: 'encours', nb: 0 },
+          agglos: { '83119': [{ ring: [] }] } }), 'analyse');
+verifier('9 bis. ⚠️ releve deja fait ⇒ pas d\'attente non plus',
+  etape({ communeActive: COMMUNE, sondage: { etat: 'encours', nb: 0 },
+          releveFait: true, panneaux: [] }), 'agglo-tracer');
+verifier('9 bis. « sans agglomeration » cochee ⇒ rien a attendre',
+  etape({ communeActive: COMMUNE, sondage: { etat: 'encours', nb: 0 },
+          sansAgglo: { '83119': true }, voletOuvert: true }), 'volet-terminer');
 
 titre('Affiner puis enregistrer le trace propose');
 // ⚠️ Un polygone issu du PRE-TRACE implique que les panneaux ont ete releves :
@@ -187,6 +219,29 @@ titre('Verrous sur le SOURCE');
   verifier('18. l\'ordre des boutons suit la progression : panneaux → proposer → tracer',
     ordre < src.indexOf('id="agn-pretrace"') &&
     src.indexOf('id="agn-pretrace"') < src.indexOf('id="agn-tracer"'), true);
+
+  // ⚠️⚠️ LE CONTRAT QUI MANQUAIT. `etapeCourante` rend un identifiant, `GUIDAGE`
+  // le traduit en bandeau : une etape ajoutee d'un cote et oubliee de l'autre
+  // fait `g.n` sur `undefined` — le bandeau meurt, et avec lui tout le guidage.
+  // C'est la meme famille de defaut que le ⚡ des POI (v2.19) : le calcul etait
+  // juste, le RENDU ne suivait pas, et aucun test unitaire ne le voyait.
+  const corpsEtape = extraire('etapeCourante');
+  const rendues = [...new Set([...corpsEtape.matchAll(/return '([a-z-]+)'/g)].map(m => m[1]))];
+  const tableG = src.slice(src.indexOf('const GUIDAGE = {'));
+  const declarees = tableG.slice(0, tableG.indexOf('\n  };'));
+  const orphelines = rendues.filter(id =>
+    !declarees.includes('\n    ' + id + ':') && !declarees.includes('\'' + id + '\':'));
+  verifier('19. ⭐ toute etape rendue par `etapeCourante` a son entree dans `GUIDAGE`',
+    orphelines, []);
+  verifier('19. … et le harnais voit bien toutes les etapes (garde-fou du test lui-meme)',
+    rendues.length >= 9, true);
+
+  // v2.25.01 : le bouton se ferme AUSSI pendant le sondage, sinon un clic rapide
+  // lance un releve complet que la reponse legere va peut-etre rendre inutile.
+  const rA2 = src.slice(src.indexOf('const sansPanneaux'));
+  verifier('20. ⚠️ « 🪧 Panneaux » est ferme pendant le sondage, pas seulement apres',
+    /sondageEnCours/.test(rA2.slice(0, 600)) &&
+    /btnPanneaux\.disabled[^\n]*sondageEnCours/.test(rA2.slice(0, 600)), true);
 }
 
 console.log(lignes.join('\n'));

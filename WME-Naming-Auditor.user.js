@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.25.00
+// @version      2.25.01
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -7580,14 +7580,25 @@
     if (lastScan) return null;
     const s = sondageCourant();
     const sourceMuette = !!(s && s.etat === 'aucun');
-    // ⚠️⚠️ LES PANNEAUX D'ABORD, MEME SI DES POLYGONES EXISTENT DEJA (auteur,
-    // 27/07). Ce n'est pas une politesse : sans releve, on ne peut pas savoir si
-    // les polygones couvrent TOUTE la commune — et une agglomeration oubliee
-    // passe en hors agglomeration, ce qui fausse toute l'analyse. Une commune
-    // deja tracee peut avoir gagne un hameau depuis.
-    // ⚠️ Sauf si la source est muette sur cette commune : inutile d'envoyer vers
-    // un bouton qu'on vient de griser.
-    if (!releveFait && !sourceMuette && !declaree) return 'agglo-panneaux';
+    // ⚠️ TANT QUE LE SONDAGE N'A PAS REPONDU, ON NE DESIGNE AUCUN BOUTON. Sans ce
+    // garde, le halo se posait sur « Panneaux », puis sautait sur « Tracer » une
+    // seconde plus tard quand la source repondait « aucun » — un guidage qui se
+    // dedit. Et l'editeur assez rapide lancait un releve complet pour rien.
+    if (!zones.length && !releveFait && !declaree && s && s.etat === 'encours') return 'agglo-sondage';
+    // ⚠️⚠️ LES PANNEAUX D'ABORD — MAIS SEULEMENT QUAND RIEN N'EST TRACE (auteur,
+    // 27/07, apres essai de la 2.25.00 sur une commune deja zonee : « on s'en
+    // fout, y'a deja une agglo tracee »). Le releve est le point de depart du
+    // TRACE : sans polygone il ouvre le parcours, avec un polygone il fait
+    // refaire un geste dont l'editeur n'a plus besoin — et le bandeau « c'est le
+    // point de depart du trace » devient faux sous ses yeux.
+    // ⚠️ Le garde-fou d'exhaustivite de la 2.24.01 ne DISPARAIT pas, il change de
+    // place : c'est le panneau de vigilance de fin de zonage
+    // (`avertissementExhaustivite`) qui le porte, halo compris, au moment de
+    // refermer le volet. On avertit la ou l'editeur decide, pas en le renvoyant
+    // en arriere.
+    // ⚠️ Et pas non plus si la source est muette sur cette commune : inutile
+    // d'envoyer vers un bouton qu'on vient de griser.
+    if (!zones.length && !releveFait && !sourceMuette && !declaree) return 'agglo-panneaux';
     if (!zones.length && !declaree) {
       // Le parcours de l'agglomeration, dans l'ordre ou il se deroule.
       // ⚠️ Un relevé infructueux (Lirac : 0 panneau) mene au tracé manuel, pas
@@ -7620,6 +7631,11 @@
     commune: { n: 1, cible: '#agn-commune', dansVolet: true,
       texte: 'Choisis ta commune dans la liste.',
       suite: 'Celle qui est sous le centre de la carte est remontée en tête.' },
+    // Pas de cible : on ne montre pas un geste qu'on s'apprete peut-etre a fermer.
+    'agglo-sondage': { n: 2, cible: null,
+      texte: 'Vérification des panneaux disponibles sur cette commune…',
+      suite: 'Une seconde — la source est très inégale, et c\'est elle qui décide ' +
+             'par où commencer.' },
     'agglo-panneaux': { n: 2, cible: '#agn-panneaux', dansVolet: true,
       texte: 'Relève les panneaux d\'agglomération.',
       suite: 'Ils marquent les entrées et sorties : c\'est le point de départ du tracé.' },
@@ -8543,7 +8559,11 @@
     // fermes : un bouton grise sans raison se lit comme une panne.
     const s = sondageCourant();
     const sansPanneaux = s && s.etat === 'aucun';
-    ui.btnPanneaux.disabled = !communeActive || horsFrance || sansPanneaux;
+    // ⚠️ Ferme AUSSI pendant le sondage : cliquer a cet instant lance le releve
+    // complet (une dizaine de requetes) alors que la reponse legere arrive dans
+    // la seconde — et peut dire qu'il n'y a rien a relever.
+    const sondageEnCours = s && s.etat === 'encours';
+    ui.btnPanneaux.disabled = !communeActive || horsFrance || !!sansPanneaux || !!sondageEnCours;
     ui.btnPanneaux.title = sansPanneaux
       ? 'Aucun panneau d\'entrée d\'agglomération relevé sur cette commune dans le jeu ' +
         'officiel de signalisation. Ce n\'est pas un défaut du script : la source est ' +
@@ -8726,7 +8746,12 @@
         'hameaux sans panneau avant de terminer.'
       : '⚠️ Assure-toi d\'avoir tracé <b>toutes</b> les agglomérations de la commune ' +
         '(bourg, hameaux, villages rattachés) : une agglomération oubliée passe en hors ' +
-        'agglomération, et tous ses écarts seront faux.';
+        'agglomération, et tous ses écarts seront faux.' +
+        // ⚠️ Depuis la 2.25.01 le guidage ne renvoie plus vers les panneaux quand un
+        // polygone existe deja. Le moyen de VERIFIER reste utile — mais il se
+        // PROPOSE ici, il ne s'impose plus comme une etape a franchir.
+        (releveFait ? ''
+                    : '<br>Au besoin, <b>🪧 Panneaux d\'agglomération</b> les recense pour toi.');
     return n;
   }
 
