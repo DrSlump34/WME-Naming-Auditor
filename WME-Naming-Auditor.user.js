@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.27.05
+// @version      2.27.06
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -3602,6 +3602,49 @@
   const fmt = e => (e.name || '‹sans nom›') + ' / ' + (e.cityName || '‹sans ville›');
   const key = e => (e.name || '').trim().toLowerCase() + '|' + (e.cityName || '').trim().toLowerCase();
 
+  /**
+   * Conserve, EN ALTERNATIF, les adresses de communes VOISINES que la cible
+   * ferait autrement disparaitre.
+   *
+   * ⚠️⚠️ SIGNALE PAR L'AUTEUR (27/07, Rue de la Republique — 7 segments entre
+   * Saint-Geniès-de-Comolas et Montfaucon) : « Ce segment est a cheval sur les
+   * 2 communes, donc dans un cas comme celui-ci il faudrait proposer de mettre
+   * l'adresse pour Saint Genies en Alt EN PLUS de l'adresse deja renseignee
+   * pour Montfaucon. »
+   *
+   * ⭐ CE QUI CLOCHAIT N'ETAIT PAS LE CALCUL, MAIS LA PERTE. La cible hors
+   * agglomeration vide la ville du PRINCIPAL — et « Montfaucon » n'etait remis
+   * nulle part. Or LE SCRIPT NE SAIT PAS RETIRER UN ALTERNATIF : une adresse
+   * deplacee en alternatif reste rattrapable a la main, une adresse ecrasee sur
+   * le principal est PERDUE. Le script detruisait donc une donnee qu'il aurait
+   * ete incapable de reconstruire.
+   *
+   * ⚠️ N'EST APPELEE QUE SI LA VOIE LONGE LA LIMITE (mesure, pas suppose) : un
+   * segment au MILIEU de la commune qui annonce la voisine est une adresse
+   * FAUSSE — celle-la doit bien disparaitre, c'est le cas signale le 27/07 sur
+   * ces memes 7 segments. Deux situations opposees, un seul symptome : c'est la
+   * geometrie qui tranche, pas le nom.
+   *
+   * PURE : tout entre par les parametres.
+   */
+  function conserverAdressesVoisines(nam, exp, voisines) {
+    if (!nam || !exp || !voisines || !voisines.length) return exp;
+    const cibles = new Set(voisines.map(v => normSansAccent(String(v).trim())));
+    const vues = new Set((exp.alts || []).map(key));
+    vues.add(key(exp.primary));
+    const ajouts = [];
+    for (const e of [nam.primary].concat(nam.alts || [])) {
+      if (!e || !e.cityName || !e.cityName.trim()) continue;
+      if (!cibles.has(normSansAccent(e.cityName.trim()))) continue;
+      const garde = { name: e.name || '', cityName: e.cityName };
+      const k = key(garde);
+      if (vues.has(k)) continue;
+      vues.add(k);
+      ajouts.push(garde);
+    }
+    return ajouts.length ? Object.assign({}, exp, { alts: (exp.alts || []).concat(ajouts) }) : exp;
+  }
+
   function diffNaming(nam, exp) {
     const ecarts = [];
     if (key(nam.primary) !== key(exp.primary)) {
@@ -5876,7 +5919,14 @@
       // branches : ici on ne totalise plus que les voies ORDINAIRES analysees.
       if (enAgglo) zones.agglo++; else zones.hors++;
 
-      const exp = REF.etatCible(nam, enAgglo ? loc.agglo : null, communeActive.nom);
+      // ⚠️⚠️ Calcule ICI, et plus bas avec les notes : la cible en a besoin.
+      const etrangeres = communesEtrangeresDuSegment(nam, communes, communeActive.code);
+      // ⭐ UNE VOIE QUI LONGE LA LIMITE DESSERT LES DEUX COMMUNES : son adresse
+      // « d'en face » est LEGITIME, et la cible ne doit pas la jeter.
+      const longeLaLimite = etrangeres.length > 0 &&
+                            partLeLongDeLaLimite(coords, communeActive) > 0;
+      let exp = REF.etatCible(nam, enAgglo ? loc.agglo : null, communeActive.nom);
+      if (longeLaLimite) exp = conserverAdressesVoisines(nam, exp, etrangeres);
       const ecartsNom = c.nommageZone ? diffNaming(nam, exp) : [];
       const ecartsCart = REF.controles
         .filter(ct => ct.portee === 'segment' && c[ct.cle] && ct.executer)
@@ -5917,11 +5967,19 @@
       // qu'un bandeau reclamait de tracer le polygone de la commune voisine.
       // ⚡ La note entre dans la cle de regroupement : ces segments forment donc
       // leurs PROPRES reports, reperables, au lieu d'etre fondus avec les autres.
-      const etrangeres = communesEtrangeresDuSegment(nam, communes, communeActive.code);
       if (etrangeres.length) {
-        notes.push('adressé à « ' + etrangeres.join(' », « ') + ' » — ' +
-          (etrangeres.length > 1 ? 'communes voisines' : 'commune voisine') +
-          ', alors que ce segment est dans ' + communeActive.nom);
+        // ⚠️⚠️ DEUX SITUATIONS OPPOSEES, ET LE MEME SYMPTOME. Un segment au
+        // MILIEU de la commune qui annonce la voisine est une adresse fausse
+        // (auteur, 27/07). Mais une voie qui LONGE la limite dessert les deux
+        // communes : son adresse d'en face est juste, et le dire « alors que ce
+        // segment est dans X » etait un contresens — signale par l'auteur sur la
+        // Rue de la Republique (Montfaucon / Saint-Geniès), 7 segments.
+        notes.push(longeLaLimite
+          ? 'longe la limite avec « ' + etrangeres.join(' », « ') + ' » : cette voie ' +
+            'dessert les deux communes, son adresse est conservée en alternatif'
+          : 'adressé à « ' + etrangeres.join(' », « ') + ' » — ' +
+            (etrangeres.length > 1 ? 'communes voisines' : 'commune voisine') +
+            ', alors que ce segment est dans ' + communeActive.nom);
       }
       const longM = (loc.longueurDeg || 0) * 111320;
       const enMetres = part => Math.round(part * longM);
