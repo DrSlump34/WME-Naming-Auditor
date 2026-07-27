@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.26.01
+// @version      2.26.03
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -1465,6 +1465,83 @@
           'ou decoche l\'option dans les réglages.</div>';
       }
     } finally { autoEnCours = false; }
+  }
+
+  /**
+   * Ce nom de ville designe-t-il une AUTRE COMMUNE INSEE ? Rend la commune, ou null.
+   *
+   * ⚠️⚠️ NE PAS CONFONDRE avec un village rattache. « Les Ayguades (Gruissan) »
+   * est une agglomeration SECONDAIRE de la commune traitee : elle s'ecrit avec
+   * une parenthese, et c'est `villeAgglo` qui la gere. Une commune voisine, elle,
+   * s'ecrit toute seule — et n'a rien a faire sur un segment d'ici.
+   *
+   * ⚠️ Comparaison SANS ACCENT ni casse : WME et l'INSEE ne s'accordent pas
+   * toujours sur les diacritiques (« Saint-Geniès » / « Saint-Genies »), et un
+   * accent manquant ferait passer une commune voisine pour un hameau inconnu —
+   * donc pour un polygone a tracer, exactement l'alerte dont l'auteur ne veut pas.
+   *
+   * PURE : elle ne lit aucune variable d'etat, tout entre par ses parametres.
+   */
+  function communeVoisineDeNom(nom, liste, codeActif) {
+    const brut = String(nom || '').trim();
+    if (!brut || brut.includes('(')) return null;   // « Village (Commune) » : pas une voisine
+    const n = normSansAccent(brut);
+    return (liste || []).find(c => c && c.code !== codeActif && normSansAccent(c.nom) === n) || null;
+  }
+
+  /**
+   * Les communes VOISINES citees par les noms d'un segment (principal et
+   * alternatifs), sans doublon. Un segment hors agglomeration porte sa commune
+   * dans le CARTOUCHE, pas dans le principal : ne regarder que le principal
+   * raterait la moitie des cas.
+   */
+  function communesEtrangeresDuSegment(nam, liste, codeActif) {
+    const vues = new Map();
+    const ajoute = v => {
+      const c = communeVoisineDeNom(v, liste, codeActif);
+      if (c) vues.set(c.code, c.nom);
+    };
+    if (nam && nam.primary) ajoute(nam.primary.cityName);
+    if (nam && nam.alts) nam.alts.forEach(a => ajoute(a && a.cityName));
+    return [...vues.values()];
+  }
+
+  /**
+   * La commune reellement SOUS LE CENTRE de la carte, ou null.
+   *
+   * ⚠️⚠️ NE PAS CONFONDRE avec `communeActive` : le script GARDE la commune en
+   * cours tant qu'elle reste quelque part dans la vue (voir
+   * `rafraichirCommunesDeLaVue`), ce qui est voulu — on ne perd pas son travail
+   * parce qu'on a fait glisser la carte de deux centimetres. Mais les deux
+   * peuvent alors DIVERGER, et c'est ce qui a coute une session entiere de
+   * diagnostic le 27/07 (voir `guidageDecale`).
+   */
+  function communeSousLeCentre() {
+    if (!communes.length) return null;
+    let ctr; try { ctr = sdk.Map.getMapCenter(); } catch (e) { return null; }
+    if (!ctr || ctr.lon == null || ctr.lat == null) return null;
+    return communeDuPoint(ctr.lon, ctr.lat) || null;
+  }
+
+  /**
+   * DIT si le guidage s'apprete a parler d'une autre commune que celle qu'on
+   * regarde. Rend la commune sous le centre quand il y a decalage, sinon null.
+   *
+   * ⚠️⚠️ NE PAS SUPPRIMER — CECI VIENT D'UN CAS REEL (auteur, 27/07,
+   * Saint-Genies-de-Comolas). Le script suivait Saint-Laurent-des-Arbres, restee
+   * dans la vue (3,7 km), dont le zonage EST fait ; le bandeau affichait donc
+   * « Le zonage est fait » pendant que l'editeur cadrait une commune vierge.
+   * ⚡ Le bandeau ne mentait pas : IL NE DISAIT PAS DE QUI IL PARLAIT. Quatre
+   * hypotheses (polygone fantome, bandeau perime, deux instances, autre onglet)
+   * sont tombees devant la mesure avant qu'on trouve ca — et 8 640 combinaisons
+   * d'etat ont prouve qu'aucune ne rend « zonage fait » sans polygone.
+   *
+   * ⚠️ Fonction PURE en dehors de ses deux entrees : elle ne decide rien, elle
+   * compare. Le silence (null) est la reponse normale.
+   */
+  function guidageDecale(active, sousLeCentre) {
+    if (!active || !sousLeCentre) return null;      // rien a comparer : on se tait
+    return sousLeCentre.code === active.code ? null : sousLeCentre;
   }
 
   function communesDeLaVue() {
@@ -5613,6 +5690,21 @@
       // tronçon de 25 m et 60 m sur une départementale de 3 km. On raisonne donc
       // en mètres — et on l'AFFICHE en mètres, parce que « déborde de 45 m » se
       // vérifie sur la carte, « 2 % » non.
+      // ⚠️⚠️ ADRESSE A UNE COMMUNE VOISINE (auteur, 27/07, Saint-Geniès : « Montfaucon »
+      // sur 7 segments). Le segment est DANS le contour d'ici, mais ses noms
+      // annoncent la commune d'a cote. Ce n'est PAS un polygone manquant — c'est
+      // une adresse fausse, et la cible la corrige deja (hors agglo le cartouche
+      // porte `nomCommune`, en agglo le principal aussi). On le DIT sur le report :
+      // sans ca, ces segments se perdaient dans « Hors agglomération » pendant
+      // qu'un bandeau reclamait de tracer le polygone de la commune voisine.
+      // ⚡ La note entre dans la cle de regroupement : ces segments forment donc
+      // leurs PROPRES reports, reperables, au lieu d'etre fondus avec les autres.
+      const etrangeres = communesEtrangeresDuSegment(nam, communes, communeActive.code);
+      if (etrangeres.length) {
+        notes.push('adressé à « ' + etrangeres.join(' », « ') + ' » — ' +
+          (etrangeres.length > 1 ? 'communes voisines' : 'commune voisine') +
+          ', alors que ce segment est dans ' + communeActive.nom);
+      }
       const longM = (loc.longueurDeg || 0) * 111320;
       const enMetres = part => Math.round(part * longM);
       const dCommune = enMetres(1 - loc.partCommune);
@@ -7142,6 +7234,11 @@
      l'éditeur corrige de travers sans savoir que le zonage est incomplet. */
   .agn-alerte-bloc{margin:6px 0;padding:8px 10px;border-radius:6px;font-size:12px;
     background:#fff3e0;border:1px solid #ffb74d;color:#5d4037;line-height:1.45}
+  /* ⚠️ Un CONSTAT n'est pas une ALERTE. L'orange reclame un geste ; ce bloc-ci
+     dit « rien a tracer, c'est deja dans ta liste » et prend donc le bleu neutre
+     de l'information (auteur, 27/07 : l'alerte orange « embrouille plus
+     qu'autre chose » quand elle parle d'une commune voisine). */
+  .agn-info-bloc{background:#e3f2fd;border-color:#90caf9;color:#0d3c61}
   /* « Segments : ☑ tableau ☑ carte » sur une seule ligne : deux cases par
      famille tiendraient mal sur deux lignes chacune dans un panneau etroit. */
   /* ⚠️ flex-wrap indispensable : dans un panneau retreci, « Segments ☑ tableau
@@ -7773,6 +7870,13 @@
     // L'analyse a tourne : le parcours est fait, le guidage se tait. Sans ce
     // garde, la regle « les panneaux d'abord » le ferait repartir en boucle.
     if (lastScan) return null;
+    // ⚠️⚠️ AVANT TOUTE AFFIRMATION SUR LE ZONAGE : la carte regarde-t-elle bien
+    // la commune dont on s'apprete a parler ? Sinon le guidage decrit fidelement
+    // un etat que l'editeur ne voit pas (cas vecu du 27/07, voir `guidageDecale`).
+    // ⚠️ Place APRES `lastScan` a dessein : une fois l'analyse faite, l'editeur
+    // navigue d'un ecart a l'autre et sort forcement de la commune — l'y ramener
+    // serait du bruit, et la regle n°1 dit que le guidage se tait quand c'est fait.
+    if (guidageDecale(communeActive, communeSousLeCentre())) return 'commune-decalee';
     const s = sondageCourant();
     const sourceMuette = !!(s && s.etat === 'aucun');
     // ⚠️ TANT QUE LE SONDAGE N'A PAS REPONDU, ON NE DESIGNE AUCUN BOUTON. Sans ce
@@ -7817,6 +7921,15 @@
     return 'analyse';
   }
 
+  /**
+   * Le nom de la commune suivie, pour les etapes qui AFFIRMENT quelque chose.
+   *
+   * ⚠️ Regle du 27/07 : on ne fait pas une affirmation sans dire sur quoi elle
+   * porte. « Le zonage est fait » a ete lu comme parlant de la commune que
+   * l'editeur cadrait, alors qu'il parlait de sa voisine.
+   */
+  function nomSuivi() { return communeActive ? communeActive.nom : ''; }
+
   /** Ce qu'on dit, et ce qu'on montre, pour chaque etape. */
   const GUIDAGE = {
     contours: { n: 1, cible: null,
@@ -7838,9 +7951,23 @@
       texte: 'Tire un tracé de ces panneaux.',
       suite: 'Un polygone par agglomération — bourg et hameaux séparément.' },
     'agglo-tracer': { n: 2, cible: '#agn-tracer', dansVolet: true,
-      texte: 'Trace l\'agglomération à la main.',
+      texte: () => 'Trace l\'agglomération de ' + nomSuivi() + ' à la main.',
       suite: 'Les panneaux ne suffisent pas ici. Double-clic pour fermer le tracé — ' +
              'ou coche « sans agglomération » si la commune n\'en a pas.' },
+    // ⚠️⚠️ LA CARTE ET LE SCRIPT NE REGARDENT PAS LA MEME COMMUNE. Cas vecu le
+    // 27/07 : le script gardait Saint-Laurent-des-Arbres (zonee, restee dans la
+    // vue a 3,7 km) pendant que l'editeur cadrait Saint-Genies-de-Comolas
+    // (vierge) — et lisait « Le zonage est fait » comme parlant de celle-ci.
+    // On NOMME les deux, et on montre le seul geste qui remet les deux d'accord.
+    'commune-decalee': { n: 1, cible: '#agn-commune', dansVolet: true,
+      texte: () => 'Le script travaille sur ' + nomSuivi() + ' — pas sur la commune ' +
+                   'que tu regardes.',
+      suite: () => {
+        const c = guidageDecale(communeActive, communeSousLeCentre());
+        return 'La carte est centrée sur ' + (c ? c.nom : 'une autre commune') +
+               '. Choisis-la dans la liste pour travailler dessus — ou recadre sur ' +
+               nomSuivi() + ' pour reprendre où tu en étais.';
+      } },
     'agglo-encore': { n: 2, cible: '#agn-tracer-encore', dansVolet: true,
       texte: 'Il reste des agglomérations à tracer.',
       suite: 'Des secteurs d\'entrées ne sont couverts par aucun polygone. ' +
@@ -7862,11 +7989,13 @@
       // FENETRE de travail, pas dans le volet. On le nomme par sa place (auteur,
       // 27/07). Les infobulles du bouton, elles, sont bien DANS le volet et
       // gardent « ce volet ».
-      texte: 'Le zonage est fait — referme le volet de gauche.',
+      // ⚠️ On NOMME la commune : l'affirmation « c'est fait » ne vaut que si on
+      // sait de quoi elle parle (27/07).
+      texte: () => 'Le zonage de ' + nomSuivi() + ' est fait — referme le volet de gauche.',
       suite: '⚠️ Assure-toi d\'abord que TOUTES les agglomérations sont tracées : ' +
              'une agglomération oubliée passe en hors agglomération, et tous ses écarts seront faux.' },
     analyse: { n: 3, cible: '#agn-scan',
-      texte: 'Tout est prêt : lance l\'analyse.',
+      texte: () => 'Tout est prêt : lance l\'analyse de ' + nomSuivi() + '.',
       suite: 'Rien ne sera enregistré — tu reliras chaque correction dans WME.' }
   };
 
@@ -7879,14 +8008,18 @@
     if (!bandeau) return;
     if (!etape || aideOuverte) { bandeau.className = ''; bandeau.innerHTML = ''; return; }
     const g = GUIDAGE[etape];
+    // ⚠️ Un libelle peut etre une FONCTION : depuis le 27/07, les etapes qui
+    // affirment un etat nomment leur commune, et le nom n'est connu qu'au rendu.
+    const mot = v => (typeof v === 'function' ? v() : v);
     // La carte vient de quitter la commune en cours : on le DIT, en la nommant.
     // Sans ca, « Choisis ta commune » ressemble a un retour en arriere inexplique.
     const perdue = etape === 'commune' && ui.communePerdue;
+    const suite = mot(g.suite);
     bandeau.className = 'on';
     bandeau.innerHTML = '<span class="agn-guide-n">' + g.n + '</span><b>' +
       (perdue ? 'La carte a quitté ' + esc(ui.communePerdue) + ' — choisis la commune à traiter.'
-              : esc(g.texte)) + '</b>' +
-      (g.suite ? '<div class="agn-guide-suite">' + esc(g.suite) + '</div>' : '');
+              : esc(mot(g.texte))) + '</b>' +
+      (suite ? '<div class="agn-guide-suite">' + esc(suite) + '</div>' : '');
     // ⚠️ Le volet est ferme : on montre le chemin (☰) plutot qu'un element que
     // personne ne voit.
     const voletOuvert = ui.volet && ui.volet.classList.contains('agn-volet-ouvert');
@@ -8949,6 +9082,19 @@
       return n;
     }
     const n = el('<div class="agn-avert-exh agn-avert-doux"></div>');
+    // ⚠️ Une commune DECLAREE sans agglomeration n'a rien a tracer : lui reclamer
+    // « toutes les agglomerations » est un contresens. On rappelle le choix fait.
+    if (communeActive && sansAgglo[communeActive.code]) {
+      n.innerHTML = '✔ <b>' + esc(communeActive.nom) + '</b> est déclarée <b>sans agglomération</b> : ' +
+        'tous ses segments seront jugés hors agglomération. Décoche la case si ce n\'est plus vrai.';
+      return n;
+    }
+    // ⚠️⚠️ LA SOURCE EST-ELLE MUETTE ICI ? Sans ce test, on PROPOSAIT le relevé
+    // des panneaux alors que le bouton venait d'etre grisé faute de données —
+    // exactement la faute corrigée ailleurs en 2.25.01 (ne jamais envoyer vers un
+    // geste impossible). Mesuré sur Saint-Geniès-de-Comolas : 0 panneau.
+    const sond = sondageCourant();
+    const muette = !!(sond && sond.etat === 'aucun');
     n.innerHTML = secteursCourants.length
       ? '✔ Tous les secteurs d\'entrées relevés sont couverts. Vérifie tout de même les ' +
         'hameaux sans panneau avant de terminer.'
@@ -8958,8 +9104,10 @@
         // ⚠️ Depuis la 2.25.01 le guidage ne renvoie plus vers les panneaux quand un
         // polygone existe deja. Le moyen de VERIFIER reste utile — mais il se
         // PROPOSE ici, il ne s'impose plus comme une etape a franchir.
-        (releveFait ? ''
-                    : '<br>Au besoin, <b>🪧 Panneaux d\'agglomération</b> les recense pour toi.');
+        (muette ? '<br>Aucun panneau d\'agglomération n\'est disponible ici : ' +
+                  '<b>le script ne peut pas vérifier à ta place</b>.'
+                : releveFait ? ''
+                             : '<br>Au besoin, <b>🪧 Panneaux d\'agglomération</b> les recense pour toi.');
     return n;
   }
 
@@ -9505,19 +9653,61 @@
    */
   const PART_MIN_EN_POLYGONE = 0.25;
 
+  /**
+   * ⚠️⚠️ UNE COMMUNE VOISINE N'EST PAS UN POLYGONE MANQUANT (auteur, 27/07).
+   * Vecu sur Saint-Geniès-de-Comolas : « Montfaucon » (7 segments) et
+   * « Saint-Laurent-des-Arbres » (1) declenchaient « Il manque au moins un
+   * polygone » — donc « trace le polygone de la commune d'a cote », ce qui n'a
+   * aucun sens quand on audite Saint-Geniès. Pire, l'alerte affirmait que « les
+   * ecarts les concernant sont faux » alors que la correction proposee est JUSTE
+   * (elle retablit la commune d'ici). ⇒ On separe les deux populations : le
+   * garde-fou ne parle plus que des villes INCONNUES au repertoire INSEE
+   * (hameaux, villages rattaches), qui sont les seules a pouvoir reclamer un
+   * polygone.
+   */
   function villesSansPolygone() {
     if (!lastScan || !lastScan.zones || !lastScan.zones.villes) return [];
     const bas = PART_MIN_EN_POLYGONE;
+    const codeActif = communeActive && communeActive.code;
     return [...lastScan.zones.villes.entries()]
       .map(([nom, v]) => ({ nom, total: v.total, dans: v.dansPolygone,
+                            voisine: !!communeVoisineDeNom(nom, communes, codeActif),
                             degre: v.dansPolygone === 0 ? 'aucun'
                               : (v.dansPolygone / v.total < bas ? 'presque' : null) }))
       .filter(v => v.degre)
       .sort((a, b) => b.total - a.total);
   }
 
+  /** Celles qui reclament VRAIMENT un polygone : les villes qui ne sont pas des communes. */
+  function villesPolygoneManquant() { return villesSansPolygone().filter(v => !v.voisine); }
+
+  /** Celles qui sont des communes voisines : une adresse a corriger, pas un zonage. */
+  function villesCommuneVoisine() { return villesSansPolygone().filter(v => v.voisine); }
+
+  /**
+   * Des segments d'ici portent le nom d'une commune voisine. Ton NEUTRE : c'est
+   * un constat qui renvoie a la liste des ecarts, pas une alerte qui reclame un
+   * geste de zonage. « Je suis sur Saint-Geniès, j'ai pas envie de tracer les
+   * polygones des autres communes » (auteur, 27/07).
+   */
+  function bandeauCommunesVoisines() {
+    const voisines = villesCommuneVoisine();
+    if (!voisines.length) return '';
+    const total = voisines.reduce((n, v) => n + v.total, 0);
+    const liste = voisines.map(v => '<b>' + esc(v.nom) + '</b> (' + v.total + ')').join(', ');
+    return '<div class="agn-alerte-bloc agn-info-bloc">ℹ️ <b>' + total + ' segment(s) portent le nom ' +
+      'd\'une commune voisine</b> : ' + liste + '.<br>' +
+      'Ils sont pourtant dans ' + esc(communeActive ? communeActive.nom : 'cette commune') +
+      ' : c\'est leur <b>adresse</b> qui est fausse, pas le zonage. ' +
+      '<b>Rien à tracer</b> — les corrections proposées rétablissent déjà ' +
+      esc(communeActive ? communeActive.nom : 'la commune') +
+      ', et ces segments forment leurs propres reports dans la liste.</div>';
+  }
+
   function bandeauVillesSansPolygone() {
-    const manquantes = villesSansPolygone();
+    // ⚠️ Les communes voisines sont SORTIES d'ici : elles ont leur propre bandeau,
+    // qui ne reclame aucun trace (auteur, 27/07).
+    const manquantes = villesPolygoneManquant();
     if (!manquantes.length) return '';
     // ⚠️⚠️ Une analyse INTERROMPUE n'a pas vu toute la commune : les segments qui
     // tombent dans le polygone peuvent etre precisement ceux qui manquent. On
@@ -9616,7 +9806,7 @@
           z.special ? ' · ' + z.special + ' voie(s) a règle propre' : ''}${
           z.giratoire ? ' · ' + z.giratoire + ' giratoire(s)' : ''}.<br>
         Ignores : ${s.skipped.horsCommune} hors commune, ${s.skipped.sansAdresse} sans adressage, ${s.skipped.horsRegle} règles propres.
-      </div>${bandeauVillesSansPolygone()}${bandeauInterrompu()}${bandeauSource()}`
+      </div>${bandeauVillesSansPolygone()}${bandeauCommunesVoisines()}${bandeauInterrompu()}${bandeauSource()}`
         : `<div class="agn-stat">
         ${s.adr ? '<b>' + s.adr.hnLus + '</b> numéro(s) lu(s) a ' + esc(communeActive.nom) +
             (options.controles.hnHorsAgglo
@@ -9661,7 +9851,7 @@
               ? '<br><span style="opacity:.8">La conversion cadre elle-même sur les numéros : ' +
                 'WME ne les charge qu\'à partir du zoom ' + ZOOM_NUMEROS + '.</span>' : '')
           : 'Analyse non lancee.'}
-      </div>${bandeauVillesSansPolygone()}${bandeauInterrompu()}${bandeauSource()}`;
+      </div>${bandeauVillesSansPolygone()}${bandeauCommunesVoisines()}${bandeauInterrompu()}${bandeauSource()}`;
     }
     ui.results.innerHTML = '';
     indexCourant = -1;

@@ -57,20 +57,30 @@ function etape(etat) {
     // agglomeration oubliee fausse toute l'analyse.
     secteurs: [], couverts: [],
     // v2.24.02 : « le releve a-t-il ete FAIT » ≠ « il y a des panneaux ».
-    releveFait: false, voletOuvert: false
+    releveFait: false, voletOuvert: false,
+    // v2.26.02 : la commune SOUS LE CENTRE de la carte. `null` = on ne sait pas
+    // (hors contours charges, mer) ⇒ le guidage se tait. Par defaut on la fait
+    // coincider avec la commune suivie : le decalage est l'exception, pas la regle.
+    sousLeCentre: undefined
   }, etat);
   // Par commodite : renseigner `panneaux` implique que le releve a eu lieu.
   if (e.panneaux.length) e.releveFait = true;
+  if (e.sousLeCentre === undefined) e.sousLeCentre = e.communeActive;
   const fn = new Function(
     'options', 'pays', 'communes', 'communeActive', 'edition', 'agglos', 'sansAgglo',
     'panneaux', 'bilanPreTrace', 'sondageCourant', 'lastScan',
     'secteursCourants', 'secteurCouvert', 'releveFait', 'ui',
+    'guidageDecale', 'communeSousLeCentre',
     extraire('etapeCourante') + '\nreturn etapeCourante();');
   return fn({ guidage: e.guidage }, { etat: e.paysEtat }, e.communes, e.communeActive,
             e.edition, e.agglos, e.sansAgglo, e.panneaux, e.bilanPreTrace,
             () => e.sondage, e.lastScan,
             e.secteurs, g => e.couverts.includes(g), e.releveFait,
-            { volet: { classList: { contains: () => e.voletOuvert } } });
+            { volet: { classList: { contains: () => e.voletOuvert } } },
+            // ⚠️ La VRAIE fonction du userscript, extraite : un test qui reecrirait
+            // la comparaison ne prouverait que lui-meme.
+            new Function('a', 'b', extraire('guidageDecale') + '\nreturn guidageDecale(a, b);'),
+            () => e.sousLeCentre);
 }
 
 const COMMUNE = { code: '83119', nom: 'Saint-Tropez' };
@@ -200,6 +210,68 @@ titre('Le zonage est fait : refermer le volet, PUIS analyser');
     'agglo-encore');
 }
 
+titre('⚠️⚠️ LE CAS SAINT-GENIES : la carte et le script ne regardent pas la meme commune');
+{
+  // CE QUI S'EST PASSE (auteur, 27/07). L'editeur cadre Saint-Genies-de-Comolas,
+  // commune VIERGE. Saint-Laurent-des-Arbres, ZONEE, est a 3,7 km : elle reste
+  // dans la vue, donc `rafraichirCommunesDeLaVue` garde le script dessus — c'est
+  // VOULU (on ne perd pas son travail en faisant glisser la carte). Le bandeau
+  // affichait alors « Le zonage est fait », parfaitement exact… pour une commune
+  // dont il ne prononcait pas le nom. Quatre hypotheses sont tombees devant la
+  // mesure avant qu'on trouve, et 8 640 combinaisons d'etat ont prouve qu'aucune
+  // ne rend « volet-terminer » sans polygone : le defaut n'etait pas dans le
+  // calcul, il etait dans le SILENCE du libelle.
+  const SUIVIE = { code: '30278', nom: 'Saint-Laurent-des-Arbres' };   // zonee
+  const CADREE = { code: '30254', nom: 'Saint-Geniès-de-Comolas' };    // vierge
+  const zonee = { communeActive: SUIVIE, agglos: { '30278': [{ ring: [] }] }, voletOuvert: true };
+
+  verifier('27. ⭐ le script suit une commune, la carte en montre une autre ⇒ on le DIT',
+    etape(Object.assign({ sousLeCentre: CADREE }, zonee)), 'commune-decalee');
+  verifier('27. ⚠️⚠️ et surtout : plus jamais « le zonage est fait » dans ce cas',
+    etape(Object.assign({ sousLeCentre: CADREE }, zonee)) !== 'volet-terminer', true);
+  verifier('28. les deux coincident ⇒ le parcours normal reprend, inchange',
+    etape(Object.assign({ sousLeCentre: SUIVIE }, zonee)), 'volet-terminer');
+  verifier('29. ⚠️ centre hors des contours charges (mer, autre departement) ⇒ SILENCE',
+    etape(Object.assign({ sousLeCentre: null }, zonee)), 'volet-terminer');
+
+  // ⚠️ Le decalage ne doit pas devenir un nouveau bruit de fond : deux etats le
+  // priment, et pour des raisons opposees.
+  verifier('30. ⚠️ une edition en cours PRIME : on ne renvoie pas a la liste avec un tracé ouvert',
+    etape(Object.assign({ sousLeCentre: CADREE, edition: { agglo: {} } }, zonee)), 'terminer');
+  verifier('31. ⭐ APRES l\'analyse, le guidage se tait : l\'editeur navigue d\'un ecart a l\'autre',
+    etape(Object.assign({ sousLeCentre: CADREE, lastScan: {} }, zonee)), null);
+
+  // La fonction de comparaison elle-meme, extraite du userscript.
+  const dec = new Function('a', 'b', extraire('guidageDecale') + '\nreturn guidageDecale(a, b);');
+  verifier('32. `guidageDecale` : meme commune ⇒ null', dec(SUIVIE, SUIVIE), null);
+  verifier('32. … communes differentes ⇒ celle qu\'on regarde', dec(SUIVIE, CADREE), CADREE);
+  verifier('32. … aucune commune suivie ⇒ null (rien a comparer)', dec(null, CADREE), null);
+  verifier('32. … centre inconnu ⇒ null (on ne prend pas le silence pour un desaccord)',
+    dec(SUIVIE, null), null);
+
+  // ⭐ LA REGLE QUI SORT DE CETTE SESSION : une etape qui AFFIRME nomme sa commune.
+  const tG = src.slice(src.indexOf('const GUIDAGE = {'));
+  const tableGuidage = tG.slice(0, tG.indexOf('\n  };'));
+  // ⚠️ Decoupage EXACT par entree : une fenetre de N caracteres debordait sur
+  // l'entree suivante — le test aurait valide `volet-terminer` grace au
+  // `nomSuivi()` de `analyse`. Un extracteur approximatif rend un test qui ment.
+  const entrees = {};
+  {
+    const re = /\n {4}(?:'([a-z-]+)'|([a-z-]+)): \{/g;
+    let m, cle = null, debut = 0;
+    while ((m = re.exec(tableGuidage))) {
+      if (cle) entrees[cle] = tableGuidage.slice(debut, m.index);
+      cle = m[1] || m[2]; debut = m.index;
+    }
+    if (cle) entrees[cle] = tableGuidage.slice(debut);
+  }
+  verifier('33. … et le harnais decoupe bien la table (garde-fou du test lui-meme)',
+    Object.keys(entrees).length >= 10, true);
+  const affirme = ['volet-terminer', 'analyse', 'agglo-tracer'];
+  verifier('33. ⭐ toute etape qui affirme un etat NOMME sa commune',
+    affirme.filter(id => !/nomSuivi\(\)/.test(entrees[id] || '')), []);
+}
+
 titre('Les cas ou le guidage doit se TAIRE');
 verifier('13. guidage decoche ⇒ rien, jamais', etape({ guidage: false }), null);
 verifier('14. ⚠️ hors de France : le garde-fou parle deja, on ne le double pas',
@@ -240,11 +312,19 @@ titre('Verrous sur le SOURCE');
   // « ce volet » / « cette section » y designe donc un element qui n'est pas le
   // sien — c'est la regle « ne jamais guider vers un element qu'on ne montre
   // pas », appliquee aux MOTS. On nomme par la place, pas par la proximite.
-  const textesG = [...declarees.matchAll(/texte: '([^']*(?:\\'[^']*)*)'/g)].map(m => m[1]);
+  // ⚠️ v2.26.02 : un libelle peut desormais etre une FONCTION (les etapes qui
+  // affirment un etat nomment leur commune). L'ancien extracteur ne lisait que
+  // `texte: '…'` et devenait AVEUGLE a ces libelles — son propre garde-fou l'a
+  // dit. On lit donc TOUS les litteraux de la table, commentaires retires : ils
+  // parlent justement de « ce volet » pour expliquer pourquoi on l'a banni.
+  const sansCommentaires = declarees.split('\n')
+    .filter(l => !l.trim().startsWith('//')).join('\n');
+  const textesG = [...sansCommentaires.matchAll(/'([^'\\]*(?:\\.[^'\\]*)*)'/g)]
+    .map(m => m[1]).filter(t => /\s/.test(t));   // les libelles, pas les selecteurs CSS
   verifier('21. ⭐ aucun bandeau ne dit « ce volet » : il n\'y est pas',
     textesG.filter(t => /\bce volet\b|\bcette section\b/i.test(t)), []);
   verifier('21. … et le harnais lit bien les textes (garde-fou du test lui-meme)',
-    textesG.length >= 9, true);
+    textesG.length >= 20, true);
 
   // v2.25.01 : le bouton se ferme AUSSI pendant le sondage, sinon un clic rapide
   // lance un releve complet que la reponse legere va peut-etre rendre inutile.
