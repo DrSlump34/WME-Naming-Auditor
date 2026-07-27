@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.26.00
+// @version      2.26.01
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -1210,7 +1210,34 @@
    * vrai si une cellule etait encore pleine au zoom maximal, et ce doute doit
    * remonter jusqu'a l'editeur.
    */
-  async function chargerPanneauxAgglo(bbox, prog, sansSubdivision) {
+  /**
+   * ⚠️⚠️ LE SONDAGE DOIT POUVOIR DESCENDRE D'UN CRAN — MESURE DU 27/07.
+   *
+   * Signale par l'auteur sur **Saint-Geniès-de-Comolas** : « le bouton des
+   * panneaux est actif alors que la source n'en propose aucun ». Verifie sur la
+   * source, et il avait raison sur le fond : la commune n'a **AUCUN** panneau
+   * (releve complet : 148 EB dans la bbox, **0 dans le contour**). Mais le
+   * sondage tenait en UNE cellule, et cette cellule **sature a 500 items** — les
+   * B14 (limitations de vitesse) remplissent le quota bien avant les EB10 dans
+   * la vallee du Rhone. Il repondait donc « incertain » par prudence, et
+   * laissait le bouton actif. Ce n'etait pas une panne : c'etait un sondage qui
+   * n'avait pas les moyens de conclure.
+   *
+   * ⚡ MESURE SUR 8 COMMUNES — descendre d'UN SEUL niveau suffit :
+   *   Saint-Geniès · Saint-Laurent · Lirac : « incertain » (1 req) → **« aucun »**
+   *   (5 req), bouton enfin grise. Gruissan reste a 1 requete (cellule non
+   *   pleine). Les communes qui ONT des panneaux repondent « des » comme avant.
+   * ⚠️ Le zoom 15 ne change AUCUN verdict et coute plus cher (Lattes 13 requetes,
+   *   Ploemeur 9) : on s'arrete a 14, et un budget borne le pire cas.
+   */
+  const SONDAGE_ZOOM_MAX = 14, SONDAGE_BUDGET = 12;
+
+  /**
+   * @param {object|null} limites `{zoomMax, budget}` en mode SONDAGE : on
+   *   subdivise, mais pas jusqu'au bout et pas indefiniment. `null` = releve
+   *   complet, qui descend jusqu'a `ZOOM_PANNEAUX_MAX` sans plafond de cellules.
+   */
+  async function chargerPanneauxAgglo(bbox, prog, limites) {
     const vus = new Map();
     let cellules = 0, tronque = false;
     const aFaire = [];
@@ -1235,6 +1262,10 @@
 
     while (aFaire.length) {
       if (prog) prog.verifier();
+      // ⚠️ Budget du SONDAGE : il part tout seul a chaque changement de commune,
+      // il n'a pas le droit de partir en balayage. Budget epuise ⇒ on ne conclut
+      // PAS (« incertain »), on ne pretend pas avoir tout vu.
+      if (limites && cellules >= limites.budget) { tronque = true; break; }
       const { lat, lon, zoom } = aFaire.shift();
       cellules++;
       if (prog) prog.info(cellules + ' zone(s) interrogee(s), ' + vus.size + ' panneau(x) d\'agglo');
@@ -1254,11 +1285,13 @@
       }
       // Cellule pleine = SUSPECTE, jamais complete (voir le bloc d'en-tete).
       if (liste.length < PLAFOND_API) continue;
-      // ⚠️ En mode SONDAGE, on ne descend pas : on se contente de dire que le
-      // resultat est incomplet, et l'appelant en tirera « incertain » plutot que
-      // « aucun panneau ».
-      if (sansSubdivision) { tronque = true; continue; }
-      if (zoom >= ZOOM_PANNEAUX_MAX) { tronque = true; continue; }
+      // ⚠️ En mode SONDAGE, on descend — mais pas jusqu'au bout : au-dela de son
+      // zoom maximal, le doute est assume et l'appelant en tirera « incertain »
+      // plutot que « aucun panneau ». Ne PAS descendre du tout laissait le
+      // bouton actif sur des communes qui n'ont aucun panneau (cas
+      // Saint-Geniès-de-Comolas, mesure en tete de fonction).
+      const zMax = limites ? limites.zoomMax : ZOOM_PANNEAUX_MAX;
+      if (zoom >= zMax) { tronque = true; continue; }
       const { dLat, dLon } = demiEmprise(zoom + 1);
       for (const [dy, dx] of [[-dLat, -dLon], [-dLat, dLon], [dLat, -dLon], [dLat, dLon]]) {
         aFaire.push({ lat: lat + dy / 2, lon: lon + dx / 2, zoom: zoom + 1 });
@@ -2496,7 +2529,8 @@
     sondages.set(commune.code, { etat: 'encours', nb: 0 });
     let res;
     try {
-      const r = await chargerPanneauxAgglo(commune.bbox, null, true);   // sans subdivision
+      const r = await chargerPanneauxAgglo(commune.bbox, null,
+        { zoomMax: SONDAGE_ZOOM_MAX, budget: SONDAGE_BUDGET });
       const dedans = r.panneaux.filter(p => pointInGeom(p.longitude, p.latitude, commune.geom));
       res = dedans.length ? { etat: 'des', nb: dedans.length }
         : r.tronque ? { etat: 'incertain', nb: 0 }
@@ -9593,13 +9627,19 @@
             // On donne les DEUX chiffres : le total ne dit rien tout seul, c'est
             // la part qui garde un nom de rue en alternatif qui rend la
             // discussion possible (adresse recuperable ou non).
+            // ⚠️⚠️ UNE MESURE DIT SON RESULTAT MEME QUAND IL EST NUL. Un « 0 »
+            // noyé dans une phrase se lit comme « le contrôle n'a pas tourné » —
+            // l'auteur l'a vécu le 27/07 (« je coche, je relance, rien ne
+            // change »). Zéro est un RESULTAT : on l'annonce comme tel.
             (options.controles.hnSurRoute
-              ? '<br><span title="Mesure demandée par un éditeur, sans valeur normative : aucune règle française n\'interdit ce cas à ce jour.">📏 Mesure : <b>' +
-                s.adr.hnSurRoute + '</b> numéro(s) en agglomération sur une voie dont le nom ' +
-                'principal est un numéro de route' +
+              ? '<br><span title="Mesure demandée par un éditeur, sans valeur normative : aucune règle française n\'interdit ce cas à ce jour.">📏 Mesure' +
                 (s.adr.hnSurRoute
-                  ? ', dont <b>' + s.adr.hnSurRouteAvecAlt + '</b> ont un nom de rue en alternatif'
-                  : '') + '.</span>'
+                  ? ' : <b>' + s.adr.hnSurRoute + '</b> numéro(s) en agglomération sur une voie ' +
+                    'dont le nom principal est un numéro de route, dont <b>' +
+                    s.adr.hnSurRouteAvecAlt + '</b> avec un nom de rue en alternatif.'
+                  : ' : <b>aucun</b> numéro en agglomération sur une voie nommée « Dxxx » ' +
+                    'ici — le contrôle a bien tourné, cette commune n\'a pas le cas.') +
+                '</span>'
               : '') + '<br><b>' +
             s.adr.poiLus + '</b> POI résidentiel(s), dont <b>' + s.adr.poiAgglo + '</b> en agglomération' +
             // v2.19 — DIRE ce que les nuances ont tranché, et surtout ce

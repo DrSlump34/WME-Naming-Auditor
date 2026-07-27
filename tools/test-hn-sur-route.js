@@ -159,6 +159,12 @@ titre('Verrous sur le SOURCE');
   // Un compteur qui n'apparait nulle part ne mesure rien.
   verifier('21. ⭐ le resultat de la mesure est DIT dans le bilan',
     /options\.controles\.hnSurRoute/.test(src) && /hnSurRouteAvecAlt/.test(src), true);
+  // ⚠️ ZERO EST UN RESULTAT. Noyé dans une phrase, il se lit « le controle n'a
+  // pas tourné » — vecu par l'auteur le 27/07 (« je coche, je relance, rien ne
+  // change »). Le bilan doit avoir une branche EXPLICITE pour le cas nul.
+  verifier('21 bis. ⭐ le bilan dit explicitement quand la mesure ne trouve RIEN',
+    /aucun<\/b> numéro en agglomération sur une voie nommée/.test(src) &&
+    /le contrôle a bien tourné/.test(src), true);
 
   // ⚠️⚠️ LES DEUX DEFAUTS DE RENDU TROUVES EN BRANCHANT LA SUITE — la famille de
   // bug la plus couteuse du projet (le ⚡ des POI, v2.19) : le calcul etait juste,
