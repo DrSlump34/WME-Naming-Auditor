@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.24.03
+// @version      2.25.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -2887,8 +2887,13 @@
     if (edition) sortirEdition(false);
     const zone = el('<div id="agn-poignees"></div>');
     document.body.appendChild(zone);
+    // ⚠️ Échap annule l'edition et rend le trace d'avant. Le raccourci est
+    // ANNONCE dans l'infobulle du bouton d'enregistrement : une sortie de
+    // secours qu'on ne connait pas n'en est pas une.
+    const echap = e => { if (e.key === 'Escape' && edition) { e.stopPropagation(); sortirEdition(false); } };
+    document.addEventListener('keydown', echap, true);
     edition = {
-      agglo: a, zone,
+      agglo: a, zone, echap,
       points: a.ring.slice(0, -1).map(p => [p[0], p[1]]),   // anneau ouvert
       ringAvant: a.ring.slice()
     };
@@ -2908,6 +2913,7 @@
       edition.agglo.ring = edition.ringAvant;
     }
     edition.zone.remove();
+    if (edition.echap) document.removeEventListener('keydown', edition.echap, true);
     edition = null;
     saveAgglos(); redrawAgglos(); renderAgglos();
   }
@@ -7432,7 +7438,19 @@
     if (ong) ong.style.display = veut ? 'none' : '';
     o.style.height = veut ? 'auto' : (ui.hAvantRepli || 560) + 'px';
     o.style.resize = veut ? 'none' : 'both';
-    if (veut) basculerVolet(false); else placerVolet();
+    // ⚠️⚠️ LE VOLET REVIENT AVEC LA FENETRE. Replier fermait le volet, et le
+    // deployer ne le rouvrait pas : l'editeur qui reduit l'overlay « pour y voir
+    // plus clair » pendant qu'il tire les poignees le retrouvait disparu, sans
+    // rien pour le rappeler (auteur, 27/07). On memorise donc son etat, et une
+    // EDITION EN COURS le rouvre dans tous les cas — c'est precisement la qu'on
+    // en a besoin.
+    if (veut) {
+      ui.voletAvantRepli = !!(ui.volet && ui.volet.classList.contains('agn-volet-ouvert'));
+      basculerVolet(false);
+    } else {
+      placerVolet();
+      if (ui.voletAvantRepli || edition) basculerVolet(true);
+    }
     if (!veut) saveUI();
   }
 
@@ -7626,7 +7644,9 @@
       texte: 'Termine l\'édition pour enregistrer le tracé.',
       suite: 'Glisse un point plein, clique un point creux pour en ajouter, ' +
              'clic droit pour supprimer.' },
-    'volet-terminer': { n: 3, cible: '#agn-volet-ok', dansVolet: true,
+    // Le bilan de couverture ET le bouton : on veut qu'il soit LU avant d'etre
+    // clique — c'est le dernier moment ou une agglomeration oubliee se rattrape.
+    'volet-terminer': { n: 3, cible: '#agn-volet-ok, .agn-avert-exh', dansVolet: true,
       texte: 'Le zonage est fait — referme ce volet.',
       suite: '⚠️ Assure-toi d\'abord que TOUTES les agglomérations sont tracées : ' +
              'une agglomération oubliée passe en hors agglomération, et tous ses écarts seront faux.' },
@@ -7655,10 +7675,15 @@
     // ⚠️ Le volet est ferme : on montre le chemin (☰) plutot qu'un element que
     // personne ne voit.
     const voletOuvert = ui.volet && ui.volet.classList.contains('agn-volet-ouvert');
-    const cible = (g.dansVolet && !voletOuvert)
-      ? document.getElementById('agn-donnees')
-      : (g.cible ? document.querySelector(g.cible) : null);
-    if (cible) cible.classList.add('agn-guide');
+    // ⚠️ `querySelectorAll` : une etape peut designer PLUSIEURS elements — a la
+    // fin du zonage, le bouton « Terminer » ET le bilan de couverture, parce
+    // qu'il faut lire le second avant de cliquer le premier.
+    if (g.dansVolet && !voletOuvert) {
+      const chemin = document.getElementById('agn-donnees');
+      if (chemin) chemin.classList.add('agn-guide');
+    } else if (g.cible) {
+      document.querySelectorAll(g.cible).forEach(n => n.classList.add('agn-guide'));
+    }
   }
 
   function sectionsAide() {
@@ -8571,7 +8596,20 @@
     // Et le garde-fou territorial : l'analyse exige une France DEMONTREE. Le
     // bandeau juste au-dessus du bouton dit pourquoi il est ferme — un bouton
     // grise sans explication ne vaut pas mieux qu'une promesse vide.
-    ui.btnScan.disabled = (!liste.length && !declaree) || !enFrance();
+    // ⚠️⚠️ UNE EDITION EN COURS FERME TOUT LE RESTE (auteur, 27/07) : tant que
+    // le tracé n'est ni enregistré ni annulé, il n'existe pas vraiment. Analyser
+    // dessus donnerait des écarts calculés sur un polygone fantôme, et refermer
+    // le volet ferait perdre le seul bouton qui permet d'en sortir.
+    ui.btnScan.disabled = (!liste.length && !declaree) || !enFrance() || !!edition;
+    if (edition) ui.btnScan.title = 'Termine d\'abord l\'édition du tracé en cours ' +
+      '(💾 pour enregistrer, Échap pour annuler).';
+    const btnFin = ui.volet && ui.volet.querySelector('#agn-volet-ok');
+    if (btnFin) {
+      btnFin.disabled = !!edition;
+      btnFin.title = edition
+        ? 'Édition en cours : enregistre (💾) ou annule (Échap) avant de replier.'
+        : 'Referme ce volet et rend la place à la fenêtre de travail';
+    }
     if (!liste.length) {
       ui.listeAgglos.innerHTML = '';
       const bloc = el(`<div class="agn-empty">
@@ -8601,7 +8639,10 @@
                  placeholder="Étiquette (repérage seul)" value="${esc(a.label)}">
           <div class="agn-row">
             <label title="Le nom appliqué devient « Village (Commune) » au lieu du seul nom de la commune INSEE. Le village est lu sur la City du segment."><input type="checkbox" class="agn-ratt" ${a.rattache ? 'checked' : ''}> village rattaché</label>
-            <button class="agn-mini agn-edit" title="Éditer les sommets">✎</button>
+            <button class="agn-mini agn-edit${edition && edition.agglo === a ? ' agn-edit-on' : ''}" title="${
+              edition && edition.agglo === a
+                ? 'Enregistrer le tracé modifié · Échap pour annuler'
+                : 'Éditer les sommets'}">${edition && edition.agglo === a ? '💾' : '✎'}</button>
             <button class="agn-mini agn-zoom" title="Centrer">◎</button>
             <button class="agn-mini agn-del" title="Supprimer">✕</button>
           </div>
@@ -8622,7 +8663,10 @@
         const em = emprise(a.ring);
         centrerSurZoneVisible(em.centre, zoomPour(2 * em.rx, 2 * em.ry, em.centre.lat));
       };
-      node.querySelector('.agn-edit').onclick = () => entrerEdition(a);
+      // Le crayon devient le bouton d'ENREGISTREMENT pendant l'edition : c'est
+      // le meme endroit, donc le geste de retour est la ou on l'a laisse.
+      node.querySelector('.agn-edit').onclick = () =>
+        (edition && edition.agglo === a) ? sortirEdition(true) : entrerEdition(a);
       // Marque le polygone que le guidage doit designer : celui qui sort du
       // pre-trace et n'a pas encore ete repris a la main.
       if (a.aAffiner) node.classList.add('agn-a-affiner');
