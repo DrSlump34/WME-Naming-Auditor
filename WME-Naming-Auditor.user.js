@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.24.00
+// @version      2.24.01
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -2370,6 +2370,11 @@
   /** Efface le releve courant : appele des que la commune change. */
   function oublierPanneaux() {
     panneaux = []; bilanPanneaux = null;
+    // ⚠️⚠️ CE QUI DERIVE DES PANNEAUX DOIT PARTIR AVEC EUX. Sans ca, les
+    // secteurs de la commune PRECEDENTE survivaient au changement de commune :
+    // le guidage reclamait de couvrir des hameaux qui n'existent pas ici, et
+    // l'avertissement d'exhaustivite les nommait.
+    bilanPreTrace = null; secteursCourants = [];
     if (ui.btnPreTrace) ui.btnPreTrace.disabled = true;
     redrawPanneaux(); renderBilanPanneaux();
   }
@@ -7527,11 +7532,23 @@
     // le polygone n'est pas enregistre et rien d'autre n'a de sens.
     if (edition) return 'terminer';
     const zones = agglos[communeActive.code] || [];
-    if (!zones.length && !sansAgglo[communeActive.code]) {
+    const declaree = !!sansAgglo[communeActive.code];
+    // L'analyse a tourne : le parcours est fait, le guidage se tait. Sans ce
+    // garde, la regle « les panneaux d'abord » le ferait repartir en boucle.
+    if (lastScan) return null;
+    const s = sondageCourant();
+    const sourceMuette = !!(s && s.etat === 'aucun');
+    // ⚠️⚠️ LES PANNEAUX D'ABORD, MEME SI DES POLYGONES EXISTENT DEJA (auteur,
+    // 27/07). Ce n'est pas une politesse : sans releve, on ne peut pas savoir si
+    // les polygones couvrent TOUTE la commune — et une agglomeration oubliee
+    // passe en hors agglomeration, ce qui fausse toute l'analyse. Une commune
+    // deja tracee peut avoir gagne un hameau depuis.
+    // ⚠️ Sauf si la source est muette sur cette commune : inutile d'envoyer vers
+    // un bouton qu'on vient de griser.
+    if (!panneaux.length && !sourceMuette && !declaree) return 'agglo-panneaux';
+    if (!zones.length && !declaree) {
       // Le parcours de l'agglomeration, dans l'ordre ou il se deroule.
-      const s = sondageCourant();
-      if (s && s.etat === 'aucun') return 'agglo-tracer';        // source muette
-      if (!panneaux.length) return 'agglo-panneaux';             // relever d'abord
+      if (sourceMuette) return 'agglo-tracer';                   // rien a exploiter
       if (bilanPreTrace && !bilanPreTrace.tracables) return 'agglo-tracer';
       return 'agglo-proposer';
     }

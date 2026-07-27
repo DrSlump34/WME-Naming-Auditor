@@ -81,10 +81,14 @@ verifier('4. panneaux relevés et exploitables ⇒ proposer un tracé',
   etape({ communeActive: COMMUNE, sondage: { etat: 'des', nb: 7 },
           panneaux: [1, 2, 3], bilanPreTrace: { tracables: 1, rubans: 0, isoles: 0 } }),
   'agglo-proposer');
-verifier('5. un polygone existe ⇒ lancer l\'analyse',
-  etape({ communeActive: COMMUNE, agglos: { '83119': [{ ring: [] }] } }), 'analyse');
-verifier('6. analyse faite ⇒ plus rien a guider',
+verifier('5. ⭐ un polygone existe, mais panneaux PAS relevés ⇒ les relever d\'abord',
+  etape({ communeActive: COMMUNE, agglos: { '83119': [{ ring: [] }] } }), 'agglo-panneaux');
+verifier('5. … c\'est le seul moyen de savoir si le polygone couvre TOUTE la commune',
+  etape({ communeActive: COMMUNE, agglos: { '83119': [{ ring: [] }] },
+          panneaux: [1, 2], bilanPreTrace: { tracables: 1 } }), 'analyse');
+verifier('6. analyse faite ⇒ plus rien a guider (et pas de retour en boucle)',
   etape({ communeActive: COMMUNE, agglos: { '83119': [{ ring: [] }] }, lastScan: {} }), null);
+verifier('6. … même sans panneaux relevés', etape({ communeActive: COMMUNE, lastScan: {} }), null);
 
 titre('⚠️ Quand les panneaux ne servent a rien, on envoie au trace manuel');
 verifier('7. ⭐ aucun panneau sur la commune (cas Gruissan) ⇒ tracer a la main',
@@ -97,13 +101,19 @@ verifier('9. sondage incertain (source muette, reseau) ⇒ on n\'empeche rien',
   etape({ communeActive: COMMUNE, sondage: { etat: 'incertain', nb: 0 } }), 'agglo-panneaux');
 
 titre('Affiner puis enregistrer le trace propose');
+// ⚠️ Un polygone issu du PRE-TRACE implique que les panneaux ont ete releves :
+// l'etat « aAffiner sans panneaux » ne peut pas exister dans la vraie vie.
+const RELEVE = [1, 2, 3];
 verifier('10. un polygone issu du pre-trace ⇒ inviter a l\'affiner',
-  etape({ communeActive: COMMUNE, agglos: { '83119': [{ ring: [], aAffiner: true }] } }), 'affiner');
+  etape({ communeActive: COMMUNE, panneaux: RELEVE,
+          agglos: { '83119': [{ ring: [], aAffiner: true }] } }), 'affiner');
 verifier('11. ⚠️ une edition ouverte passe AVANT tout : rien n\'est enregistre tant qu\'elle dure',
-  etape({ communeActive: COMMUNE, agglos: { '83119': [{ ring: [], aAffiner: true }] },
+  etape({ communeActive: COMMUNE, panneaux: RELEVE,
+          agglos: { '83119': [{ ring: [], aAffiner: true }] },
           edition: { agglo: {} } }), 'terminer');
 verifier('12. trace affine (drapeau retire) ⇒ on passe a l\'analyse',
-  etape({ communeActive: COMMUNE, agglos: { '83119': [{ ring: [] }] } }), 'analyse');
+  etape({ communeActive: COMMUNE, panneaux: RELEVE,
+          agglos: { '83119': [{ ring: [] }] } }), 'analyse');
 
 titre('⚠️ EXHAUSTIVITE : une agglomeration oubliee fausse toute l\'analyse');
 {
@@ -111,17 +121,19 @@ titre('⚠️ EXHAUSTIVITE : une agglomeration oubliee fausse toute l\'analyse')
   // et le guidage doit le dire AVANT de laisser passer a l'analyse.
   const s1 = { g: { centre: { lon: 0, lat: 0 }, portes: 4 } };
   const s2 = { g: { centre: { lon: 1, lat: 1 }, portes: 2 } };
+  // Des secteurs connus supposent un releve : `panneaux` est donc renseigne.
   verifier('17. ⭐ un secteur non couvert ⇒ inviter a tracer la suite',
-    etape({ communeActive: COMMUNE, agglos: { '83119': [{ ring: [] }] },
+    etape({ communeActive: COMMUNE, panneaux: RELEVE, agglos: { '83119': [{ ring: [] }] },
             secteurs: [s1, s2], couverts: [s1.g] }), 'agglo-encore');
   verifier('18. tous les secteurs couverts ⇒ on passe a l\'analyse',
-    etape({ communeActive: COMMUNE, agglos: { '83119': [{ ring: [] }] },
+    etape({ communeActive: COMMUNE, panneaux: RELEVE, agglos: { '83119': [{ ring: [] }] },
             secteurs: [s1, s2], couverts: [s1.g, s2.g] }), 'analyse');
   verifier('19. ⚠️ le trace a affiner passe AVANT le rappel d\'exhaustivite',
-    etape({ communeActive: COMMUNE, agglos: { '83119': [{ ring: [], aAffiner: true }] },
+    etape({ communeActive: COMMUNE, panneaux: RELEVE,
+            agglos: { '83119': [{ ring: [], aAffiner: true }] },
             secteurs: [s1, s2], couverts: [] }), 'affiner');
-  verifier('20. aucun panneau relevé ⇒ pas de faux rappel (on ne sait rien)',
-    etape({ communeActive: COMMUNE, agglos: { '83119': [{ ring: [] }] },
+  verifier('20. aucun secteur connu ⇒ pas de faux rappel (on ne sait rien)',
+    etape({ communeActive: COMMUNE, panneaux: RELEVE, agglos: { '83119': [{ ring: [] }] },
             secteurs: [], couverts: [] }), 'analyse');
 }
 
