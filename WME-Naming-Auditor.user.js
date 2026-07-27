@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.25.02
+// @version      2.26.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -315,6 +315,11 @@
     // pour un daltonien.
     adresse: { libelle: 'Numéro de rue hors agglomération', defaut: '#00e5ff' },
     rpp: { libelle: 'RPP en agglomération (à trancher)', defaut: '#e040fb' },
+    // ⚠️ MESURE, PAS ECART — et la couleur le dit : un GRIS neutre, quand toutes
+    // les familles d'ecarts sont saturees. Un cas qu'aucune regle n'interdit ne
+    // doit pas s'allumer sur la carte comme un defaut.
+    hnRoute: { libelle: '📏 Mesure : numéro sur une voie « Dxxx » (pas un écart)',
+               defaut: '#90a4ae' },
     // Les VRAIS POI (v2.15) : famille a part, pour ne pas les confondre avec les
     // RPP sur la carte — ce sont deux sujets differents.
     poiAdresse: { libelle: 'POI : adresse en écart', defaut: '#ffab00' },
@@ -324,7 +329,12 @@
     panneauOk: { libelle: 'Panneau dans un polygone', defaut: '#00e676' },
     panneauHors: { libelle: 'Panneau HORS polygone', defaut: '#ff1744' }
   };
-  const familleDe = f => f.poi ? 'poiAdresse'
+  // ⚠️⚠️ LA MESURE PASSE EN PREMIER, ET SE RANGE A PART. Elle porte
+  // `adresse:true` et `sousType:'hn'` comme un vrai ecart : sans ce test en
+  // tete, elle atterrissait dans « Numéro de rue hors agglomération » et se
+  // lisait comme un defaut a corriger — exactement ce qu'elle n'est pas.
+  const familleDe = f => f.mesure ? 'hnRoute'
+    : f.poi ? 'poiAdresse'
     : f.adresse ? (f.sousType === 'poi' ? 'rpp' : 'adresse')
     : f.cas === 'GIR' ? 'giratoire'
     : f.special ? 'special'
@@ -1735,6 +1745,40 @@
     } catch (e) { log('surveillance des erreurs d\'enregistrement impossible', e); }
   }
 
+  /**
+   * Recopier le message de WME ne suffit pas : « le lieu a un numéro de rue
+   * invalide » ne dit ni ce qui se passe, ni quoi faire — et il se lit
+   * naturellement comme « ce numéro existe déjà », ce qui est FAUX et envoie
+   * l'éditeur chercher un doublon qui n'existe pas.
+   *
+   * ⚠️⚠️ CE QU'ON SAIT, MESURE EN LIVE le 21/07 (« 721 Chemin de la Bégude »,
+   * Saint-Laurent-des-Arbres) — voir [[wme-sdk-pieges]] :
+   *  - le refus est HTTP 406 sur `POST app/Features`, sur UN numéro précis ;
+   *  - ce n'est PAS une règle d'unicité : `addHouseNumber` du MEME numéro passe,
+   *    seuls les POI sont refusés ;
+   *  - il SURVIT à la suppression enregistrée du numéro homonyme (testé dans les
+   *    deux ordres, et lot par lot) ;
+   *  - c'est donc une donnée résiduelle côté serveur Waze, INVISIBLE dans
+   *    l'éditeur : rien à corriger sur la carte ;
+   *  - le staff sait la purger (fait le 25/07, sujet 408679 — l'adresse est
+   *    redevenue enregistrable pour tout le monde).
+   *
+   * ⇒ On NOMME le cas et on donne la sortie : signaler l'adresse exacte.
+   * ⚠️ Le message de WME est traduit : on reconnaît le FR et l'EN.
+   */
+  const RE_REFUS_HN = /num[ée]ro de rue invalide|invalid house ?number|house ?number is invalid/i;
+
+  function expliquerRefus(texte) {
+    if (!RE_REFUS_HN.test(texte || '')) return '';
+    return '<div class="agn-err-expl">🔎 <b>Ce n\'est pas un doublon d\'adresse.</b> ' +
+      'Waze garde une trace résiduelle de ce numéro précis, côté serveur, invisible dans ' +
+      'l\'éditeur : le POI est refusé même après avoir supprimé et enregistré le numéro ' +
+      'de rue du même nom. Le numéro de rue, lui, reste acceptable — seul le lieu est bloqué.' +
+      '<br><b>Rien à corriger sur la carte</b> : annule (Ctrl+Z), et signale l\'adresse exacte ' +
+      'au staff sur le forum Waze — ils savent purger le résidu, et l\'adresse redevient ' +
+      'enregistrable pour tout le monde.</div>';
+  }
+
   function afficherBandeauErreur(texte) {
     if (!ui.corps) return;
     let b = document.querySelector('#agn-err-save');
@@ -1743,8 +1787,9 @@
       ui.corps.insertBefore(b, ui.corps.firstChild);
     }
     b.innerHTML = '<b>⛔ WME a refusé l\'enregistrement</b><div class="agn-err-msg">' +
-      esc(texte) + '</div><span class="agn-err-note">Message repris de WME (sa propre alerte est ' +
-      'cachee derrière cette fenêtre). Il disparaitra quand l\'alerte de WME se fermera.</span>';
+      esc(texte) + '</div>' + expliquerRefus(texte) +
+      '<span class="agn-err-note">Message repris de WME (sa propre alerte est ' +
+      'cachée derrière cette fenêtre). Il disparaîtra quand l\'alerte de WME se fermera.</span>';
     // Si la fenetre est repliee ou fermee, on la rouvre : sinon le bandeau
     // resterait invisible et on n'aurait rien gagne.
     if (ui.overlay) {
@@ -1860,9 +1905,15 @@
                           remplissage: 0.18, trait: estActif ? 4 : 3, label: '' } });
         } else {
           // Numero de rue = disque plein cyan, avec le numero ecrit dedans.
+          // ⚠️⚠️ LA COULEUR SE PREND PAR LA FAMILLE, pas en dur. Ecrire
+          // `couleurs.adresse` peignait TOUS les points en cyan — y compris la
+          // MESURE « numéro sur une voie Dxxx » (v2.26), qui se serait lue comme
+          // un ecart a corriger. C'est la faute meme que la palette denonce plus
+          // haut : deux natures opposees sous la meme couleur, cote a cote sur la
+          // carte. Les lignes, elles, passaient deja par `familleDe`.
+          const teinte = options.couleurs[familleDe(f)] || options.couleurs.adresse || '#00e5ff';
           points.push({ id: 'ad-' + cle, type: 'Feature', geometry: f.geom,
-            properties: { couleur: options.couleurs.adresse || '#00e5ff',
-                          contour: options.couleurs.adresse || '#00e5ff',
+            properties: { couleur: teinte, contour: teinte,
                           rayon: estActif ? 11 : 7, remplissage: 0.55, trait: 2,
                           label: (f.hns && f.hns.length === 1) ? String(f.hns[0].number) : '' } });
         }
@@ -3352,6 +3403,18 @@
         { cle: 'fonctionDirection', portee: 'forme', libelle: 'Fonction ou direction dans le nom' },
         { cle: 'hnHorsAgglo', portee: 'adresse',
           libelle: 'Numéros de rue (HN) hors agglomération' },
+        // ⚠️⚠️ CECI EST UNE MESURE, PAS UNE REGLE — et le libelle doit le dire.
+        // Origine : Glenan56 (rang 6, 27/07) propose qu'en ville les numeros ne
+        // soient poses que sur les segments dont le PRINCIPAL est l'adresse
+        // postale, pour ne pas fabriquer d'adresses non postales sur une Dxxx.
+        // ⚠️ Il demande LUI-MEME que la norme passe par les LC et le wiki AVANT
+        // d'etre codee — et c'est la doctrine du projet : le script APPLIQUE la
+        // norme, il ne la CREE pas. Ce controle ne juge donc rien : il COMPTE,
+        // pour que la discussion parte de chiffres et non d'impressions.
+        // ⇒ DECOCHE PAR DEFAUT (meme parti que `poiNumero`), aucun bouton de
+        // correction, et le report dit explicitement que ce n'est pas un ecart.
+        { cle: 'hnSurRoute', portee: 'adresse', defaut: false,
+          libelle: 'Mesure : numéros posés sur une voie nommée « D/N/C… » (pas une règle)' },
         { cle: 'poiAgglo', portee: 'adresse',
           libelle: 'POI résidentiels en agglomération (à vérifier)' },
         // ── Les VRAIS POI (pas les RPP) : audit de leur adresse ───────────────
@@ -4672,7 +4735,13 @@
     const c = options.controles;
     const faireHn = (!phases || phases.hn) && c.hnHorsAgglo;
     const fairePoi = (!phases || phases.poi) && c.poiAgglo;
-    if (!faireHn && !fairePoi) return;
+    // ⚠️ La MESURE des numeros poses sur une voie « Dxxx » est INDEPENDANTE du
+    // controle « numeros hors agglomeration » : elle porte sur les numeros EN
+    // agglomeration, que celui-ci ecarte precisement. Elle doit donc pouvoir
+    // tourner seule — sinon on ne mesurerait que chez ceux qui ont deja coche
+    // autre chose, et le chiffre ne vaudrait rien.
+    const faireHnRoute = (!phases || phases.hn) && c.hnSurRoute;
+    if (!faireHn && !fairePoi && !faireHnRoute) return;
     // Avant toute chose : rendre visibles les objets qu'on va commenter.
     stats.calquesActives = activerCalquesNumerotation();
     if (stats.calquesActives.length) {
@@ -4702,7 +4771,7 @@
     // agglomeration, que la phase 1 ecarte justement. Une seule lecture nourrit
     // les deux, et le controle POI la declenche meme seul.
     let tousHn = [];
-    if (faireHn || fairePoi) {
+    if (faireHn || fairePoi || faireHnRoute) {
       try {
         // ⚠️ `fetchHouseNumbers` a une LIMITE DE LOT non documentee : mesuree en
         // live, 500 segments passent, 600 sont rejetes d'emblee (« Server
@@ -4836,6 +4905,81 @@
                     communeActive.nom + ' » : c\'est la commune INSEE qui est appliquée au POI'
                   : null
         });
+        }
+      }
+    }
+
+    // --- 1 bis. MESURE : numeros poses sur une voie nommee « Dxxx » ----------
+    //
+    // ⚠️⚠️ CE BLOC NE JUGE RIEN. Il repond a une question posee par Glenan56 le
+    // 27/07 : en ville, combien de numeros sont poses sur un segment dont le nom
+    // PRINCIPAL est un numero de route, et pas une adresse postale ? Sa norme
+    // proposee voudrait les interdire ; elle n'est ni validee par les LC ni au
+    // wiki, donc le script se contente de COMPTER (voir le commentaire du
+    // controle `hnSurRoute`).
+    //
+    // ⚠️ Le critere est le PRINCIPAL SEUL, volontairement. La regle de nommage
+    // hors agglomeration du projet met justement le numero de route en principal
+    // et le nom de rue en ALTERNATIF (cas du camp militaire, v2.19 : « D121 » en
+    // principal, « Route de Laudun » en alternatif). Glenan56 tolere d'ailleurs
+    // l'alternatif pour les variantes d'ecriture et les langues regionales. Un
+    // segment qui porte un vrai nom de rue en principal n'entre donc pas dans la
+    // mesure, meme s'il a un numero de route en alternatif.
+    if (faireHnRoute) {
+      // ⚠️ Son PROPRE jeu de « deja vus » : `stats.hnVus` appartient au controle
+      // hors agglomeration. Partager les deux ferait qu'un numero vu par l'un
+      // deviendrait invisible pour l'autre — selon l'ordre des cellules, donc de
+      // maniere imprevisible.
+      if (!stats.hnRouteVus) stats.hnRouteVus = new Set();
+      const parSegment = new Map();
+      for (const hn of tousHn) {
+        if (stats.hnRouteVus.has(hn.id)) continue;
+        stats.hnRouteVus.add(hn.id);
+        const p = hn.geometry && hn.geometry.coordinates;
+        if (!p) continue;
+        if (!dansCommune(p[0], p[1])) continue;
+        // Hors agglomeration, un numero sur une Dxxx est deja traite par le
+        // controle 1 (il doit devenir un POI residentiel) : le compter ici
+        // ferait un doublon de report sur le meme numero.
+        if (!dansAgglo(p[0], p[1])) continue;
+        if (!parSegment.has(hn.segmentId)) parSegment.set(hn.segmentId, []);
+        parSegment.get(hn.segmentId).push(hn);
+      }
+      for (const [segId, liste] of parSegment) {
+        const seg = segmentDe(segId);
+        let nam = null; try { nam = seg ? readNaming(seg) : null; } catch (e) { /* hors modele */ }
+        if (!nam || !estNumero(nam.primary)) continue;
+        const nomPrincipal = fmt(nam.primary);
+        // Le nom de rue existe-t-il malgre tout, en alternatif ? C'est ce qui
+        // distingue « adresse recuperable » de « aucune adresse postale ici » —
+        // et c'est le chiffre qui rendra la discussion utile.
+        const alt = (nam.alts || []).find(a => a && a.name && !RE_ROUTE.test(a.name.trim()));
+        stats.hnSurRoute = (stats.hnSurRoute || 0) + liste.length;
+        if (alt) stats.hnSurRouteAvecAlt = (stats.hnSurRouteAvecAlt || 0) + liste.length;
+        for (const h of liste) {
+          findings.push({
+            adresse: true, sousType: 'hn', cas: 'HN-RTE', segId,
+            // ⚠️⚠️ LE DRAPEAU QUI FERME TOUT : pas de bouton ⚡ (`planDeCorrection`
+            // sort dessus) et pas le message « la conversion ne peut pas etre
+            // proposee », qui serait faux — il n'y a AUCUNE conversion prevue.
+            mesure: true,
+            hnId: h.id,
+            libelle: nomPrincipal + ' — n° ' + h.number,
+            roadType: seg ? seg.roadType : null,
+            nbPoints: 1,
+            hns: [{ id: h.id, number: h.number, geometry: h.geometry }],
+            geom: h.geometry,
+            centre: (p => ({ lon: p[0], lat: p[1] }))(centreGeom(h.geometry)),
+            ecarts: [{ champ: 'mesure (pas un écart)',
+                       avant: 'n° ' + h.number + ' sur « ' + nomPrincipal +
+                              ' » — le nom principal est un numéro de route',
+                       apres: alt
+                         ? 'nom de rue présent en alternatif : « ' + alt.name.trim() + ' »'
+                         : 'aucun nom de rue sur ce segment, même en alternatif' }],
+            doute: 'Relevé à la demande d\'un éditeur, pour mesurer l\'ampleur du cas. ' +
+                   'Ce n\'est pas un écart : aucune règle française ne l\'interdit à ce jour. ' +
+                   'Ne corrige rien sur cette seule base.'
+          });
         }
       }
     }
@@ -5523,7 +5667,13 @@
                        // contraire PROUVES a leur place par leur point d'acces
                        // (ceux-la ne sont plus signales : il faut le DIRE), et
                        // combien portent une photo.
-                       poiAggloEcart: 0, poiAggloConforme: 0, poiAggloPhoto: 0 };
+                       poiAggloEcart: 0, poiAggloConforme: 0, poiAggloPhoto: 0,
+                       // v2.26 — la MESURE demandee par Glenan56 : numeros en
+                       // agglomeration dont le segment porte un numero de route
+                       // en principal, et parmi eux ceux qui gardent malgre tout
+                       // un nom de rue en alternatif. Un compteur qui n'apparait
+                       // nulle part ne mesure rien : les deux sont dits au bilan.
+                       hnSurRoute: 0, hnSurRouteAvecAlt: 0, hnRouteVus: new Set() };
     // Les VRAIS POI (pas les RPP) ont leur propre onglet et leurs propres comptes.
     // ⚠️ `poiNaturels` est compte pour qu'on VOIE que le script les a ecartes
     // exprès (rivieres, forets…), plutot que de les passer sous silence.
@@ -5895,6 +6045,11 @@
     // l'adresse en double, donc pire qu'avant. Si l'un des deux ne peut pas se
     // faire, le bouton n'apparait pas et la ligne dit pourquoi.
     if (f.adresse) {
+      // ⚠️⚠️ UNE MESURE NE SE CORRIGE PAS. Le report `HN-RTE` ne constate pas un
+      // ecart : il compte un cas soumis a discussion. Lui donner un bouton
+      // reviendrait a faire appliquer par le script une norme que personne n'a
+      // encore validee — l'inverse exact de la doctrine du projet.
+      if (f.mesure) return null;
       if (f.sousType !== 'hn') return null;          // un POI en ville se juge sur place
       // Les voies privees et parkings sont convertibles comme les autres.
       // (Elles avaient ete bridees en v1.77 en soupconnant le refus
@@ -6880,6 +7035,12 @@
   #agn-err-save b{font-size:12px}
   #agn-err-save .agn-err-msg{margin:4px 0;font-weight:600}
   #agn-err-save .agn-err-note{display:block;font-size:11px;opacity:.8;font-style:italic}
+  /* L'explication du refus 406 : fond clair pour se detacher du message brut de
+     WME juste au-dessus, sans quitter le bandeau rouge. ⚠️ On force le FOND et
+     la COULEUR ensemble — poser l'un sans l'autre a rendu deux boutons
+     illisibles en deux jours (v2.20.01 et v2.24.03). */
+  #agn-err-save .agn-err-expl{background:#fff6f5;border-radius:4px;padding:6px 8px;
+    margin:6px 0;font-weight:400;line-height:1.45;color:#8a1c14}
   .agn-modale-saisie{border-top:1px dashed var(--agn-bord, #cfd8dc);margin-top:8px;padding-top:8px}
   .agn-modale-saisie input{width:100%;box-sizing:border-box;padding:5px 7px;font-size:12px;
     border:1px solid #bbb;border-radius:4px;margin:3px 0}
@@ -7820,6 +7981,15 @@
           <tr><td><b>… accès sur une AUTRE voie</b></td><td>La preuve inverse : le POI est à sa place, il n'est <b>plus signalé du tout</b> — mais il reste compté dans le bilan.</td></tr>
           <tr><td><b>📷 photo</b></td><td>Un RPP photographié a été posé par quelqu'un venu sur place. Il reste signalé, <b>en fin de liste</b>, avec la mention : regarde-le de près avant de le supprimer.</td></tr>
         </table>
+        <p><b>📏 Une mesure, et pas une règle.</b> Un contrôle <b>décoché par défaut</b> compte les
+          numéros posés, <b>en agglomération</b>, sur un segment dont le <b>nom principal est un
+          numéro de route</b> (« D121 ») plutôt qu'une adresse postale. Il donne aussi combien
+          d'entre eux gardent un vrai nom de rue <b>en alternatif</b>.</p>
+        <div class="agn-aide-note">⚠️ Ces cas <b>ne sont pas des écarts</b> et n'ont <b>aucun bouton
+          de correction</b> : à ce jour aucune règle française ne les interdit. Le relevé existe
+          parce qu'un éditeur a proposé d'en faire une norme ; il faudra qu'elle soit validée par les
+          <b>Local Champs</b> et écrite au <b>wiki</b> avant que le script en tire quoi que ce soit.
+          <b>Le script applique les règles, il n'en crée pas.</b></div>
         <div class="agn-aide-note">La conversion <b>POI → numéro</b> n'est pas automatisée, volontairement :
           le script ne sait dire ni sur quel segment ni à quel endroit poser le numéro, et supprimer le POI
           emporterait son nom, son point d'entrée et ses photos. Il te guide, tu fais le geste.</div>` },
@@ -7855,7 +8025,7 @@
           <tr><td><b>Territoire indéterminé</b></td><td>Le script attend d'être sûr d'être en France avant d'appliquer des règles françaises. <b>Choisis une commune</b> : cela suffit. Sinon, zoome à 14 ou plus.</td></tr>
           <tr><td><b>Numéros non chargés</b></td><td>WME ne descend les numéros de rue qu'<b>à partir du zoom 18</b>. La conversion cadre elle-même la carte pour les faire venir.</td></tr>
           <tr><td><b>POI résidentiels absents</b></td><td>Ils ne sont servis qu'à partir du <b>zoom 17</b> — d'où la voie rapide, qui ne dépend pas du zoom.</td></tr>
-          <tr><td><b>« a un numéro de rue invalide »</b></td><td>Refus de WME sur <b>un numéro précis</b>, même après suppression du HN homonyme : c'est un <b>résidu côté serveur Waze</b>, invisible dans l'éditeur. Rien à corriger côté script — signale l'adresse exacte, le staff sait la purger.</td></tr>
+          <tr><td><b>« a un numéro de rue invalide »</b></td><td><b>Ce n'est pas un doublon d'adresse</b>, malgré ce que le message laisse croire. Refus de WME sur <b>un numéro précis</b>, qui persiste <b>même après avoir supprimé et enregistré</b> le numéro de rue du même nom — et le numéro de rue, lui, reste acceptable : seul le lieu est bloqué. C'est un <b>résidu côté serveur Waze</b>, invisible dans l'éditeur. Rien à corriger sur la carte : annule, et signale l'adresse exacte au staff, qui sait la purger. Le script <b>recopie ce message et l'explique</b> dans un bandeau, car l'alerte de WME s'affiche derrière sa fenêtre.</td></tr>
           <tr><td><b>Analyse interrompue</b></td><td>Les constats qui supposent d'avoir tout vu (villes sans polygone, cartouches d'une voie entière) sont alors présentés comme <b>non fiables</b>, pas cachés.</td></tr>
           <tr><td><b>Rien n'est enregistré</b></td><td>Le compteur de la fenêtre rappelle combien de modifications attendent dans WME. <b>C'est toi qui enregistres.</b></td></tr>
         </table>` },
@@ -9418,7 +9588,19 @@
             (options.controles.hnHorsAgglo
               ? ', dont <b>' + s.adr.hnHorsAgglo + '</b> hors agglomération.'
               : '<span title="Ils ont été lus pour repérer les POI résidentiels qui font doublon avec un numéro déjà posé.">' +
-                ' (contrôle « numéros hors agglomération » décoché).</span>') + '<br><b>' +
+                ' (contrôle « numéros hors agglomération » décoché).</span>') +
+            // ⚠️ Le resultat de la MESURE se lit ici, et il est nomme comme tel.
+            // On donne les DEUX chiffres : le total ne dit rien tout seul, c'est
+            // la part qui garde un nom de rue en alternatif qui rend la
+            // discussion possible (adresse recuperable ou non).
+            (options.controles.hnSurRoute
+              ? '<br><span title="Mesure demandée par un éditeur, sans valeur normative : aucune règle française n\'interdit ce cas à ce jour.">📏 Mesure : <b>' +
+                s.adr.hnSurRoute + '</b> numéro(s) en agglomération sur une voie dont le nom ' +
+                'principal est un numéro de route' +
+                (s.adr.hnSurRoute
+                  ? ', dont <b>' + s.adr.hnSurRouteAvecAlt + '</b> ont un nom de rue en alternatif'
+                  : '') + '.</span>'
+              : '') + '<br><b>' +
             s.adr.poiLus + '</b> POI résidentiel(s), dont <b>' + s.adr.poiAgglo + '</b> en agglomération' +
             // v2.19 — DIRE ce que les nuances ont tranché, et surtout ce
             // qu'elles ont ÉCARTÉ : un compte qui baisse sans explication se
@@ -9546,7 +9728,7 @@
               f.aideTitre ? '<b>🛠 ' + esc(f.aideTitre) + '</b>' : ''}${
               f.aide.map(t => '<div class="agn-aide-l">' + esc(t) + '</div>').join('')}</div>` : ''}
             ${f.doute ? `<div class="agn-warn">⚠ ${esc(f.doute)}</div>` : ''}
-            ${f.adresse && f.sousType === 'hn' && !f.rueCible
+            ${f.adresse && f.sousType === 'hn' && !f.rueCible && !f.mesure
               ? '<div class="agn-warn">⚠ Nom de rue introuvable ou ambigu sur ce segment : ' +
                 'la conversion ne peut pas être proposée.</div>'
               : ''}
