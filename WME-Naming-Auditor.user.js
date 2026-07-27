@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.26.04
+// @version      2.27.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -7077,6 +7077,8 @@
   /* Ligne traitée : plus d'eclair non plus — il ne ferait rien. */
   .agn-item.agn-traite .agn-fix-btn{display:none}
   .agn-traites{color:var(--agn-vert, #2e7d32);font-weight:600}
+  /* Selection partielle : orange, parce qu'il y a un geste a faire (dezoomer). */
+  .agn-selinfo{color:var(--agn-orange, #e65100);font-weight:600;cursor:help}
   .agn-nb{color:var(--agn-bleu-fonce, #1565c0);font-weight:700}
   .agn-lock{color:var(--agn-rouge, #c62828);font-weight:700}
   .agn-cartouche{border-left-color:#fbc02d}
@@ -9406,6 +9408,28 @@
     ui.traites.textContent = n ? n + ' traite' + (n > 1 ? 's' : '') : '';
   }
 
+  /** Jeton de generation : voir `allerA`. */
+  let selGen = 0;
+
+  /**
+   * ⭐ « PAS TOUT » EST UN RESULTAT, AU MEME TITRE QUE ZERO.
+   *
+   * ⚠️⚠️ Signale par Glenan56 (27/07) : le script affichait le bon nombre de
+   * segments (il vient de l'analyse) puis en selectionnait une PARTIE, sans
+   * rien dire. L'editeur corrigeait donc la moitie d'une Dxxx en croyant
+   * l'avoir traitee en entier — le silence coutait du travail, pas du confort.
+   *
+   * Le constat ne s'affiche QUE s'il manque quelque chose : afficher « 8 / 8 »
+   * a chaque clic ferait un bruit de fond dont on ne verrait plus l'exception.
+   */
+  function direSelection(n, total) {
+    if (!ui.selinfo) return;
+    if (!total || n >= total) { ui.selinfo.textContent = ''; ui.selinfo.title = ''; return; }
+    ui.selinfo.textContent = '⚠ ' + n + ' / ' + total + ' sélectionné' + (n > 1 ? 's' : '');
+    ui.selinfo.title = 'WME ne descend que les segments présents dans la vue : ceux restés ' +
+      'dehors ne peuvent pas être sélectionnés. Dézoome d\'un cran, puis reclique sur cette ligne.';
+  }
+
   function allerA(i) {
     const items = [...ui.results.querySelectorAll('.agn-item')];
     if (!items.length) return;
@@ -9433,7 +9457,12 @@
     // ⚠️ `f.poi` (les VRAIS POI, v2.15) autant que les RPP : sans ce test, un
     // ecart de POI partait dans la branche « segment » avec un identifiant de
     // venue, et la selection echouait silencieusement.
+    // ⚠️ Tout changement de report annule les tentatives du precedent : sans ce
+    // jeton, un `setInterval` encore en vol REPOSAIT la selection de l'ancien
+    // report par-dessus le nouveau, plusieurs secondes apres le clic.
+    const gen = ++selGen;
     if (f.poi || (f.adresse && f.sousType === 'poi')) {
+      direSelection(0, 0);
       try { sdk.Editing.setSelection({ selection: { ids: [f.venueId], objectType: 'venue' } }); }
       catch (e) { log('sélection du POI impossible', e); }
       redrawEcarts(idx);
@@ -9442,18 +9471,23 @@
     // On ne peut selectionner que ce qui est CHARGE dans le modele : apres un
     // deplacement, les troncons eloignes n'arrivent qu'au chargement suivant.
     // D'ou plusieurs tentatives, sur les seuls segments reellement presents.
+    const attendus = (f.segIds || []).length;
     const selectionner = () => {
-      const dispo = f.segIds.filter(id => {
+      const dispo = (f.segIds || []).filter(id => {
         try { return !!sdk.DataModel.Segments.getById({ segmentId: id }); } catch (e) { return false; }
       });
+      direSelection(dispo.length, attendus);
       if (!dispo.length) return false;
       try { sdk.Editing.setSelection({ selection: { ids: dispo, objectType: 'segment' } }); }
       catch (e) { log('sélection impossible', e); }
-      return dispo.length === f.segIds.length;
+      return dispo.length === attendus;
     };
     if (!selectionner()) {
       let n = 0;
-      const t = setInterval(() => { if (selectionner() || ++n > 6) clearInterval(t); }, 600);
+      const t = setInterval(() => {
+        if (gen !== selGen) { clearInterval(t); return; }
+        if (selectionner() || ++n > 9) clearInterval(t);
+      }, 600);
     }
 
     redrawEcarts(idx);
@@ -9624,67 +9658,127 @@
    * « zoomer au clic » : une conversion de numero EXIGE le zoom 18 pour que WME
    * descende les numeros — ce n'est plus un confort de lecture, c'est technique.
    */
-  function cadrerSur(f, forcerZoom) {
+  /**
+   * OU poser la carte pour qu'un report soit ENTIEREMENT selectionnable.
+   *
+   * ⚠️⚠️ RETOUR TERRAIN Glenan56 (27/07) : « le script, la premiere fois, zappe
+   * pratiquement toujours la selection de l'ensemble des segments » d'une Dxxx
+   * hors ville ; « en deplaçant la carte manuellement pour le verifier, la
+   * deuxieme fois il selectionne bien toute la Dxxx ». Il avait mis le doigt
+   * sur la cause exacte : « le zoom etait un peu trop fort suite a la demande
+   * de selection ».
+   *
+   * ⭐ ON NE PEUT SELECTIONNER QUE CE QUE WME A CHARGE, ET WME NE CHARGE QUE LA
+   * VUE. Or le cadrage se posait sur le TRONÇON LE PLUS LONG des qu'un report
+   * etait eparpille (> 1 km) : les autres tronçons restaient hors ecran, donc
+   * jamais charges — et les six tentatives de selection qui suivaient ne
+   * pouvaient rien y faire, elles reguettaient un modele qui n'allait pas se
+   * remplir. Le COMPTE, lui, etait juste : il vient de l'analyse, pas du
+   * modele. D'ou le symptome exact qu'il decrit — bon compte, mauvaise
+   * selection.
+   *
+   * ⇒ On cadre desormais l'emprise TOTALE, quitte a etre large : une selection
+   * complete vaut mieux qu'un gros plan sur un tiers du report. Le repli sur le
+   * tronçon le plus long ne sert plus qu'au cas ou l'emprise ne tient meme pas
+   * au zoom de chargement — la, AUCUN cadrage ne peut tout rendre selectionnable,
+   * et `tout: false` le dit au lieu de le taire.
+   *
+   * PURE : ne lit ni le SDK ni le DOM. `vue` = { largeur, hauteur, zoomNiveau }.
+   */
+  function cadrageDeReport(f, vue) {
     const geoms = (f.geoms || [f.geom]).filter(g => g && g.coordinates && g.coordinates.length);
-    if (!geoms.length) {
-      if (f.centre) centrerSurZoneVisible(f.centre, null);
-      return;
-    }
-    // ⚠️⚠️ Chaque type de geometrie imbrique ses coordonnees d'un cran de plus :
-    // un Point porte `[lon, lat]`, une ligne `[[lon,lat], …]`, un POLYGONE
-    // `[[[lon,lat], …]]`. Etaler `coordinates` a la main marchait pour les deux
-    // premiers et donnait des ANNEAUX au lieu de points pour le troisieme :
-    // l'emprise partait en NaN et la carte ne bougeait pas. C'est le bug signale
-    // par l'auteur le 26/07 — « le clic sur un ecart de POI ne centre pas
-    // dessus » — les POI etant justement souvent surfaciques (79 sur 136 mesures).
-    // `sommetsDe` aplatit n'importe quelle profondeur : on ne devine plus.
-    const tous = [];
-    geoms.forEach(g => { tous.push.apply(tous, sommetsDe(g)); });
-    if (!tous.length) {
-      if (f.centre) centrerSurZoneVisible(f.centre, null);
-      return;
-    }
-    let e = emprise(tous);
-    let z = zoomPour(2 * e.rx, 2 * e.ry, e.centre.lat);
-
-    if (f.disperse && geoms.length > 1) {
-      // Trop disperse : on se pose sur le troncon le plus long.
-      let meilleur = geoms[0], long = -1;
-      geoms.forEach(g => {
-        let d = 0;
-        for (let i = 1; i < g.coordinates.length; i++) d += longueur(g.coordinates[i - 1], g.coordinates[i]);
-        if (d > long) { long = d; meilleur = g; }
-      });
-      // ⚠️ Meme precaution que plus haut : on aplatit au lieu de supposer la
-      // profondeur des coordonnees.
-      e = emprise(sommetsDe(meilleur));
-      z = zoomPour(2 * e.rx, 2 * e.ry, e.centre.lat);
-    }
-
     // Un report d'ADRESSE se regarde de pres : sous le zoom 18, WME n'affiche
     // meme pas les numeros dont on parle (et ne les charge pas non plus).
-    if (f.adresse) z = Math.max(z, ZOOM_NUMEROS);
+    const zFinal = z => (f.adresse ? Math.max(z, ZOOM_NUMEROS) : z);
+    if (!geoms.length) return f.centre ? { centre: f.centre, zoom: null, tout: true } : null;
+    const tous = [];
+    geoms.forEach(g => { tous.push.apply(tous, sommetsDe(g)); });
+    if (!tous.length) return f.centre ? { centre: f.centre, zoom: null, tout: true } : null;
+
+    // Plusieurs segments a selectionner ⇒ on serre le zoom vers le bas.
+    const plusieurs = ((f.segIds && f.segIds.length) || 1) > 1 || geoms.length > 1;
+    const v = { largeur: vue.largeur, hauteur: vue.hauteur,
+                zoomNiveau: vue.zoomNiveau, serrer: plusieurs };
+    const e = emprise(tous);
+    const zTotal = zoomPour(2 * e.rx, 2 * e.ry, e.centre.lat, v);
+    if (zTotal >= ZOOM_CHARGEMENT) return { centre: e.centre, zoom: zFinal(zTotal), tout: true };
+
+    // Au-dela, WME ne descendrait plus rien : on remonte au zoom de chargement
+    // et on assume de ne pas tout voir d'un coup.
+    if (geoms.length < 2) return { centre: e.centre, zoom: zFinal(ZOOM_CHARGEMENT), tout: false };
+    let meilleur = geoms[0], long = -1;
+    geoms.forEach(g => {
+      let d = 0;
+      for (let i = 1; i < g.coordinates.length; i++) d += longueur(g.coordinates[i - 1], g.coordinates[i]);
+      if (d > long) { long = d; meilleur = g; }
+    });
+    const em = emprise(sommetsDe(meilleur));
+    const zm = Math.max(ZOOM_CHARGEMENT, zoomPour(2 * em.rx, 2 * em.ry, em.centre.lat, v));
+    return { centre: em.centre, zoom: zFinal(zm), tout: false };
+  }
+
+  /**
+   * La place dont on dispose reellement, en pixels, plus le plafond de zoom.
+   * ⚠️ NE PAS appeler ça `vueCourante` : ce nom porte deja l'onglet affiche
+   * (segments / adresses / poi), et l'ecraser tuait tout le rendu.
+   */
+  function placeDisponible() {
+    const zv = zoneVisible();
+    return { largeur: Math.max(80, zv.droite - zv.gauche),
+             hauteur: Math.max(80, zv.bas - zv.haut),
+             zoomNiveau: options.zoomNiveau };
+  }
+
+  function cadrerSur(f, forcerZoom) {
+    const plan = cadrageDeReport(f, placeDisponible());
+    if (!plan) return;
     // ⚠️ Le zoom est passe a `centrerSurZoneVisible` plutot qu'applique apres :
     // le decalage depend de l'echelle d'ARRIVEE, et zoomer ensuite le rendrait
     // faux (l'objet reviendrait sous une fenetre).
-    const zoomVoulu = (options.zoomClic || forcerZoom) ? z : null;
-    centrerSurZoneVisible(e.centre, zoomVoulu);
+    centrerSurZoneVisible(plan.centre, (options.zoomClic || forcerZoom) ? plan.zoom : null);
   }
+
+  /**
+   * ⚠️⚠️ ZOOM DE CHARGEMENT. Mesure deja au dossier du projet : WME ne descend
+   * AUCUN segment sous le zoom 14 (complet a 16). Cadrer plus large que ca, ce
+   * n'est pas « voir de plus loin », c'est regarder une carte VIDE — et une
+   * carte vide ne se selectionne pas.
+   */
+  const ZOOM_CHARGEMENT = 14;
+  const ZOOM_PLANCHER = 12;
 
   /**
    * Zoom adapte a l'emprise a montrer, plutot qu'une valeur fixe : un tronçon
    * de dix metres et une departementale de trois kilometres n'appellent pas le
-   * meme cadrage. `options.zoomNiveau` sert de plafond, ZOOM_PLANCHER de
-   * limite basse. Marge volontairement faible, et arrondi au plus proche : un
-   * arrondi vers le bas perdait un niveau entier, soit un facteur deux.
+   * meme cadrage. `vue.zoomNiveau` sert de plafond, ZOOM_PLANCHER de limite
+   * basse. Marge volontairement faible.
+   *
+   * ⚠️⚠️ `vue.largeur` / `vue.hauteur` portent la ZONE VISIBLE, pas la fenetre
+   * du navigateur. Le centrage decale ensuite la carte pour sortir la cible de
+   * sous nos fenetres (v2.12) : calculer le zoom sur `window.innerWidth`
+   * revenait a promettre une place qu'on reprend juste apres, et une part du
+   * report finissait DERRIERE le volet — donc hors de la vue, donc jamais
+   * chargee par WME, donc impossible a selectionner.
+   *
+   * ⚠️ L'arrondi n'est pas le meme selon l'enjeu. Au PLUS PROCHE pour un
+   * segment seul : arrondir vers le bas coutait un niveau entier, soit un
+   * facteur deux de trop. Vers le BAS (`vue.serrer`) des qu'il y a plusieurs
+   * segments a selectionner — un demi-niveau de trop suffit a laisser un
+   * tronçon dehors, et un tronçon dehors est un tronçon perdu.
    */
-  const ZOOM_PLANCHER = 12;
-  function zoomPour(dLon, dLat, lat) {
+  function zoomPour(dLon, dLat, lat, vue) {
+    // ⚠️ `vue` est omis par les cadrages qui ne selectionnent rien (contour de
+    // commune, secteur d'entrees, polygone d'agglo) : ils gardent l'arrondi au
+    // plus proche. On leur donne quand meme la ZONE VISIBLE plutot que la
+    // fenetre entiere — eux aussi finissaient a moitie sous le volet.
+    if (!vue) vue = placeDisponible();
     const marge = 1.12;
     const cos = Math.max(0.15, Math.cos(lat * Math.PI / 180));
-    const zLon = Math.log2(window.innerWidth * 360 / (256 * Math.max(dLon, 1e-6) * marge));
-    const zLat = Math.log2(window.innerHeight * 360 * cos / (256 * Math.max(dLat, 1e-6) * marge));
-    return Math.max(ZOOM_PLANCHER, Math.min(options.zoomNiveau, Math.round(Math.min(zLon, zLat))));
+    const zLon = Math.log2(vue.largeur * 360 / (256 * Math.max(dLon, 1e-6) * marge));
+    const zLat = Math.log2(vue.hauteur * 360 * cos / (256 * Math.max(dLat, 1e-6) * marge));
+    const brut = Math.min(zLon, zLat);
+    return Math.max(ZOOM_PLANCHER,
+      Math.min(vue.zoomNiveau, vue.serrer ? Math.floor(brut) : Math.round(brut)));
   }
 
   /**
@@ -9958,10 +10052,12 @@
         <button class="agn-btn" id="agn-prec" style="width:auto">‹ Précédent</button>
         <button class="agn-btn" id="agn-suiv" style="width:auto">Suivant ›</button>
         <span id="agn-compteur">— / ${liste.length}</span>
+        <span id="agn-selinfo" class="agn-selinfo"></span>
         <span id="agn-traites" class="agn-traites"></span>
         <button class="agn-lien" id="agn-tout" title="Déplie ou replie tous les groupes de résultats">tout déplier</button></div>`);
     ui.results.appendChild(nav);
     ui.compteur = nav.querySelector('#agn-compteur');
+    ui.selinfo = nav.querySelector('#agn-selinfo');
     ui.traites = nav.querySelector('#agn-traites');
     nav.querySelector('#agn-prec').onclick = () => allerA(indexCourant - 1);
     nav.querySelector('#agn-suiv').onclick = () => allerA(indexCourant + 1);
