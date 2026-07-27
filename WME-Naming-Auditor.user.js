@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.20.01
+// @version      2.21.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -487,6 +487,10 @@
     // Charger tout seul les contours du departement survole. Coche par defaut :
     // c'est une corvee sans valeur ajoutee, et elle se refait a chaque fois.
     autoDep: true,
+    // Guidage pas a pas (v2.21) : montre le geste suivant tant qu'il reste
+    // quelque chose a faire. Decochable — un editeur qui connait l'outil n'a pas
+    // besoin qu'on lui tienne la main a chaque commune.
+    guidage: true,
     controles: {},          // rempli d'apres le referentiel au demarrage
     couleurs: Object.fromEntries(Object.entries(FAMILLES).map(([k, v]) => [k, v.defaut])),
     // Panneau lateral (v2.03) : neuf sections empilees d'affilee etaient
@@ -2051,26 +2055,6 @@
    */
   const PART_COMMUNE_SUSPECTE = 0.20;
   /**
-   * En dessous, le releve de panneaux est manifestement incomplet pour une
-   * commune entiere : on le DIT, sinon l'editeur croit que le pre-trace a
-   * echoue alors que c'est la SOURCE qui est muette.
-   * ⚡ Mesure du 27/07 : Gruissan (6 210 ha) et Saint-Laurent-des-Arbres
-   * (1 637 ha) rendent **0 panneau**, Lattes (3 224 ha) en rend **5**, contre 7
-   * a Coursan, 11 a Laudun et 26 a Ploemeur.
-   */
-  const PANNEAUX_RELEVE_MAIGRE = 6;
-
-  /** Previent quand la source n'a presque rien rendu — avec les chiffres. */
-  function phraseReleveMaigre(nb) {
-    if (nb >= PANNEAUX_RELEVE_MAIGRE) return '';
-    const ha = communeActive ? Math.round(aireGeomHa(communeActive.geom)) : 0;
-    return '<br>⚠️ <b>Seulement ' + nb + ' panneau(x) relevé(s)</b>' +
-      (ha ? ' sur ' + ha + ' ha' : '') + ' : le jeu de signalisation est ' +
-      '<b>très incomplet sur cette commune</b>. Ce n\'est pas un défaut du script — ' +
-      'le tracé à la main reste la voie sûre.';
-  }
-
-  /**
    * Part de la commune couverte par une proposition, de 0 a 1.
    * ⚠️ Rend 0 si l'aire de la commune est inconnue : dans le doute, on
    * n'avertit pas — un faux avertissement userait la confiance dans les vrais.
@@ -2438,30 +2422,23 @@
     const props = tous.filter(p => p.ring);
     const nonTracables = tous.filter(p => !p.ring);
     const nManuels = nonTracables.reduce((s, p) => s + p.portes, 0);
-    // ⚠️ Un RUBAN n'est pas « un groupe sans surface » : c'est une ligne de
-    // panneaux le long d'une voie, et le dire aide a comprendre pourquoi rien
-    // n'est propose (cas de Lattes, signale le 27/07).
     const rubans = nonTracables.filter(p => p.ruban);
-    const phraseRubans = rubans.length
-      ? ' <b>' + rubans.length + '</b> groupe(s) s\'alignent le long d\'une voie (moins de ' +
-        LARGEUR_MIN_AGGLO_M + ' m de large) : c\'est une route, pas une agglomération — ' +
-        'non tracé.'
-      : '';
-    const phraseManuels = nManuels
-      ? ' <b>' + nManuels + ' entrée(s)</b> supplementaire(s) sont trop isolees ou ' +
-        'alignées pour deviner un contour : trace-les à la main, les panneaux ' +
-        '(carres) restent affiches en repère.'
-      : '';
+    // ⚠️⚠️ UNE SEULE PHRASE (auteur, 27/07 : « y'a trop de blabla, on n'a pas
+    // envie de lire pour comprendre ce qu'il se passe »). Le constat tenait
+    // auparavant en TROIS messages qui disaient la meme chose. Ici : le chiffre,
+    // la raison en trois mots, l'action. Le detail est dans l'aide.
+    const raisonCourte = rubans.length
+      ? 'alignés le long d\'une route'
+      : nManuels ? 'trop isolés' : '';
 
     if (!props.length) {
       // Rien a proposer : c'est le cas Narbonne. On le dit clairement plutot
       // que de sortir des ronds arbitraires.
-      ui.bilanPanneaux.innerHTML = 'Les <b>' + fiches.length + '</b> panneau(x) relevé(s) ' +
-        'ne forment <b>aucune surface exploitable</b> : leurs entrées sont eparpillees ' +
-        'ou alignées le long des routes.' + phraseRubans +
-        '<br>Aucun tracé proposé — <b>trace les ' +
-        'agglomérations à la main</b> en t\'appuyant sur les panneaux affiches (carres).' +
-        phraseReleveMaigre(fiches.length);
+      const ha = communeActive ? Math.round(aireGeomHa(communeActive.geom)) : 0;
+      ui.bilanPanneaux.innerHTML = '<b>' + fiches.length + ' panneau(x)</b>' +
+        (ha ? ' sur ' + ha + ' ha' : '') +
+        (raisonCourte ? ', ' + raisonCourte : '') +
+        ' : <b>aucun tracé possible</b>. Trace à la main — les panneaux restent affichés.';
       return;
     }
 
@@ -2491,13 +2468,16 @@
     } finally {
       redrawAgglos(); renderAgglos();
       try { sdk.Map.setMapCenter({ lonLat: vueAvant.centre, zoomLevel: vueAvant.zoom }); } catch (e) { /* */ }
-      ui.bilanPanneaux.innerHTML = (crees
-        ? '<b>' + crees + ' polygone(s) créé(s)</b> à partir de ' + props.length +
-          ' groupe(s) d\'entrées.<br>⚠️ <b>Ces tracés sont grossiers</b> : ouvre chaque ' +
-          'polygone (✎) et tire les poignees pour les ajuster au terrain avant d\'analyser.' +
-          phraseManuels
-        : 'Aucun polygone créé.' + phraseManuels) + phraseRubans +
-        phraseReleveMaigre(fiches.length);
+      // Meme regle qu'au-dessus : une phrase. Ce qui reste a faire d'abord,
+      // le reliquat ensuite, et rien de plus.
+      const reste = nManuels
+        ? ' · <b>' + nManuels + '</b> entrée(s) non tracée(s) (' +
+          (raisonCourte || 'trop isolées') + ')'
+        : '';
+      ui.bilanPanneaux.innerHTML = crees
+        ? '<b>' + crees + ' polygone(s) créé(s)</b> — <b>ajuste-les aux poignées (✎)</b>, ' +
+          'les panneaux ne marquent que les routes' + reste + '.'
+        : '<b>Aucun polygone créé</b>' + reste + '.';
     }
   }
 
@@ -6465,6 +6445,24 @@
   .agn-aide-pied{margin-top:10px;padding-top:8px;border-top:1px solid #e0e0e0;
     font-size:11px;color:var(--agn-gris, #546e7a);text-align:center}
   .agn-aide-pied a{color:var(--agn-bleu, #1e88e5)}
+  /* ── Guidage pas a pas : mettre en avant LE geste suivant ───────────────── */
+  .agn-guide{position:relative;animation:agn-pulse 2s ease-in-out infinite;
+    border-radius:5px;outline:2px solid var(--agn-bleu, #1e88e5);outline-offset:1px}
+  @keyframes agn-pulse{
+    0%,100%{box-shadow:0 0 0 0 rgba(30,136,229,.55)}
+    50%{box-shadow:0 0 0 6px rgba(30,136,229,0)}
+  }
+  /* Le bandeau qui DIT quoi faire : le halo seul ne dit pas pourquoi. */
+  #agn-guide{display:none;margin:0 0 6px;padding:7px 9px;border-radius:4px;
+    background:#e3f2fd;border-left:3px solid var(--agn-bleu, #1e88e5);font-size:12px;line-height:1.45}
+  #agn-guide.on{display:block}
+  #agn-guide b{color:var(--agn-bleu-fonce, #1565c0)}
+  .agn-guide-n{display:inline-block;min-width:17px;height:17px;line-height:17px;text-align:center;
+    border-radius:50%;background:var(--agn-bleu, #1e88e5);color:#fff;font-size:11px;font-weight:700;
+    margin-right:5px}
+  .agn-guide-suite{margin-top:4px;font-size:11px;opacity:.85}
+  /* ⚠️ Une animation qui ne s'arrete jamais fatigue : le guidage disparait des
+     que l'etape est franchie, et se coupe entierement par une case a cocher. */
   /* L'onglet Aide ne compte pas de reports : pas de pastille, et il reste
      accessible meme quand l'analyse est fermee (territoire indetermine…). */
   #agn-aide-btn{flex:0 0 auto;padding:7px 9px;border:none;border-bottom:2px solid transparent;
@@ -6752,6 +6750,9 @@
           <!-- Garde-fou territorial (v2.03) : en tete du corps, AVANT le bouton
                d'analyse — c'est la raison pour laquelle il est grise. -->
           <div id="agn-pays"></div>
+          <!-- Guidage pas a pas : ce qu'il faut faire MAINTENANT. Se vide tout
+               seul quand il n'y a plus rien a guider. -->
+          <div id="agn-guide"></div>
           <button class="agn-btn primary" id="agn-scan" disabled title="Analyse le nommage et l'adressage de toute la commune choisie. Rien n'est enregistré : tu reliras chaque correction dans WME.">Analyser la commune</button>
           <!-- Conteneur PROPRE a la progression : agn-stats est reecrit par
                renderResults(), une barre qui y vivrait serait effacee. -->
@@ -6799,7 +6800,7 @@
           </div>
 
           <div class="agn-sect" data-s="commune">
-            <div class="agn-sect-t"><span class="agn-chev">▾</span><b>2. Commune à traiter</b>
+            <div class="agn-sect-t"><span class="agn-chev">▾</span><b>1. Commune à traiter</b>
               <span class="agn-sect-r"></span></div>
             <div class="agn-sect-c">
               <!-- Filtre (v2.03) : au zoom 12 la vue peut contenir 80 communes,
@@ -6812,7 +6813,7 @@
           </div>
 
           <div class="agn-sect" data-s="agglo">
-            <div class="agn-sect-t"><span class="agn-chev">▾</span><b>3. Agglomération</b>
+            <div class="agn-sect-t"><span class="agn-chev">▾</span><b>2. Agglomération</b>
               <span class="agn-sect-r"></span></div>
             <div class="agn-sect-c">
               <div class="agn-sb-n" id="agn-voies">Trois façons d'obtenir le zonage :
@@ -7039,6 +7040,9 @@
     ui.volet.classList.toggle('agn-volet-ouvert', ouvrir);
     ui.btnDonnees.classList.toggle('agn-on', ouvrir);
     if (ouvrir) { placerVolet(); majResumeSections(); }
+    // Le volet s'ouvre ou se ferme : la cible du guidage change (l'element
+    // lui-meme, ou le bouton ☰ qui y mene).
+    majGuidage();
   }
 
   /**
@@ -7084,6 +7088,104 @@
   // ===========================================================================
 
   let aideOuverte = false;
+
+  // ===========================================================================
+  // GUIDAGE PAS A PAS — montrer LE geste suivant
+  //
+  // Demande de l'auteur (27/07) : « un novice peut être perdu […] tant que
+  // l'action n'est pas faite, il faudrait que la liste déroulante soit mise en
+  // avant […] et dès que choisi, on l'amène sur l'action suivante ».
+  //
+  // ⚠️ Trois regles, apprises du premier retour utilisateur :
+  //  1. le halo seul ne suffit pas — il montre OU cliquer, pas POURQUOI : un
+  //     bandeau dit l'action en une phrase ;
+  //  2. l'etape franchie eteint son guidage IMMEDIATEMENT, sinon l'animation
+  //     devient un bruit de fond qu'on n'ecoute plus ;
+  //  3. quand le geste attendu est dans le volet et que le volet est FERME,
+  //     c'est le bouton ☰ qu'on met en avant : guider vers un element invisible
+  //     ne guide personne.
+  // ===========================================================================
+
+  /**
+   * Sort le chargement MANUEL des contours du parcours principal et le range
+   * dans les reglages (panneau lateral WME).
+   *
+   * ⚠️ Constat de l'auteur (27/07) : « ce premier bloc est presque toujours
+   * inutile puisque le script charge ce dont il a besoin automatiquement ».
+   * C'est exact — `autoChargerDepartement` telecharge le departement de la vue
+   * des que la carte bouge, option cochee par defaut. Le selecteur de
+   * departements, le fichier GeoJSON et la source alternative ne servent qu'en
+   * SECOURS : ils encombraient l'etape 1 d'un parcours ou il n'y a, justement,
+   * rien a faire.
+   *
+   * ⚠️ On DEPLACE le noeud, on ne le reconstruit pas : tous les gestionnaires
+   * poses par `buildOverlay` restent attaches. Refaire le HTML ailleurs aurait
+   * demande de rebrancher chaque bouton — et d'en oublier un.
+   */
+  function rangerChargementContours() {
+    const bloc = ui.volet && ui.volet.querySelector('.agn-sect[data-s="contours"]');
+    const hote = document.getElementById('agn-contours-manuel');
+    if (!bloc || !hote) return;                 // rien a faire : on n'invente pas
+    const corps = bloc.querySelector('.agn-sect-c');
+    if (!corps) return;
+    hote.appendChild(corps);                    // le CORPS seul : plus de section repliable
+    bloc.remove();                              // l'etape 1 disparait du parcours
+  }
+
+  /**
+   * Ou en est l'editeur ? Rend l'identifiant de l'etape a franchir, ou null
+   * quand il n'y a plus rien a guider.
+   */
+  function etapeCourante() {
+    if (!options.guidage) return null;
+    // Le garde-fou territorial parle deja, et plus fort : on ne le double pas.
+    if (pays.etat !== 'fr') return null;
+    if (!communes.length) return 'contours';
+    if (!communeActive) return 'commune';
+    const zones = agglos[communeActive.code] || [];
+    if (!zones.length && !sansAgglo[communeActive.code]) return 'agglo';
+    if (!lastScan) return 'analyse';
+    return null;
+  }
+
+  /** Ce qu'on dit, et ce qu'on montre, pour chaque etape. */
+  const GUIDAGE = {
+    contours: { n: 1, cible: null,
+      texte: 'Amène la carte sur la commune à traiter : les contours du département ' +
+             'se chargent tout seuls.',
+      suite: 'Rien à faire d\'autre — patiente quelques secondes.' },
+    commune: { n: 1, cible: '#agn-commune', dansVolet: true,
+      texte: 'Choisis ta commune dans la liste.',
+      suite: 'Celle qui est sous le centre de la carte est remontée en tête.' },
+    agglo: { n: 2, cible: '#agn-panneaux', dansVolet: true,
+      texte: 'Délimite l\'agglomération.',
+      suite: '🪧 Panneaux d\'agglomération, puis ✏️ Proposer un tracé. ' +
+             'Sinon ＋ Tracer à la main — ou coche « sans agglomération ».' },
+    analyse: { n: 3, cible: '#agn-scan',
+      texte: 'Tout est prêt : lance l\'analyse.',
+      suite: 'Rien ne sera enregistré — tu reliras chaque correction dans WME.' }
+  };
+
+  /** Applique (ou retire) la mise en avant et le bandeau. */
+  function majGuidage() {
+    if (!ui.overlay) return;
+    document.querySelectorAll('.agn-guide').forEach(n => n.classList.remove('agn-guide'));
+    const bandeau = document.getElementById('agn-guide');
+    const etape = etapeCourante();
+    if (!bandeau) return;
+    if (!etape || aideOuverte) { bandeau.className = ''; bandeau.innerHTML = ''; return; }
+    const g = GUIDAGE[etape];
+    bandeau.className = 'on';
+    bandeau.innerHTML = '<span class="agn-guide-n">' + g.n + '</span><b>' + esc(g.texte) + '</b>' +
+      (g.suite ? '<div class="agn-guide-suite">' + esc(g.suite) + '</div>' : '');
+    // ⚠️ Le volet est ferme : on montre le chemin (☰) plutot qu'un element que
+    // personne ne voit.
+    const voletOuvert = ui.volet && ui.volet.classList.contains('agn-volet-ouvert');
+    const cible = (g.dansVolet && !voletOuvert)
+      ? document.getElementById('agn-donnees')
+      : (g.cible ? document.querySelector(g.cible) : null);
+    if (cible) cible.classList.add('agn-guide');
+  }
 
   function sectionsAide() {
     return [
@@ -7476,6 +7578,8 @@
             <div id="agn-r-couleurs"></div>
             <button class="agn-sb-b" id="agn-r-reset" title="Remet les couleurs d'origine">Couleurs par défaut</button>`)}
           ${sect('navigation', 'Navigation', `
+            <label class="agn-sb-c"><input type="checkbox" id="agn-r-guidage" title="Met en avant le geste suivant tant qu'il reste quelque chose à faire : choisir la commune, délimiter l'agglomération, lancer l'analyse. À décocher quand l'outil est dans les doigts.">
+              Guidage pas à pas</label>
             <label class="agn-sb-c"><input type="checkbox" id="agn-r-zoom" title="Recentre la carte sur le segment quand tu cliques un écart">
               Cadrer sur le segment au clic</label>
             <label class="agn-sb-l" title="Le zoom s'adapte à l'emprise des segments ; cette valeur en est le plafond.">
@@ -7487,7 +7591,11 @@
           ${sect('contours', 'Contours communaux', `
             <label class="agn-sb-c" title="Interroge geo.api.gouv.fr pour savoir quel département est sous les yeux, et télécharge ses contours s'ils manquent."><input type="checkbox" id="agn-r-autodep">
               Charger tout seul le département visible</label>
-            <div class="agn-sb-n">Les contours se cumulent : charger un département n'efface pas les autres.</div>`)}
+            <div class="agn-sb-n">Les contours se cumulent : charger un département n'efface pas les autres.</div>
+            <!-- ⚠️ Le chargement MANUEL vient se loger ici au demarrage (voir
+                 rangerChargementContours) : il ne sert qu'en secours, il n'avait
+                 rien a faire en tete du parcours (auteur, 27/07). -->
+            <div id="agn-contours-manuel"></div>`)}
           ${sect('partage', 'Sauvegarde &amp; partage', `
             <div class="agn-sb-n" id="agn-r-socle"></div>
             <div class="agn-sb-n">Polygones, communes « sans agglo » et coches « traité »
@@ -7589,6 +7697,9 @@
     // Recocher la case doit tenter TOUT DE SUITE : l'editeur vient d'exprimer
     // son besoin, il n'a pas a bouger la carte pour que ca se declenche.
     coche('#agn-r-autodep', 'autoDep', () => { if (options.autoDep) autoChargerDepartement(); });
+    // Le guidage s'allume ou s'eteint tout de suite : une case qui ne fait rien
+    // avant le prochain clic passe pour cassee.
+    coche('#agn-r-guidage', 'guidage', majGuidage);
 
     const zn = q('#agn-r-zoomniv');
     zn.value = options.zoomNiveau;
@@ -8010,6 +8121,10 @@
       }
       ui.listeAgglos.appendChild(node);
     });
+    // ⚠️ Point d'accroche du guidage : `renderAgglos` est rappelee a CHAQUE
+    // changement d'etat (contours charges, commune choisie, polygone ajoute ou
+    // retire). Le brancher ici evite d'oublier un chemin.
+    majGuidage();
   }
 
   let indexCourant = -1;
@@ -8828,6 +8943,8 @@
     // Les coches restaurees d'une session precedente comptent : une thematique
     // deja finie doit s'afficher comme telle des le rendu.
     replierThematiquesFinies();
+    // Une analyse a tourne : plus rien a guider (ou l'etape suivante s'affiche).
+    majGuidage();
   }
 
   function ouvrirGroupe(grp, ouvrir) {
@@ -8870,6 +8987,10 @@
     tabLabel.title = SCRIPT_NAME;
     tabLabel.style.fontSize = '15px';
     buildReglages(tabPane);
+    // ⚠️ APRES `buildReglages` (la destination doit exister) et APRES
+    // `buildOverlay` (les boutons sont deja branches) : on ne fait que DEPLACER
+    // le noeud, les gestionnaires d'evenements le suivent.
+    rangerChargementContours();
 
     await restaurerContours();
     renderContours();
