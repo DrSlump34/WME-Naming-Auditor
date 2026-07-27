@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.27.00
+// @version      2.27.01
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -6215,6 +6215,50 @@
    * c'est justement l'effet voulu, et pourquoi l'eligibilite est jugee sur la
    * voie entiere en amont.
    */
+  /**
+   * Le cartouche a REPRENDRE pour un nom alternatif qu'on vient de poser.
+   *
+   * ⚠️⚠️ Signale par Glenan56 (27/07) : « en validant la correction, il met bien
+   * le Dxxx en alt mais oublie le cartouche ». La cause est en aval —
+   * `resoudreStreet` CREE une Street quand le couple (numero, ville) n'existe
+   * pas encore, et une Street neuve n'a pas d'ecusson. Le numero atterrissait
+   * donc en alternatif tout nu, pendant que le principal du meme segment
+   * portait le sien.
+   *
+   * ⭐ ON NE L'INVENTE PAS, ON LE RECOPIE. Le `signType` est un code interne de
+   * Waze : le deduire du prefixe (« D » ⇒ departementale) reviendrait a poser un
+   * ecusson devine, donc potentiellement FAUX, sur une voie entiere — la Street
+   * est partagee. On cherche donc, sur ces memes segments, un nom qui porte DEJA
+   * ce numero AVEC son cartouche. Sans source, on ne fait rien : l'ecart
+   * « cartouche » reste signale et l'editeur tranche.
+   *
+   * PURE : ne recoit que des nommages deja lus.
+   */
+  function cartoucheAReprendre(nomAlt, nams) {
+    const cible = String(nomAlt || '').trim();
+    if (!cible || !RE_ROUTE.test(cible)) return null;
+    for (const nam of nams) {
+      if (!nam || !nam.primary) continue;
+      for (const e of [nam.primary].concat(nam.alts || [])) {
+        if (!e || !e.name || e.name.trim() !== cible) continue;
+        if (e.signText && String(e.signText).trim() && e.signType != null) {
+          return { signText: e.signText, signType: e.signType };
+        }
+      }
+    }
+    return null;
+  }
+
+  /** Le cartouche deja porte par une Street, lu dans la couche interne. */
+  function cartoucheDeStreet(streetId) {
+    try {
+      const st = hote.W.model.streets.getObjectById(streetId);
+      if (!st) return null;
+      const t = st.signText || (st.attributes && st.attributes.signText);
+      return (t && String(t).trim()) ? { signText: t } : null;
+    } catch (e) { return null; }
+  }
+
   function ecrireCartouche(streetId, signText, signType) {
     try {
       const UpdateObject = hote.require && hote.require('Waze/Action/UpdateObject');
@@ -6876,6 +6920,15 @@
           const rue = resoudreStreet(op.nom, op.ville);
           if (!rue) throw new Error('rue « ' + op.nom + ' » introuvable');
           sdk.DataModel.Segments.addAlternateStreet({ segmentIds: ids, streetId: rue.id });
+          // Le cartouche ne suit pas tout seul : voir `cartoucheAReprendre`.
+          // On ne touche a rien si la rue en porte deja un — elle est PARTAGEE,
+          // et l'ecraser deborderait sur tous les segments qui l'utilisent.
+          if (!cartoucheDeStreet(rue.id)) {
+            const src = cartoucheAReprendre(op.nom, ids.map(id => {
+              try { return readNaming({ id: id }); } catch (e) { return null; }
+            }));
+            if (src) ecrireCartouche(rue.id, src.signText, src.signType);
+          }
         }
       }
       return { ok: true, nb: ids.length, ops: plan.length, bloques };

@@ -192,6 +192,54 @@ verifier('25. nom de rue en principal + Dxxx cartouché en alt — AUCUN écart'
 const namNum = { primary: { name: 'D1118', cityName: '', signText: '', signType: null }, alts: [] };
 verifier('26. numéro en principal sans cartouche — toujours signalé', vc(namNum).length, 1);
 
+// ===========================================================================
+// LE CARTOUCHE DE L'ALTERNATIF QU'ON VIENT DE POSER (v2.27.01)
+//
+// ⚠️⚠️ Signalé par Glenan56 (27/07/2026) : « en validant la correction, il met
+// bien le Dxxx en alt mais oublie le cartouche ». `resoudreStreet` CRÉE une
+// Street quand le couple (numéro, ville) n'existe pas — et une Street neuve
+// n'a pas d'écusson.
+//
+// ⭐ LA RÈGLE : on RECOPIE, on n'invente jamais. Le signType est un code interne
+// de Waze ; le déduire du préfixe poserait un écusson deviné sur une voie
+// ENTIÈRE, la Street étant partagée. Sans source, on ne fait rien.
+// ===========================================================================
+const car = new Function(PREAMBULE + '\n' + extraire('cartoucheAReprendre') +
+                         '\nreturn cartoucheAReprendre;')();
+const AVEC = { name: 'D18', cityName: 'Hors ville', signText: 'D18', signType: 1092 };
+const NU = { name: 'D18', cityName: 'Hors ville', signText: '', signType: null };
+const RUE = { name: 'Route de Saint-Anatoly', cityName: 'Caraman', signText: '', signType: null };
+
+// Le cas exact de Glenan : principal « D18 » cartouché, on ajoute « D18, Caraman ».
+verifier('27. le cartouche est repris du principal du même segment',
+  car('D18', [{ primary: AVEC, alts: [] }]), { signText: 'D18', signType: 1092 });
+verifier('28. il est repris même si le principal est un nom de rue et le numéro en alt',
+  car('D18', [{ primary: RUE, alts: [AVEC] }]), { signText: 'D18', signType: 1092 });
+verifier('29. plusieurs segments : le premier qui en porte un fait foi',
+  car('D18', [{ primary: NU, alts: [] }, { primary: AVEC, alts: [] }]),
+  { signText: 'D18', signType: 1092 });
+
+// ⭐ Les abstentions — ce sont elles qui protègent la carte.
+verifier('30. AUCUNE source : on n\'invente pas d\'écusson',
+  car('D18', [{ primary: NU, alts: [] }]), null);
+verifier('31. un signText sans signType ne suffit pas (écusson incomplet)',
+  car('D18', [{ primary: { name: 'D18', signText: 'D18', signType: null }, alts: [] }]), null);
+verifier('32. un autre numéro ne prête pas son cartouche',
+  car('D18', [{ primary: { name: 'D59', signText: 'D59', signType: 1092 }, alts: [] }]), null);
+verifier('33. un NOM DE RUE ne recoit jamais de cartouche',
+  car('Route de Saint-Anatoly', [{ primary: RUE, alts: [AVEC] }]), null);
+verifier('34. nom vide : rien', car('', [{ primary: AVEC, alts: [] }]), null);
+verifier('35. aucun segment lisible : rien', car('D18', [null, undefined]), null);
+verifier('36. les espaces autour du nom ne font pas rater la source',
+  car('  D18  ', [{ primary: AVEC, alts: [] }]), { signText: 'D18', signType: 1092 });
+
+// Verrou de CONTRAT : la pose doit être branchée là où l'alternatif s'écrit,
+// et NE PAS écraser le cartouche d'une Street existante (elle est partagée).
+verifier('37. la reprise est branchée après addAlternateStreet',
+  /addAlternateStreet\(\{ segmentIds: ids, streetId: rue\.id \}\);\s*\n(?:\s*\/\/[^\n]*\n)*\s*if \(!cartoucheDeStreet\(rue\.id\)\)/.test(src), true);
+verifier('38. une Street qui porte déjà un cartouche n\'est jamais réécrite',
+  /if \(!cartoucheDeStreet\(rue\.id\)\)/.test(src), true);
+
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(66));
 console.log('%d verifications OK, %d ECHEC(S)', ok, ko);
