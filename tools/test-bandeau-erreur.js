@@ -8,16 +8,22 @@
  * l'overlay. C'est tres chiant. »
  *
  * Le mecanisme d'origine rouvrait la fenetre fermee et depliait la fenetre
- * repliee pour que le bandeau se voie. Or la recopie ne se justifie QUE parce
- * que notre fenetre cache la popover de WME (ancree en haut a DROITE). Fenetre
- * fermee : elle ne cache rien, la popover est lisible, on n'a rien a apporter —
- * et la rouvrir RAMENE l'editeur sur un outil qu'il avait range.
+ * repliee pour que le bandeau se voie. C'est le geste qu'on s'interdit : il
+ * RAMENE l'editeur sur un outil qu'il avait range, pour une erreur qui ne nous
+ * regarde pas. Troisieme fois que le projet apprend la meme lecon (2.25.01
+ * « on avertit la ou l'editeur DECIDE » ; 2.27.11 « on ne touche plus au zoom
+ * en cliquant sur les boutons »). NE PAS « re-optimiser » ces tests en croyant
+ * rendre le bandeau plus visible : son invisibilite est le but quand la fenetre
+ * est rangee.
  *
- * ⇒ C'est la troisieme fois que le projet apprend la meme lecon (2.25.01 :
- *   « on avertit la ou l'editeur DECIDE » ; 2.27.11 : « on ne touche plus au
- *   zoom en cliquant sur les boutons »). NE PAS « re-optimiser » ces tests en
- *   croyant rendre le bandeau plus visible : son invisibilite est le but quand
- *   il n'a rien a apporter.
+ * ⚠️⚠️ ET UN RAFFINEMENT RETIRE PAR LA MESURE — a ne pas reintroduire :
+ * j'avais conditionne le bandeau a un recouvrement geometrique reel entre la
+ * fenetre et la popover (« on ne recopie que ce qu'on masque »). MESURE EN LIVE
+ * dans WME le 28/07 : `.save-popover-container` est en
+ * `position:absolute; top:911px; left:0` — EN BAS A GAUCHE, quand la fenetre du
+ * script se pose en haut a droite. Le recouvrement aurait toujours ete nul : le
+ * bandeau ne se serait plus jamais affiche. Un raffinement non mesure qui tuait
+ * la fonction qu'il pretendait affiner.
  *
  * ⚠️ Fonctions EXTRAITES du userscript, jamais recopiees.
  *
@@ -45,8 +51,8 @@ function extraire(nom) {
 
 /**
  * ⚠️ Le `with` sur un Proxy qui repond « je connais tout » masque AUSSI les
- * globales natives : sans ce `Math` explicite, `Math.min` sort `undefined` et
- * le test echoue pour une raison qui n'a rien a voir avec le code teste.
+ * globales natives : sans un `Math` explicite, `Math.min` sortirait `undefined`
+ * et le test echouerait pour une raison qui n'a rien a voir avec le code teste.
  */
 function monter(nom, connus) {
   const bac = new Proxy(Object.assign({ Math: Math }, connus || {}), {
@@ -67,76 +73,32 @@ function verifier(titre, obtenu, attendu) {
   }
 }
 
-/* Un rectangle facon `getBoundingClientRect`. */
-function rect(x, y, w, h) {
-  return { left: x, top: y, right: x + w, bottom: y + h, width: w, height: h };
-}
-
-/* ------------------------------------------------------------------ */
-console.log('\n— La geometrie : recouvre-t-on la popover ?');
-
-const masqueLaPopover = monter('masqueLaPopover');
-
-// La situation reelle mesuree en live le 21/07 : la popover de WME est ancree
-// en haut a DROITE, et la fenetre du script s'y pose par defaut.
-const POPOVER = rect(1450, 60, 420, 120);
-
-verifier('fenetre posee dessus (cas du 21/07) → on masque',
-  masqueLaPopover(rect(1440, 40, 400, 560), POPOVER), true);
-verifier('fenetre rangee a gauche de l\'ecran → on ne masque rien',
-  masqueLaPopover(rect(20, 40, 400, 560), POPOVER), false);
-verifier('fenetre plus bas que la popover → on ne masque rien',
-  masqueLaPopover(rect(1440, 400, 400, 300), POPOVER), false);
-verifier('chevauchement d\'un seul coin → on masque quand meme',
-  masqueLaPopover(rect(1860, 170, 400, 560), POPOVER), true);
-verifier('bords qui se touchent sans se recouvrir → non',
-  masqueLaPopover(rect(1870, 60, 400, 560), POPOVER), false);
-verifier('popover de hauteur nulle (en cours d\'apparition) → non',
-  masqueLaPopover(rect(1440, 40, 400, 560), rect(1450, 60, 420, 0)), false);
-verifier('pas de popover du tout → non',
-  masqueLaPopover(rect(1440, 40, 400, 560), null), false);
-verifier('pas de fenetre → non',
-  masqueLaPopover(null, POPOVER), false);
-
-/* ------------------------------------------------------------------ */
-console.log('\n— La decision : le bandeau ne se rend JAMAIS visible lui-meme');
-
-/* On rejoue `notreFenetreMasqueLaPopover` sur une fenetre simulee. Les rects
-   viennent de `getBoundingClientRect`, qu'on fournit. */
-function faireOverlay({ display, replie, r }) {
+/* Une fenetre simulee : seuls comptent son display et sa classe de repli. */
+function faireOverlay(display, replie) {
   return {
     style: { display: display },
-    classList: { contains: c => c === 'agn-replie' && !!replie },
-    getBoundingClientRect: () => r
+    classList: { contains: c => c === 'agn-replie' && !!replie }
   };
 }
-function decider(etat) {
-  const fn = monter('notreFenetreMasqueLaPopover', {
-    ui: { overlay: etat.overlay },
-    masqueLaPopover: masqueLaPopover
-  });
-  return fn(etat.pop);
+function decider(overlay) {
+  return monter('fenetreOuvertePourBandeau', { ui: { overlay: overlay } })();
 }
-const POP_DOM = { getBoundingClientRect: () => POPOVER };
-const SUR_LA_POPOVER = rect(1440, 40, 400, 560);
 
-verifier('⭐ fenetre FERMEE → on se tait (elle ne cachait rien)',
-  decider({ overlay: faireOverlay({ display: 'none', r: SUR_LA_POPOVER }), pop: POP_DOM }),
-  false);
+/* ------------------------------------------------------------------ */
+console.log('\n— Le bandeau ne se rend JAMAIS visible lui-meme');
+
+verifier('⭐⭐ fenetre FERMEE → on se tait (c\'est le defaut signale le 28/07)',
+  decider(faireOverlay('none', false)), false);
 verifier('⭐ fenetre REPLIEE → on se tait (la deplier serait le geste interdit)',
-  decider({ overlay: faireOverlay({ display: '', replie: true, r: SUR_LA_POPOVER }), pop: POP_DOM }),
-  false);
-verifier('fenetre ouverte MAIS ailleurs sur l\'ecran → on se tait',
-  decider({ overlay: faireOverlay({ display: '', r: rect(20, 40, 400, 560) }), pop: POP_DOM }),
-  false);
-verifier('fenetre ouverte ET posee dessus → on recopie',
-  decider({ overlay: faireOverlay({ display: '', r: SUR_LA_POPOVER }), pop: POP_DOM }),
-  true);
-verifier('aucune popover affichee → rien a recopier',
-  decider({ overlay: faireOverlay({ display: '', r: SUR_LA_POPOVER }), pop: null }),
-  false);
+  decider(faireOverlay('', true)), false);
+verifier('fenetre ouverte et depliee → le bandeau a sa place',
+  decider(faireOverlay('', false)), true);
+verifier('fenetre ouverte mais display explicite → le bandeau a sa place',
+  decider(faireOverlay('block', false)), true);
+verifier('fenetre a la fois fermee ET repliee → on se tait',
+  decider(faireOverlay('none', true)), false);
 verifier('interface pas encore construite → rien',
-  decider({ overlay: null, pop: POP_DOM }), false);
+  decider(null), false);
 
 /* ------------------------------------------------------------------ */
 console.log('\n— Les verrous de SOURCE (ce sont eux qui figent la volonte)');
@@ -152,10 +114,17 @@ verifier('⭐⭐ afficherBandeauErreur ne clique plus sur #agn-reduire',
   /agn-reduire/.test(bandeau), false);
 verifier('afficherBandeauErreur ne touche pas au display de la fenetre',
   /style\.display\s*=/.test(bandeau), false);
+verifier('afficherBandeauErreur ne bascule pas le repli',
+  /basculerRepli\s*\(/.test(bandeau), false);
 
 const surveille = extraire('surveillerErreursEnregistrement');
-verifier('la surveillance passe par le garde-fou de recouvrement',
-  /notreFenetreMasqueLaPopover\s*\(/.test(surveille), true);
+verifier('la surveillance passe par le garde-fou de visibilite',
+  /fenetreOuvertePourBandeau\s*\(/.test(surveille), true);
+
+/* ⚠️ MESURE DU 28/07 : filtrer sur la geometrie rendrait le bandeau mort,
+   la popover ne passant jamais sous la fenetre. Verrou anti-retour. */
+verifier('⭐ aucun filtre geometrique n\'est revenu dans la surveillance',
+  /getBoundingClientRect/.test(surveille), false);
 
 /* Rouvrir ou deplier la fenetre PENDANT qu'une erreur est affichee est le
    moment ou la recopie devient utile : sans ces deux rappels, le bandeau ne
@@ -166,11 +135,23 @@ verifier('basculerRepli redemande un releve',
   /releverErreurSave\s*\(\s*\)/.test(extraire('basculerRepli')), true);
 
 /* ------------------------------------------------------------------ */
+console.log('\n— L\'explication du refus 406 survit a la refonte');
+
+const expliquerRefus = monter('expliquerRefus', {
+  RE_REFUS_HN: /num[ée]ro de rue invalide|invalid house ?number|house ?number is invalid/i
+});
+verifier('message FR de WME → on explique que ce n\'est pas un doublon',
+  /pas un doublon/i.test(expliquerRefus('Le lieu a un numéro de rue invalide.')), true);
+verifier('message EN de WME → reconnu aussi',
+  /pas un doublon/i.test(expliquerRefus('The place has an invalid house number')), true);
+verifier('une autre erreur d\'enregistrement → aucune explication inventee',
+  expliquerRefus('Impossible d\'enregistrer : segment verrouillé.'), '');
+
+/* ------------------------------------------------------------------ */
 console.log('\n— Garde-fou de l\'extracteur lui-meme');
 
 /* ⚠️ Lecon de la v2.26 : un extracteur devenu aveugle rend un verdict qui
-   ment (il declarerait « aucun appel a ouvrirOverlay » sur du vide). On
-   verifie donc qu'il lit encore quelque chose. */
+   ment (il declarerait « aucun appel a ouvrirOverlay » sur du vide). */
 verifier('l\'extracteur lit bien un corps de fonction non vide',
   bandeau.length > 200 && surveille.length > 200, true);
 verifier('et il lit bien LE bon corps (le bandeau porte son titre)',

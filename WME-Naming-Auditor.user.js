@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.27.12
+// @version      2.27.13
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -2043,32 +2043,30 @@
   const RE_ERREUR_SAVE = /erreur|invalide|impossible|error|invalid/i;
 
   /**
-   * PURE. Notre fenetre recouvre-t-elle la popover de WME ?
+   * Le bandeau a-t-il une place pour se voir ? On ne l'ecrit QUE dans une
+   * fenetre deja ouverte et depliee — puisque la rendre visible est justement
+   * le geste qu'on s'interdit desormais. Repliee, `ui.corps` est en
+   * `display:none` : le bandeau y serait ecrit sans jamais s'afficher.
    *
-   * ⚠️ Pas de seuil de surface : aucune mesure ne le justifierait, et un
-   * bandeau de trop ne coute rien depuis qu'il n'ouvre plus la fenetre. Le
-   * critere est donc franc — il y a intersection, ou il n'y en a pas.
+   * ⚠️⚠️ ON NE FILTRE PAS SUR LA GEOMETRIE, ET C'EST UNE MESURE QUI L'A DIT.
+   * J'avais d'abord conditionne le bandeau a un recouvrement reel entre notre
+   * fenetre et la popover — plus fin sur le papier (« on ne recopie que ce
+   * qu'on masque »). MESURE EN LIVE le 28/07 dans WME : le conteneur
+   * `.save-popover-container` est en `position:absolute; top:911px; left:0`,
+   * soit en BAS A GAUCHE, alors que la fenetre du script se pose en haut a
+   * droite. Le recouvrement aurait donc TOUJOURS ete nul et le bandeau ne se
+   * serait plus JAMAIS affiche : un raffinement qui tuait la fonction.
+   * ⇒ Le commentaire de tete (« ancree en haut a DROITE », 21/07) decrit la
+   *   popover VISIBLE, pas ce conteneur ; sa vraie place ne se mesure qu'en
+   *   provoquant un vrai refus serveur, ce qu'on ne fait pas pour un confort.
+   *   **Tant qu'on ne sait pas, on ne parie pas** : le bandeau ne coute rien
+   *   dans une fenetre deja ouverte, l'ouvrir coutait cher.
    */
-  function masqueLaPopover(rOverlay, rPop) {
-    if (!rOverlay || !rPop) return false;
-    if (!(rPop.width > 0) || !(rPop.height > 0)) return false;
-    const l = Math.min(rOverlay.right, rPop.right) - Math.max(rOverlay.left, rPop.left);
-    const h = Math.min(rOverlay.bottom, rPop.bottom) - Math.max(rOverlay.top, rPop.top);
-    return l > 0 && h > 0;
-  }
-
-  /**
-   * Le bandeau a-t-il une raison d'etre, ET une place pour se voir ?
-   * Repliee, la fenetre se limite a son en-tete : `ui.corps` est en
-   * `display:none`, le bandeau y serait ecrit sans jamais s'afficher — et la
-   * deplier serait exactement le geste qu'on s'interdit.
-   */
-  function notreFenetreMasqueLaPopover(pop) {
+  function fenetreOuvertePourBandeau() {
     const o = ui.overlay;
-    if (!pop || !o) return false;
+    if (!o) return false;
     if (o.style.display === 'none') return false;
-    if (o.classList.contains('agn-replie')) return false;
-    return masqueLaPopover(o.getBoundingClientRect(), pop.getBoundingClientRect());
+    return !o.classList.contains('agn-replie');
   }
 
   // Reevalue a la demande : l'editeur peut rouvrir ou deplier la fenetre
@@ -2081,7 +2079,7 @@
       const txt = pop ? (pop.textContent || '').replace(/\s+/g, ' ').trim() : '';
       const propre = txt && RE_ERREUR_SAVE.test(txt)
         ? txt.replace(/\s*Fermer\s*$/i, '').trim() : '';
-      if (propre && notreFenetreMasqueLaPopover(pop)) {
+      if (propre && fenetreOuvertePourBandeau()) {
         if (propre !== derniereErreurSave) { derniereErreurSave = propre; afficherBandeauErreur(propre); }
       } else if (derniereErreurSave) {
         derniereErreurSave = ''; cacherBandeauErreur();
