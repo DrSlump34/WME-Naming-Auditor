@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.27.11
+// @version      2.27.12
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -2026,22 +2026,69 @@
    * RECOPIE le message de WME dans un bandeau bien visible EN TETE de notre
    * fenetre — la ou son regard est deja. Le bandeau vit tant que l'erreur est
    * affichee cote WME, et disparait avec elle.
+   *
+   * ⚠️⚠️ ON NE RECOPIE QUE CE QU'ON MASQUE (auteur, 28/07 : « lorsque WME
+   * genere une erreur a l'enregistrement, sans que le script soit implique, ca
+   * ouvre systematiquement l'overlay — c'est tres chiant »). Le raisonnement
+   * ci-dessus se retournait contre lui-meme : la recopie ne se justifie QUE
+   * parce que notre fenetre cache la popover. Fenetre fermee, elle ne cache
+   * rien — la popover de WME est parfaitement lisible, et on n'a aucune raison
+   * de s'inviter. La rouvrir de force, c'est en plus RAMENER l'editeur sur un
+   * outil qu'il avait range, pour une erreur qui ne nous concerne pas.
+   * ⇒ Meme regle que la 2.25.01 et la 2.27.11 : on n'agit pas sur son interface
+   *   a sa place. Le bandeau s'affiche s'il est VISIBLE, jamais en se rendant
+   *   visible.
    */
   let derniereErreurSave = '';
+  const RE_ERREUR_SAVE = /erreur|invalide|impossible|error|invalid/i;
+
+  /**
+   * PURE. Notre fenetre recouvre-t-elle la popover de WME ?
+   *
+   * ⚠️ Pas de seuil de surface : aucune mesure ne le justifierait, et un
+   * bandeau de trop ne coute rien depuis qu'il n'ouvre plus la fenetre. Le
+   * critere est donc franc — il y a intersection, ou il n'y en a pas.
+   */
+  function masqueLaPopover(rOverlay, rPop) {
+    if (!rOverlay || !rPop) return false;
+    if (!(rPop.width > 0) || !(rPop.height > 0)) return false;
+    const l = Math.min(rOverlay.right, rPop.right) - Math.max(rOverlay.left, rPop.left);
+    const h = Math.min(rOverlay.bottom, rPop.bottom) - Math.max(rOverlay.top, rPop.top);
+    return l > 0 && h > 0;
+  }
+
+  /**
+   * Le bandeau a-t-il une raison d'etre, ET une place pour se voir ?
+   * Repliee, la fenetre se limite a son en-tete : `ui.corps` est en
+   * `display:none`, le bandeau y serait ecrit sans jamais s'afficher — et la
+   * deplier serait exactement le geste qu'on s'interdit.
+   */
+  function notreFenetreMasqueLaPopover(pop) {
+    const o = ui.overlay;
+    if (!pop || !o) return false;
+    if (o.style.display === 'none') return false;
+    if (o.classList.contains('agn-replie')) return false;
+    return masqueLaPopover(o.getBoundingClientRect(), pop.getBoundingClientRect());
+  }
+
+  // Reevalue a la demande : l'editeur peut rouvrir ou deplier la fenetre
+  // PENDANT que l'erreur de WME est affichee — c'est a ce moment-la qu'il se
+  // met a la masquer, donc a ce moment-la que la recopie devient utile.
+  let releverErreurSave = () => {};
   function surveillerErreursEnregistrement() {
-    const relever = () => {
+    releverErreurSave = () => {
       const pop = document.querySelector('.save-popover-container');
       const txt = pop ? (pop.textContent || '').replace(/\s+/g, ' ').trim() : '';
-      const erreur = txt && /erreur|invalide|impossible|error|invalid/i.test(txt);
-      if (erreur) {
-        const propre = txt.replace(/\s*Fermer\s*$/i, '').trim();
+      const propre = txt && RE_ERREUR_SAVE.test(txt)
+        ? txt.replace(/\s*Fermer\s*$/i, '').trim() : '';
+      if (propre && notreFenetreMasqueLaPopover(pop)) {
         if (propre !== derniereErreurSave) { derniereErreurSave = propre; afficherBandeauErreur(propre); }
       } else if (derniereErreurSave) {
         derniereErreurSave = ''; cacherBandeauErreur();
       }
     };
     try {
-      new MutationObserver(relever).observe(document.body,
+      new MutationObserver(() => releverErreurSave()).observe(document.body,
         { childList: true, subtree: true, characterData: true });
     } catch (e) { log('surveillance des erreurs d\'enregistrement impossible', e); }
   }
@@ -2091,14 +2138,10 @@
       esc(texte) + '</div>' + expliquerRefus(texte) +
       '<span class="agn-err-note">Message repris de WME (sa propre alerte est ' +
       'cachée derrière cette fenêtre). Il disparaîtra quand l\'alerte de WME se fermera.</span>';
-    // Si la fenetre est repliee ou fermee, on la rouvre : sinon le bandeau
-    // resterait invisible et on n'aurait rien gagne.
-    if (ui.overlay) {
-      if (ui.overlay.style.display === 'none') ouvrirOverlay();
-      if (ui.overlay.classList.contains('agn-replie')) {
-        const red = ui.overlay.querySelector('#agn-reduire'); if (red) red.click();
-      }
-    }
+    // ⚠️⚠️ NE RIEN OUVRIR, NE RIEN DEPLIER. On n'arrive ici que si la fenetre
+    // est deja ouverte ET pose sur la popover : le bandeau est donc visible
+    // tel quel. Rouvrir une fenetre rangee sur une erreur qui ne nous regarde
+    // pas etait le defaut signale le 28/07.
     b.scrollIntoView({ block: 'nearest' });
   }
   function cacherBandeauErreur() {
@@ -8204,6 +8247,9 @@
       if (ui.voletAvantRepli || edition) basculerVolet(true);
     }
     if (!veut) saveUI();
+    // Replier ou deplier change ce qu'on cache de la popover d'erreur de WME
+    // (repliee, la fenetre n'est plus qu'un en-tete) : on redecide.
+    releverErreurSave();
   }
 
   function basculerVolet(force) {
@@ -9194,6 +9240,8 @@
     replierContoursSelonListe();
     repeindreCarte();
     saveUI(); majFab();
+    // C'est maintenant qu'on peut masquer une erreur de WME deja affichee.
+    releverErreurSave();
   }
 
   function fermerOverlay() {
