@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.27.13
+// @version      2.27.14
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -269,14 +269,18 @@
    * ⚠️ Le bandeau affichait une constante ecrite a la main, oubliee au bump :
    * la fenetre annoncait « v1.92 » alors que le fichier etait en 1.93. Un
    * editeur qui remonte un bug donnerait alors un mauvais numero. On lit donc
-   * d'abord le `@version` reel (Tampermonkey l'expose dans `GM_info`), et la
-   * constante ne sert que de repli — pour le test par injection, ou GM_info
-   * n'existe pas.
+   * d'abord le `@version` reel (Tampermonkey l'expose dans `GM_info`), et le
+   * repli ne sert que pour le test par injection, ou GM_info n'existe pas.
+   * ⚠️ Le repli etait un NUMERO ecrit a la main ('2.18') : il n'avait pas suivi
+   * neuf versions et affichait donc exactement le mauvais numero que ce bloc
+   * cherche a eviter. Un repli qui doit etre maintenu se perime — on prefere
+   * '?', qui n'affirme rien (recette reprise de WCT). Ne pas y remettre un
+   * numero.
    */
   const VERSION = (() => {
     try { if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) return GM_info.script.version; }
     catch (e) { /* pas de Tampermonkey : on prend le repli */ }
-    return '2.18';
+    return '?';
   })();
   const STORE_AGGLOS = 'wmeAggloNaming.agglos';
   // Communes declarees SANS agglomeration, par code INSEE. Un choix explicite
@@ -10866,8 +10870,26 @@
           // la, il n'y a rien a telecharger et rien ne part sur le reseau.
           autoChargerDepartement().then(rafraichirCommunesDeLaVue);
         }, 700);
-        dessinerPoignees(); } });
+      } });
     } catch (e) { log('abonnement au déplacement impossible', e); }
+
+    // ⚠️ LES POIGNEES ONT LEUR PROPRE ABONNEMENT, SUR LES DEUX EVENEMENTS.
+    // Elles etaient posees dans le gestionnaire ci-dessus, donc replacees
+    // seulement a l'ARRET de la carte : pendant un glissement elles restaient
+    // figees, puis sautaient. Correctif repris de WCT (v1.00.05), ou le meme
+    // defaut a ete traite.
+    // ⚠️ Ne pas en conclure que `wme-map-move-end` ne serait pas emis : c'est
+    // FAUX, il l'est bien (mesure en live le 01/08, 2 fois sur 2). La cause
+    // exacte du figement n'a PAS ete etablie — c'est l'ajout de `wme-map-move`
+    // qui regle le symptome. Si le sujet revient, reprendre le diagnostic a zero.
+    // ⚠️ Surtout PAS dans le gestionnaire debounce : celui-ci differe de 700 ms
+    // et emporterait un rechargement de departement a chaque frame de glissement.
+    // `dessinerPoignees` sort en un test quand aucune edition n'est en cours :
+    // l'abonnement ne coute rien le reste du temps.
+    ['wme-map-move', 'wme-map-move-end'].forEach(ev => {
+      try { sdk.Events.on({ eventName: ev, eventHandler: () => dessinerPoignees() }); }
+      catch (e) { log('abonnement ' + ev + ' impossible', e); }
+    });
 
     // Au demarrage aussi : l'editeur arrive souvent deja pose sur sa zone.
     autoChargerDepartement().then(rafraichirCommunesDeLaVue);
