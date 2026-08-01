@@ -215,6 +215,27 @@ verifier('30. ⚠️ le chargeur exige la feuille principale, pas seulement « u
   /principale/i.test(src.slice(src.indexOf('function chargerDictionnaireFr'),
                                src.indexOf('function chargerDictionnaireFr') + 2200)), true);
 
+// ---------------------------------------------------------------------------
+// 8. ⚠️⚠️ L'INTERRUPTEUR D'ATTENTE — publie le 01/08 en position INERTE
+// Une demande d'accord a ete adressee a buchet37 : tant qu'elle n'a pas de
+// reponse, le script ne doit RIEN telecharger chez lui. Ces tests figent le
+// fait que la coupure est TOTALE (pas seulement une case decochee), et
+// serviront de rappel le jour ou on la levera.
+// ⭐ Tests de VOLONTE : si `DICO_AUTORISE` passe a true un jour, le test 31
+// echouera exprès — c'est le signal qu'il faut relire cette section, pas la
+// contourner.
+// ---------------------------------------------------------------------------
+const autorise = /const DICO_AUTORISE\s*=\s*(true|false)\s*;/.exec(src);
+verifier('31. ⚠️ le dictionnaire est encore en attente d\'accord (a lever le jour venu)',
+  autorise && autorise[1], 'false');
+verifier('32. ⚠️ le chargeur refuse de partir sans accord (garde au plus pres du reseau)',
+  /if \(!DICO_AUTORISE\)[\s\S]{0,220}attente-accord/.test(
+    src.slice(src.indexOf('function chargerDictionnaireFr'))), true);
+verifier('33. ⚠️ la case est retiree de la liste des reglages, pas seulement decochee',
+  /cle === 'redactionDico' && !DICO_AUTORISE/.test(src), true);
+verifier('34. ⚠️ l\'audit ne consulte pas le dictionnaire sans accord',
+  /if \(DICO_AUTORISE && c\.redactionDico/.test(src), true);
+
 console.log(lignes.join('\n'));
 console.log('\n' + (ok + ko) + ' verifications OK, ' + ko + ' ECHEC(S)\n');
 process.exit(ko ? 1 : 0);

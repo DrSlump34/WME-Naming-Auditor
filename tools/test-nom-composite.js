@@ -89,8 +89,15 @@ const PREAMBULE = [relire('RE_ROUTE'), relire('RE_ABREV'), relire('RE_ABREV_SANS
                    relire('RE_SAINT'), relire('RE_FONCTION'), relire('RE_DIRECTION'),
                    relire('RE_NOM_COMPOSITE')].join('\n');
 function monter(controles) {
+  // ⚠️ `verifierForme` consulte aussi le dictionnaire de redaction depuis la
+  // v2.28.00. On lui fournit ici un environnement NEUTRE (interrupteur ferme,
+  // aucune regle chargee) : ce fichier teste le nom composite, pas le
+  // dictionnaire — celui-la a le sien, tools/test-dictionnaire.js.
   const code = PREAMBULE + '\n' +
     'const options = { controles: ' + JSON.stringify(controles) + ' };\n' +
+    'const DICO_AUTORISE = false;\n' +
+    'const dico = { regles: [] };\n' +
+    'function ecartDeRedaction(){ return null; }\n' +
     'function initialeIsolee(){ return false; }\n' +
     extraire('verifierForme') + '\nreturn verifierForme;';
   return new Function(code)();

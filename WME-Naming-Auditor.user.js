@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.28.00
+// @version      2.28.01
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -496,6 +496,25 @@
   // PARIS »). ⇒ `ecartDeRedaction` REFUSE de proposer quoi que ce soit dans ce
   // cas : on signale la capitale, on ne devine pas le nom.
   // ===========================================================================
+
+  /**
+   * ⚠️⚠️ INTERRUPTEUR D'ATTENTE — LE DICTIONNAIRE EST INERTE TANT QUE SON
+   * AUTEUR N'A PAS DONNE SON ACCORD.
+   *
+   * Le code ci-dessous lit les classeurs publics de WME Check Road Name
+   * (buchet37). Une demande lui a ete adressee le 01/08/2026 : tant qu'elle
+   * n'a pas de reponse, WNA ne doit **rien** telecharger chez lui — pas meme si
+   * un editeur curieux cochait la case. On ne se contente donc PAS d'un defaut
+   * decoche : le controle est retire de la liste et le chargeur refuse de
+   * partir.
+   *
+   * ⇒ POUR L'ACTIVER LE JOUR OU L'ACCORD ARRIVE : passer cette seule constante
+   * a `true`. Rien d'autre a toucher.
+   * ⇒ SI LA REPONSE EST NON : supprimer la section DICTIONNAIRE, le controle
+   *    `redactionDico`, son branchement dans `verifierForme` et l'entree
+   *    d'aide — et renvoyer vers WME Check Road Name dans l'aide.
+   */
+  const DICO_AUTORISE = false;
 
   const DICO_FEUILLES = [
     // Dictionnaire principal FR (regles generiques) puis dictionnaire public
@@ -1383,6 +1402,13 @@
    * l'ordre principal PUIS public : la cascade en depend.
    */
   function chargerDictionnaireFr() {
+    // ⚠️⚠️ Rien ne part tant que l'accord n'est pas donne (voir DICO_AUTORISE).
+    // Ce refus est ICI, au plus pres du reseau : quel que soit le chemin qui
+    // appelle, aucune requete ne peut atteindre les classeurs de buchet37.
+    if (!DICO_AUTORISE) {
+      dico = { regles: [], etat: 'attente-accord', detail: '', ignorees: 0, feuilles: 0 };
+      return Promise.resolve(dico);
+    }
     dico = { regles: [], etat: 'chargement', detail: '', ignorees: 0, feuilles: 0 };
     return Promise.all(DICO_FEUILLES.map(f =>
       telecharger(dicoUrl(f.cle))
@@ -1433,6 +1459,9 @@
     try { n = document.getElementById('agn-r-dico'); } catch (e) { return; }
     if (!n) return;
     const etat = force || dico.etat;
+    // En attente de l'accord : la ligne d'etat se tait aussi. Annoncer un
+    // dictionnaire qu'on ne va pas chercher n'aiderait personne.
+    if (!DICO_AUTORISE) { n.textContent = ''; return; }
     if (!options.controles.redactionDico) {
       n.innerHTML = crnPresent()
         ? '🏷️ Dictionnaire de rédaction : <b>inactif</b> — WME Check Road Name est installé ' +
@@ -3938,7 +3967,7 @@
       // dictionnaire ratisse le reste. Un nom deja signale plus haut peut donc
       // l'etre une seconde fois — c'est voulu : les deux disent des choses
       // differentes (« abreviation interdite » n'est pas « voici le nom juste »).
-      if (c.redactionDico && dico.regles.length) {
+      if (DICO_AUTORISE && c.redactionDico && dico.regles.length) {
         const e2 = ecartDeRedaction(nom, dico.regles);
         if (e2) ecarts.push({ champ: e2.champ + ou, avant: e2.avant, apres: e2.apres,
                               sansProposition: e2.sansProposition });
@@ -4092,8 +4121,10 @@
         // les accents manquants, les espaces doubles, « St-Jean ».
         // ⚠️ DECOCHE PAR DEFAUT SI WME Check Road Name EST INSTALLE : il dit
         // deja la meme chose, a partir des memes regles. Voir `crnPresent`.
+        // ⚠️ `DICO_AUTORISE` le rend inerte en attendant la reponse de son
+        // auteur : decoche d'office, et masque dans la liste des reglages.
         { cle: 'redactionDico', portee: 'forme',
-          defaut: () => !crnPresent(),
+          defaut: () => DICO_AUTORISE && !crnPresent(),
           libelle: 'Rédaction : dictionnaire communautaire FR (WME Check Road Name)' },
         { cle: 'hnHorsAgglo', portee: 'adresse',
           libelle: 'Numéros de rue (HN) hors agglomération' },
@@ -8959,9 +8990,9 @@
           <tr><td><b>Minuscule initiale</b></td><td>Un nom de voie commence par une majuscule.</td></tr>
           <tr><td><b>Numéro collé au nom</b></td><td>« D980 - Route de… » est <b>interdit</b> : le numéro va au principal hors agglo, ou en alternatif en agglo, jamais collé au nom.</td></tr>
           <tr><td><b>Fonction ou direction</b></td><td>« vers X », « accès Y » n'appartiennent pas au nom.</td></tr>
-          <tr><td><b>Rédaction : dictionnaire FR</b></td><td>Confronte le nom au <b>dictionnaire communautaire français</b> (~1 430 règles) et propose le nom corrigé : abréviations que les contrôles ci-dessus ne voient pas (« Che », « Pl », « Imp », « Sq »), titres (« Dr », « Gal », « Cdt », « Mal »), <b>accents manquants</b>, espaces en trop, « St-Jean ».</td></tr>
+          ${DICO_AUTORISE ? '<tr><td><b>Rédaction : dictionnaire FR</b></td><td>Confronte le nom au <b>dictionnaire communautaire français</b> (~1 430 règles) et propose le nom corrigé : abréviations que les contrôles ci-dessus ne voient pas (« Che », « Pl », « Imp », « Sq »), titres (« Dr », « Gal », « Cdt », « Mal »), <b>accents manquants</b>, espaces en trop, « St-Jean ».</td></tr>' : ''}
         </table>
-        <div class="agn-aide-note">🏷️ <b>D'où viennent ces règles.</b> Elles ne sont pas de nous :
+        ${!DICO_AUTORISE ? '' : `<div class="agn-aide-note">🏷️ <b>D'où viennent ces règles.</b> Elles ne sont pas de nous :
           c'est le dictionnaire de <b>WME Check Road Name</b> (buchet37), maintenu par la
           communauté française depuis 2015 dans deux classeurs partagés. WNA les <b>lit</b>, il
           n'en garde pas de copie — une correction apportée par la communauté vaut donc pour
@@ -8972,7 +9003,7 @@
           casse déjà à peu près correcte : il ne sait <b>pas</b> redresser un nom écrit
           entièrement en majuscules (« RUE DES ECOLES » lui fait produire « RUE DES ÉcolES »).
           Dans ce cas précis, WNA <b>signale la capitale sans proposer de nom</b> — mieux vaut
-          te laisser écrire le bon que t'en suggérer un faux.</div>` },
+          te laisser écrire le bon que t'en suggérer un faux.</div>`}` },
 
       { id: 'numerotation', titre: '🔢 Numérotation : numéros et POI résidentiels', corps: `
         <p>Règle française : <b>en agglomération le numéro est porté par le segment</b> (HN),
@@ -9384,6 +9415,10 @@
     // dur : un autre pays affichera automatiquement les siens.
     const zoneCtrl = q('#agn-r-controles');
     REF.controles.forEach(({ cle, libelle }) => {
+      // ⚠️ Le dictionnaire n'apparait meme pas dans la liste tant que son
+      // auteur n'a pas repondu : une case cochable serait une invitation a
+      // telecharger chez lui sans son accord.
+      if (cle === 'redactionDico' && !DICO_AUTORISE) return;
       const l = el(`<label class="agn-sb-c"><input type="checkbox"> ${esc(libelle)}</label>`);
       const inp = l.querySelector('input');
       inp.checked = !!options.controles[cle];
@@ -11215,10 +11250,10 @@
     // ⚠️ On ne le telecharge QUE si le controle est coche — deux appels reseau
     // pour une fonction que l'editeur a decochee seraient du gaspillage, et
     // c'est exactement le cas de celui qui a deja WME Check Road Name.
-    if (options.controles.redactionDico) {
+    if (DICO_AUTORISE && options.controles.redactionDico) {
       chargerDictionnaireFr().then(majEtatDico);
     } else {
-      dico.etat = 'inactif';
+      dico.etat = DICO_AUTORISE ? 'inactif' : 'attente-accord';
       majEtatDico();
     }
 
