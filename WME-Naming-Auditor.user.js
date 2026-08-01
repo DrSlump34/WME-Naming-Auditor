@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.27.14
+// @version      2.28.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -18,6 +18,7 @@
 // @connect      geo.api.gouv.fr
 // @connect      api.wazefrance.com
 // @connect      raw.githubusercontent.com
+// @connect      docs.google.com
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -466,6 +467,172 @@
     return points === 1;
   }
 
+  // ===========================================================================
+  // DICTIONNAIRE DE REDACTION FR — emprunte a WME Check Road Name (CRN)
+  //
+  // ⭐ ON NE REECRIT PAS CE QUI EXISTE. La communaute FR maintient depuis 2015
+  // un dictionnaire de ~1 430 regles de redaction (abreviations, titres,
+  // accents, prenoms, apostrophes, casse des articles, numeros de route) dans
+  // deux feuilles Google publiques, pilotees par le script WME Check Road Name
+  // de buchet37 (GreasyFork 3776). Ecrire nos propres regles serait moins bon
+  // des le premier jour, et divergerait aussitot.
+  //
+  // ⚡ MESURE DE FAISABILITE (01/08, hors ligne, sur les 2 feuilles reelles) :
+  // 1 428 regles chargees sur 1 434 ; 19 ecarts vus sur 19 noms fautifs ;
+  // 0 faux positif sur 7 noms deja corrects, « D18 » compris.
+  //
+  // ⚠️⚠️ AUCUN eval, JAMAIS. Les feuilles contiennent des cellules qui sont du
+  // CODE (« function(a) {return(a.toUpperCase());} »). Les evaluer reviendrait
+  // a executer, dans le navigateur de l'editeur, du JavaScript ecrit par
+  // quiconque a le droit d'edition sur un classeur partage. On les reconnait
+  // donc par TABLE DE CORRESPONDANCE EXACTE, et une cellule non reconnue est
+  // IGNOREE. CRN procede de meme depuis qu'il a retire son eval.
+  //
+  // ⚠️ LA LIMITE MESUREE, ET ELLE COMMANDE UN GARDE-FOU : le dictionnaire ne
+  // sait PAS redresser un nom tout en MAJUSCULES — il suppose une casse deja a
+  // peu pres correcte. Mesure sur 12 noms en capitales : 3 sorties franchement
+  // cassees (« RUE DES ECOLES » donne « RUE DES ÉcolES », parce que la regle
+  // des ecoles restitue ses groupes tels quels) et 9 batardes (« ROUTE de
+  // PARIS »). ⇒ `ecartDeRedaction` REFUSE de proposer quoi que ce soit dans ce
+  // cas : on signale la capitale, on ne devine pas le nom.
+  // ===========================================================================
+
+  const DICO_FEUILLES = [
+    // Dictionnaire principal FR (regles generiques) puis dictionnaire public
+    // (contributions : sigles, patronymes, lieux). Les numeros de ligne du
+    // second sont decales de 2000, comme chez CRN, pour qu'un signalement
+    // designe la bonne feuille.
+    { cle: '1fZNOmDQSYgAam6Lj3z9YpNFu0-Sb6AjAyFdy_dH-roA', depart: 1, nom: 'principal' },
+    { cle: '1T-UVFQtp5OrKqMZPRsfRBMohIAwdgNoWQcA6Ry4UEgA', depart: 2001, nom: 'public' }
+  ];
+  const dicoUrl = cle => 'https://docs.google.com/spreadsheets/d/' + cle + '/export?format=csv';
+
+  /**
+   * Cellules-fonctions reconnues, par correspondance EXACTE de la chaine.
+   * ⚠️ Ne jamais remplacer cette table par une evaluation dynamique : c'est le
+   * seul rempart entre un classeur partage et le navigateur de l'editeur.
+   */
+  const DICO_FONCTIONS = (() => {
+    const t = {
+      'function(a) {return(a.toUpperCase());}': a => a.toUpperCase(),
+      'function(a) {return(a.toLowerCase());}': a => a.toLowerCase(),
+      'function(a,x,y) {return(x+y.toUpperCase());}': (a, x, y) => x + y.toUpperCase(),
+      'function(a,x,y) {return(x+y.toLowerCase());}': (a, x, y) => x + y.toLowerCase(),
+      'function(a,x,y) {return(x.toUpperCase()+y.toLowerCase());}': (a, x, y) => x.toUpperCase() + y.toLowerCase()
+    };
+    // Familles « split/join » : reaccentuer une voyelle. La classe de caracteres
+    // et la lettre visee viennent du libelle lui-meme, ce qui evite d'ecrire les
+    // 24 variantes a la main.
+    [['éeèëê', 'e'], ['oöô', 'o'], ['iïî', 'i'], ['uüûù', 'u'], ['aàä', 'a']].forEach(([classe]) => {
+      for (const cible of classe) {
+        t['function(a) {return(a.split(/[' + classe + ']/i).join(\'' + cible + '\'));}'] =
+          a => a.split(new RegExp('[' + classe + ']', 'i')).join(cible);
+      }
+    });
+    t['function(a) {return(a.split(/c/i).join(\'ç\'));}'] = a => a.split(/c/i).join('ç');
+    return t;
+  })();
+
+  /**
+   * Analyse une feuille CSV en liste de regles. PURE.
+   * Reprend la grammaire de CRN : une ligne utile commence par « / », « // » est
+   * un commentaire, la virgule separe les colonnes et « @ » y represente une
+   * virgule litterale (contrainte du format CSV cote redacteurs).
+   */
+  function analyserDictionnaire(texte, depart) {
+    const regles = [];
+    let ignorees = 0, invalides = 0;
+    const lignes = String(texte || '').replace(/\t\t/g, '\t').replace(/\r/g, '\n').split('\n');
+    lignes.forEach((brute, i) => {
+      let ligne = brute;
+      if (ligne.indexOf('"') === 0) ligne = ligne.replace(/^"/, '').replace(/",/, ',');
+      if (ligne.indexOf('/') !== 0 || ligne.indexOf('//') === 0) return;
+      const pos = ligne.indexOf('//');
+      if (pos !== -1) ligne = ligne.substring(0, pos - 1);
+      ligne = ligne.replace(/"""/g, '"').replace(/""/g, '"');
+      const champs = ligne.split(/,/);
+      if (champs.length < 2) return;
+      let motifBrut = champs[0];
+      if (motifBrut.substring(0, 1) !== '/') motifBrut = '/' + motifBrut + '/';
+      const fin = motifBrut.lastIndexOf('/');
+      const motif = motifBrut.substring(1, fin).replace(/@/g, ',');
+      const flags = motifBrut.substring(fin + 1).replace(/"/g, '');
+      let corr = champs[1].replace(/[ ]*$/g, '').replace(/@/g, ',');
+      if (corr === '()') corr = '("")';
+      let remplacement;
+      if (corr[0] === '"') {
+        remplacement = corr.slice(1, corr.length - 1);
+      } else if (corr.slice(0, 8) === 'function') {
+        remplacement = DICO_FONCTIONS[corr];
+        if (!remplacement) { ignorees++; return; }   // cellule-code non reconnue : on passe
+      } else { return; }
+      let re;
+      try { re = new RegExp(motif, flags); } catch (e) { invalides++; return; }
+      regles.push({ ligne: i + depart, re, remplacement });
+    });
+    return { regles, ignorees, invalides };
+  }
+
+  /** Nettoyage d'encadrement de CRN (`genericCorrection`), avant ET apres la
+   *  cascade : espaces multiples, espaces de tete et de queue. PURE. */
+  const nettoyerNom = n => String(n || '').replace(/ +/g, ' ').replace(/^[ ]*/g, '').replace(/[ ]*$/g, '');
+
+  /**
+   * Applique la cascade complete a un nom. PURE.
+   * ⚠️ L'ORDRE DES REGLES EST SIGNIFIANT (le dictionnaire s'appuie dessus :
+   * encadrement par des espaces, puis traitements, puis retrait). Ne pas trier,
+   * ne pas dedupliquer, ne pas paralleliser.
+   */
+  function appliquerDictionnaire(nom, regles) {
+    let s = nettoyerNom(nom);
+    const lignes = [];
+    for (const r of (regles || [])) {
+      const avant = s;
+      try { s = s.replace(r.re, r.remplacement); } catch (e) { continue; }
+      if (s !== avant) lignes.push(r.ligne);
+    }
+    return { nom: nettoyerNom(s), lignes };
+  }
+
+  /** Un nom est « en capitales » des qu'il porte au moins deux mots alphabetiques
+   *  d'au moins trois lettres sans la moindre minuscule. Ce critere epargne les
+   *  numeros de route (« D18 », « A9 ») et les sigles courts (« ZA »). PURE. */
+  function nomEnCapitales(nom) {
+    const mots = String(nom || '').split(/[^A-Za-zÀ-ÿ]+/).filter(m => m.length >= 3);
+    if (mots.length < 2) return false;
+    return mots.every(m => m === m.toUpperCase()) && /[A-ZÀ-Ý]/.test(nom);
+  }
+
+  /**
+   * Confronte un nom au dictionnaire et rend un ecart, ou `null`. PURE.
+   *
+   * ⭐ TROIS REFUS DELIBERES, parce qu'une correction devinee coute plus cher
+   * qu'un silence :
+   *  1. nom en CAPITALES : le dictionnaire n'est pas fait pour ca (mesure du
+   *     01/08) — on signale la capitale, sans proposer de nom ;
+   *  2. proposition vide : une regle mal ecrite effacerait le nom ;
+   *  3. proposition identique a la casse et aux accents pres de rien du tout —
+   *     deja couvert par le point 2, garde ici pour etre explicite.
+   */
+  function ecartDeRedaction(nom, regles) {
+    const origine = String(nom || '').trim();
+    if (!origine || !regles || !regles.length) return null;
+    if (nomEnCapitales(origine)) {
+      // ⚠️ Libelle COURT : il s'affiche dans une colonne de tableau. Le pourquoi
+      // est dans l'aide (section « Ce que chaque controle verifie »).
+      // ⚠️ Aucun bouton ⚡ ne peut naitre de cet ecart : `planDeCorrection` ne
+      // fabrique d'operation que pour « principal », « giratoire », « ville
+      // interdite (principal) » et « alt manquant » (verifie, pas suppose).
+      return { champ: 'nom en capitales', avant: origine,
+        apres: 'à réécrire en minuscules accentuées (nom non proposé)',
+        sansProposition: true };
+    }
+    const res = appliquerDictionnaire(origine, regles);
+    if (!res.nom || res.nom === origine) return null;
+    return { champ: 'rédaction (dictionnaire FR)', avant: origine, apres: res.nom,
+             lignes: res.lignes };
+  }
+
   const CLES_NOM = ['nom', 'NOM', 'name', 'NOM_COM', 'nom_commune', 'libelle', 'LIBELLE', 'com_name', 'nomcom'];
   const CLES_CODE = ['code', 'INSEE_COM', 'insee', 'code_insee', 'codeInsee', 'CODE_INSEE', 'com_code', 'insee_com'];
 
@@ -477,6 +644,11 @@
   let communes = [];
   let metaContours = null;
   let agglos = {};
+  // Dictionnaire de redaction FR : regles chargees + de quoi le DIRE dans l'UI.
+  // ⭐ « Pas charge » est un RESULTAT, pas un silence : sans cet etat, un
+  // controle coche qui ne trouve rien se lit comme « tout est propre » alors
+  // que le reseau a peut-etre echoue (meme lecon que le zero de la v2.26).
+  let dico = { regles: [], etat: 'attente', detail: '', ignorees: 0, feuilles: 0 };
   let sansAgglo = {};        // { <code INSEE>: true }
   // Ecarts marques « traite », par commune : { <INSEE>: { <cle d'ecart>: true } }.
   // PERSONNEL (pas partage) : suit l'editeur d'un poste a l'autre, pas les
@@ -1202,6 +1374,99 @@
       throw new Error(e.message + ' — appel direct bloqué par WME ; ' +
         'installe le script dans Tampermonkey pour utiliser cette source');
     });
+  }
+
+  /**
+   * Charge les deux feuilles du dictionnaire FR. Ne rejette JAMAIS : un echec
+   * reseau laisse le controle muet mais l'etat le DIT (voir `dico.etat`).
+   * ⚠️ Les deux feuilles sont demandees en parallele, mais concatenees dans
+   * l'ordre principal PUIS public : la cascade en depend.
+   */
+  function chargerDictionnaireFr() {
+    dico = { regles: [], etat: 'chargement', detail: '', ignorees: 0, feuilles: 0 };
+    return Promise.all(DICO_FEUILLES.map(f =>
+      telecharger(dicoUrl(f.cle))
+        .then(txt => ({ f, res: analyserDictionnaire(txt, f.depart) }))
+        .catch(e => ({ f, err: e }))
+    )).then(sorties => {
+      const regles = [];
+      let ignorees = 0, ok = 0, principaleLa = false;
+      const soucis = [];
+      sorties.forEach(s => {
+        if (s.err) { soucis.push(s.f.nom + ' : ' + s.err.message); return; }
+        regles.push(...s.res.regles);
+        ignorees += s.res.ignorees;
+        ok++;
+        if (s.f.nom === 'principal') principaleLa = true;
+      });
+      // ⚠️⚠️ LA FEUILLE PRINCIPALE N'EST PAS UNE FEUILLE PARMI DEUX.
+      // Presque toutes les regles exigent un espace avant ET apres leur motif ;
+      // elles ne matchent que grace a la regle d'encadrement « /^(.*)$/ » qui
+      // n'existe QUE dans la principale. Sans elle, la cascade se tait sur
+      // presque tout — sans rien dire, donc en affirmant « aucun defaut ».
+      // ⇒ On prefere l'echec franc au faux « tout va bien ». (Decouvert en
+      // ecrivant tools/test-dictionnaire.js, tests 29-30.)
+      if (ok && !principaleLa) {
+        soucis.push('feuille principale absente : les règles ne peuvent pas s\'appliquer');
+      }
+      const utilisable = ok > 0 && principaleLa;
+      dico = {
+        regles: utilisable ? regles : [], ignorees, feuilles: ok,
+        etat: !utilisable ? 'echec' : (ok === DICO_FEUILLES.length ? 'ok' : 'partiel'),
+        detail: soucis.join(' · ')
+      };
+      log('dictionnaire FR : ' + regles.length + ' règle(s), ' + ok + '/' +
+          DICO_FEUILLES.length + ' feuille(s)' +
+          (ignorees ? ', ' + ignorees + ' cellule(s) de code non reconnue(s) et ignorée(s)' : '') +
+          (soucis.length ? ' — ' + soucis.join(' · ') : ''));
+      return dico;
+    });
+  }
+
+  /**
+   * Dit OU EN EST le dictionnaire, sous la liste des controles.
+   * ⭐ Un controle coche qui ne rend rien doit pouvoir s'expliquer : sans cette
+   * ligne, un echec reseau se lirait « aucun defaut de redaction ».
+   */
+  function majEtatDico(force) {
+    let n;
+    try { n = document.getElementById('agn-r-dico'); } catch (e) { return; }
+    if (!n) return;
+    const etat = force || dico.etat;
+    if (!options.controles.redactionDico) {
+      n.innerHTML = crnPresent()
+        ? '🏷️ Dictionnaire de rédaction : <b>inactif</b> — WME Check Road Name est installé ' +
+          'et dit déjà la même chose. Cocher la case ci-dessus pour l\'activer quand même.'
+        : '🏷️ Dictionnaire de rédaction : inactif.';
+      return;
+    }
+    if (etat === 'chargement' || etat === 'attente') {
+      n.textContent = '🏷️ Dictionnaire de rédaction : chargement…'; return;
+    }
+    if (etat === 'echec') {
+      n.innerHTML = '⚠️ Dictionnaire de rédaction <b>non chargé</b> — le contrôle est coché ' +
+        'mais ne peut rien signaler' + (dico.detail ? ' (' + esc(dico.detail) + ')' : '') + '.';
+      return;
+    }
+    n.innerHTML = '🏷️ ' + dico.regles.length + ' règle(s) de rédaction chargée(s)' +
+      (etat === 'partiel' ? ' — <b>une seule feuille sur deux</b>' +
+        (dico.detail ? ' (' + esc(dico.detail) + ')' : '') : '') +
+      '. Source : dictionnaire communautaire FR de <b>WME Check Road Name</b> (buchet37).';
+  }
+
+  /**
+   * WME Check Road Name est-il installe dans cet onglet ?
+   * ⭐ ON NE DOUBLONNE PAS UN VOISIN QUI FAIT DEJA LE TRAVAIL : CRN pose la
+   * meme correction de redaction, a partir du meme dictionnaire. Deux scripts
+   * qui disent la meme chose au meme moment, c'est du bruit, pas de l'aide.
+   * ⚠️ CRN peut demarrer APRES nous : ne pas figer ce verdict au demarrage,
+   * l'interroger au moment ou l'on s'en sert.
+   */
+  function crnPresent() {
+    try {
+      if (hote && typeof hote.WME_CRN_onload !== 'undefined') return true;
+      return !!document.querySelector('#WME_CRN_DialogBox, #WME_CRN_Dictionary');
+    } catch (e) { return false; }
   }
 
   const SOURCES = {
@@ -3668,6 +3933,16 @@
         ecarts.push({ champ: 'direction dans le nom' + ou, avant: nom,
           apres: 'la direction n\'est admise que sur les bretelles' });
       }
+      // ⭐ Le dictionnaire communautaire, en DERNIER : les controles ci-dessus
+      // sont plus precis sur ce qu'ils couvrent (ils nomment la faute), le
+      // dictionnaire ratisse le reste. Un nom deja signale plus haut peut donc
+      // l'etre une seconde fois — c'est voulu : les deux disent des choses
+      // differentes (« abreviation interdite » n'est pas « voici le nom juste »).
+      if (c.redactionDico && dico.regles.length) {
+        const e2 = ecartDeRedaction(nom, dico.regles);
+        if (e2) ecarts.push({ champ: e2.champ + ou, avant: e2.avant, apres: e2.apres,
+                              sansProposition: e2.sansProposition });
+      }
       // ⚠️⚠️ « Dxxx - Nom de la route » : ancienne regle FR, INTERDITE aujourd'hui.
       // Le remede depend de l'endroit ou le composite se trouve, et on le DIT,
       // parce que les deux cas ne se corrigent pas de la meme facon :
@@ -3811,6 +4086,15 @@
         { cle: 'nomComposite', portee: 'forme',
           libelle: 'Numéro collé au nom (« D980 - Route de… », interdit)' },
         { cle: 'fonctionDirection', portee: 'forme', libelle: 'Fonction ou direction dans le nom' },
+        // ⭐ Le dictionnaire communautaire FR (voir la section DICTIONNAIRE plus
+        // haut). Il couvre ce que les cinq controles ci-dessus ne voient pas :
+        // « Che », « Pl », « Imp », « Sq », « Dr », « Gal », « Cdt », « Mal »,
+        // les accents manquants, les espaces doubles, « St-Jean ».
+        // ⚠️ DECOCHE PAR DEFAUT SI WME Check Road Name EST INSTALLE : il dit
+        // deja la meme chose, a partir des memes regles. Voir `crnPresent`.
+        { cle: 'redactionDico', portee: 'forme',
+          defaut: () => !crnPresent(),
+          libelle: 'Rédaction : dictionnaire communautaire FR (WME Check Road Name)' },
         { cle: 'hnHorsAgglo', portee: 'adresse',
           libelle: 'Numéros de rue (HN) hors agglomération' },
         // ⚠️⚠️ CECI EST UNE MESURE, PAS UNE REGLE — et le libelle doit le dire.
@@ -7883,8 +8167,14 @@
       // ⚠️ Un controle peut demander a etre DECOCHE au depart (`defaut: false`) :
       // c'est le cas du numero de rue manquant sur les POI, qui concerne la
       // moitie d'entre eux et noierait le reste (arbitrage de l'auteur, 26/07).
+      // ⚠️ `defaut` peut etre une FONCTION quand l'etat de depart depend de
+      // l'environnement — le dictionnaire de redaction se tait si WME Check
+      // Road Name est deja la. Elle n'est evaluee qu'ICI, au tout premier
+      // demarrage : ensuite c'est le choix de l'editeur qui fait foi, et une
+      // installation ou desinstallation de CRN ne le bousculera pas.
       if (options.controles[ct.cle] === undefined) {
-        options.controles[ct.cle] = ct.defaut !== undefined ? ct.defaut : true;
+        const d = (typeof ct.defaut === 'function') ? ct.defaut() : ct.defaut;
+        options.controles[ct.cle] = d !== undefined ? d : true;
       }
     });
 
@@ -8669,7 +8959,20 @@
           <tr><td><b>Minuscule initiale</b></td><td>Un nom de voie commence par une majuscule.</td></tr>
           <tr><td><b>Numéro collé au nom</b></td><td>« D980 - Route de… » est <b>interdit</b> : le numéro va au principal hors agglo, ou en alternatif en agglo, jamais collé au nom.</td></tr>
           <tr><td><b>Fonction ou direction</b></td><td>« vers X », « accès Y » n'appartiennent pas au nom.</td></tr>
-        </table>` },
+          <tr><td><b>Rédaction : dictionnaire FR</b></td><td>Confronte le nom au <b>dictionnaire communautaire français</b> (~1 430 règles) et propose le nom corrigé : abréviations que les contrôles ci-dessus ne voient pas (« Che », « Pl », « Imp », « Sq »), titres (« Dr », « Gal », « Cdt », « Mal »), <b>accents manquants</b>, espaces en trop, « St-Jean ».</td></tr>
+        </table>
+        <div class="agn-aide-note">🏷️ <b>D'où viennent ces règles.</b> Elles ne sont pas de nous :
+          c'est le dictionnaire de <b>WME Check Road Name</b> (buchet37), maintenu par la
+          communauté française depuis 2015 dans deux classeurs partagés. WNA les <b>lit</b>, il
+          n'en garde pas de copie — une correction apportée par la communauté vaut donc pour
+          WNA dès le rechargement de la page.<br>
+          ⚠️ <b>Si tu as déjà WME Check Road Name</b>, ce contrôle est <b>décoché d'office</b> :
+          il te dirait exactement la même chose. Tu peux le cocher quand même.<br>
+          ⚠️⚠️ <b>Une limite mesurée, et le script s'y tient.</b> Ce dictionnaire suppose une
+          casse déjà à peu près correcte : il ne sait <b>pas</b> redresser un nom écrit
+          entièrement en majuscules (« RUE DES ECOLES » lui fait produire « RUE DES ÉcolES »).
+          Dans ce cas précis, WNA <b>signale la capitale sans proposer de nom</b> — mieux vaut
+          te laisser écrire le bon que t'en suggérer un faux.</div>` },
 
       { id: 'numerotation', titre: '🔢 Numérotation : numéros et POI résidentiels', corps: `
         <p>Règle française : <b>en agglomération le numéro est porté par le segment</b> (HN),
@@ -8962,6 +9265,7 @@
               Signaler les noms alternatifs surnuméraires</label>`)}
           ${sect('controles', 'Contrôles', `
             <div id="agn-r-controles"></div>
+            <div class="agn-note" id="agn-r-dico"></div>
             <div class="agn-sb-n" id="agn-r-relance"></div>`)}
           ${sect('correction', 'Correction', `
             <div class="agn-sb-n" id="agn-r-droits"></div>`)}
@@ -9083,9 +9387,22 @@
       const l = el(`<label class="agn-sb-c"><input type="checkbox"> ${esc(libelle)}</label>`);
       const inp = l.querySelector('input');
       inp.checked = !!options.controles[cle];
-      inp.onchange = () => { options.controles[cle] = inp.checked; saveUI(); prevenir(); };
+      inp.onchange = () => {
+        options.controles[cle] = inp.checked; saveUI();
+        // ⚠️ Cocher le dictionnaire APRES le demarrage doit le telecharger :
+        // sans ca, le controle resterait muet et l'editeur croirait sa carte
+        // impeccable (« zero est un resultat », lecon de la v2.26).
+        if (cle === 'redactionDico') {
+          if (inp.checked && !dico.regles.length) {
+            majEtatDico('chargement');
+            chargerDictionnaireFr().then(() => { majEtatDico(); prevenir(); });
+          } else { majEtatDico(); }
+        }
+        prevenir();
+      };
       zoneCtrl.appendChild(l);
     });
+    majEtatDico();
     coche('#agn-r-zoom', 'zoomClic');
     coche('#agn-r-surligner', 'surligner', () => redrawEcarts(null));
     // ⚠️ Decocher doit faire disparaitre la bulle DEJA affichee : sans ce
@@ -10893,6 +11210,17 @@
 
     // Au demarrage aussi : l'editeur arrive souvent deja pose sur sa zone.
     autoChargerDepartement().then(rafraichirCommunesDeLaVue);
+
+    // Dictionnaire de redaction : chargement en tache de fond, sans bloquer.
+    // ⚠️ On ne le telecharge QUE si le controle est coche — deux appels reseau
+    // pour une fonction que l'editeur a decochee seraient du gaspillage, et
+    // c'est exactement le cas de celui qui a deja WME Check Road Name.
+    if (options.controles.redactionDico) {
+      chargerDictionnaireFr().then(majEtatDico);
+    } else {
+      dico.etat = 'inactif';
+      majEtatDico();
+    }
 
     log('v' + VERSION + ' pret — fenêtre flottante — ' +
       (communes.length ? communes.length + ' commune(s)' : 'aucun contour'));
