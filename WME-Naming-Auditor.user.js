@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.29.00
+// @version      2.29.01
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -19,6 +19,7 @@
 // @connect      api.wazefrance.com
 // @connect      raw.githubusercontent.com
 // @connect      docs.google.com
+// @connect      googleusercontent.com
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -532,6 +533,23 @@
     { cle: '1fZNOmDQSYgAam6Lj3z9YpNFu0-Sb6AjAyFdy_dH-roA', depart: 1, nom: 'principal' },
     { cle: '1T-UVFQtp5OrKqMZPRsfRBMohIAwdgNoWQcA6Ry4UEgA', depart: 2001, nom: 'public' }
   ];
+  /**
+   * ⚠️⚠️ MESURE DU 03/08 — POURQUOI IL Y A **DEUX** @connect POUR UNE SEULE URL.
+   *
+   * `docs.google.com/…/export?format=csv` ne sert pas le CSV : il repond une
+   * **307** vers `doc-0k-50-sheets.googleusercontent.com` (mesure a la trace :
+   * 1 redirection, puis 200). Or Tampermonkey applique la liste `@connect` a
+   * **CHAQUE saut de redirection**, pas seulement au premier. Avec le seul
+   * `@connect docs.google.com`, le second saut est refuse, `GM_xmlhttpRequest`
+   * tombe dans `onerror`, et l'editeur lit « appel refuse » sans savoir pourquoi
+   * — symptome exact remonte par l'auteur au premier test live.
+   *
+   * ⇒ `@connect googleusercontent.com` est indispensable, et c'est le domaine
+   *   **PARENT** qu'il faut declarer : le sous-domaine (`doc-0k-50-…`) change
+   *   d'un appel a l'autre, l'ecrire en dur ne tiendrait pas.
+   * ⚠️ Ne pas « simplifier » en retirant l'un des deux : les deux sauts sont
+   *   controles separement. Verrou de test : tools/test-dictionnaire.js, n°36.
+   */
   const dicoUrl = cle => 'https://docs.google.com/spreadsheets/d/' + cle + '/export?format=csv';
 
   /**

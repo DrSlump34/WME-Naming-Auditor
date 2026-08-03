@@ -248,6 +248,22 @@ verifier('34. ⚠️ rien n\'est telecharge chez lui si le controle est decoche'
 verifier('35. le dictionnaire est decoche d\'office si WME Check Road Name est installe',
   /cle: 'redactionDico'[\s\S]{0,120}defaut: \(\) => !crnPresent\(\)/.test(src), true);
 
+// ---------------------------------------------------------------------------
+// 10. ⚠️⚠️ LES DEUX @connect — LE PREMIER TEST LIVE A ECHOUE ICI (03/08)
+// `docs.google.com/…/export?format=csv` repond une 307 vers
+// `doc-0k-50-sheets.googleusercontent.com`. Tampermonkey controle CHAQUE saut
+// de redirection contre la liste @connect : avec le seul `docs.google.com`, le
+// second saut est refuse et le chargement echoue sur « appel refuse ».
+// ⭐ Une seule URL dans le code, mais DEUX domaines a declarer. Rien dans le
+// code ne le laisse deviner : sans ce test, la ligne se fera « nettoyer » un
+// jour comme un doublon inutile, et le dictionnaire cessera de se charger.
+// ---------------------------------------------------------------------------
+const meta = src.slice(0, src.indexOf('==/UserScript=='));
+verifier('36. ⚠️⚠️ le domaine de REDIRECTION est declare (sinon : « appel refuse »)',
+  /@connect\s+googleusercontent\.com/.test(meta), true);
+verifier('37. le domaine d\'origine reste declare, lui aussi',
+  /@connect\s+docs\.google\.com/.test(meta), true);
+
 console.log(lignes.join('\n'));
 console.log('\n' + (ok + ko) + ' verifications OK, ' + ko + ' ECHEC(S)\n');
 process.exit(ko ? 1 : 0);
