@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.31.00
+// @version      2.31.01
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -8741,6 +8741,9 @@
   // ===========================================================================
 
   let aideOuverte = false;
+  // ⚠️ L'aide a-t-elle ete construite alors que le rang etait LISIBLE ? Si non,
+  // elle sera rebatie a la prochaine ouverture : son contenu depend des droits.
+  let aideBatieAvecProfil = false;
 
   // ===========================================================================
   // GUIDAGE PAS A PAS — montrer LE geste suivant
@@ -8976,6 +8979,22 @@
     }
   }
 
+  /**
+   * ⚡ N'EXPLIQUER LE ⚡ QU'A CEUX QUI L'ONT. Demande de l'auteur, 03/08 :
+   * « On peut pas expliquer l'existence du ⚡ à ceux qui n'ont aucune raison de
+   * voir le ⚡. »
+   *
+   * ⚠️⚠️ LE CRITERE N'EST PAS REINVENTE ICI : c'est `droits().autorise`, celui-la
+   * meme qui commande les boutons (L5, L6, Global Editors, staff). Un SECOND
+   * critere finirait par diverger du premier, et l'aide promettrait alors une
+   * fonction absente — ou la tairait a quelqu'un qui l'a. Un seul modele d'etat.
+   *
+   * ⚠️ Renvoie une CHAINE VIDE, pas un texte de remplacement : l'auteur ne veut
+   * pas qu'on explique ce qui n'est pas offert. Le volet des reglages dit deja
+   * a qui la correction est reservee, c'est le bon endroit pour le dire.
+   */
+  const siCorrecteur = html => (droits().autorise ? html : '');
+
   function sectionsAide() {
     return [
       { id: 'demarrage', titre: '🚀 Démarrage rapide', ouvert: true, corps: `
@@ -8989,13 +9008,13 @@
             panneaux d'entrée. À défaut, <b>＋ Tracer l'agglomération</b> à la main.</li>
           <li><b>Analyser la commune</b>. Rien n'est enregistré : le script lit, compare,
             et propose.</li>
-          <li><b>Traite les écarts</b> onglet par onglet. <b>⚡</b> applique une correction
-            dans WME (sans enregistrer), <b>✓</b> marque une ligne comme traitée.
-            <b>C'est toi qui relis et qui enregistres.</b></li>
+          <li><b>Traite les écarts</b> onglet par onglet. ${siCorrecteur(
+            '<b>⚡</b> applique une correction dans WME (sans enregistrer), ')}<b>✓</b> marque
+            une ligne comme traitée.${siCorrecteur(' <b>C\'est toi qui relis et qui enregistres.</b>')}</li>
         </ol>
-        <div class="agn-aide-note">Le script <b>ne modifie ni n'enregistre jamais rien tout seul</b>.
+        ${siCorrecteur(`<div class="agn-aide-note">Le script <b>ne modifie ni n'enregistre jamais rien tout seul</b>.
           Chaque ⚡ dépose une modification dans WME, exactement comme si tu l'avais faite à la main :
-          tu la relis, tu la gardes ou tu l'annules (Ctrl+Z), et c'est toi qui cliques Enregistrer.</div>` },
+          tu la relis, tu la gardes ou tu l'annules (Ctrl+Z), et c'est toi qui cliques Enregistrer.</div>`)}` },
 
       { id: 'contours', titre: '🗺️ Les contours communaux', corps: `
         <p>Le script compare le nommage à la <b>vraie limite communale</b>, pas à ce que
@@ -9082,7 +9101,7 @@
         <table class="agn-aide-t">
           <tr><td><b>Les groupes</b></td><td>Les écarts sont réunis par <b>famille</b> — la pastille de couleur est celle du surlignage sur la carte. Une thématique <b>entièrement traitée se replie d'elle-même</b>, compteur au vert.</td></tr>
           <tr><td><b>Clic sur une ligne</b></td><td>Cadre la carte sur l'écart et le sélectionne dans WME.</td></tr>
-          <tr><td><b>⚡</b></td><td>Applique la correction proposée <b>dans WME, sans enregistrer</b>. Sur un groupe, le ⚡ de l'en-tête traite d'un coup tout ce qui est automatisable.</td></tr>
+          ${siCorrecteur('<tr><td><b>⚡</b></td><td>Applique la correction proposée <b>dans WME, sans enregistrer</b>. Sur un groupe, le ⚡ de l\'en-tête traite d\'un coup tout ce qui est automatisable.</td></tr>')}
           <tr><td><b>✓</b></td><td>Marque la ligne comme traitée : elle se barre, sort de la carte, et <b>revient cochée à la prochaine analyse</b>. Ces coches sont personnelles, elles ne partent jamais dans un partage.</td></tr>
           <tr><td><b>🔒</b></td><td>Segment verrouillé au-dessus de ton niveau : la correction est refusée, le script ne propose pas de bouton.</td></tr>
           <tr><td><b>‹ Précédent / Suivant ›</b></td><td>Passe d'un écart au suivant en cadrant la carte à chaque fois.</td></tr>
@@ -9207,7 +9226,7 @@
           <b>hors agglomération par un POI résidentiel</b> (RPP). Le script cherche donc les
           deux situations inverses.</p>
         <table class="agn-aide-t">
-          <tr><td><b>Numéro hors agglo</b></td><td>Proposé à la conversion en POI résidentiel. Le ⚡ crée le POI à la position du numéro, lui donne l'adresse, <b>reprend son point d'entrée</b>, puis retire le numéro — et si l'une des étapes échoue, il revient en arrière plutôt que de laisser une adresse en double.</td></tr>
+          <tr><td><b>Numéro hors agglo</b></td><td>Proposé à la conversion en POI résidentiel.${siCorrecteur(' Le ⚡ crée le POI à la position du numéro, lui donne l\'adresse, <b>reprend son point d\'entrée</b>, puis retire le numéro — et si l\'une des étapes échoue, il revient en arrière plutôt que de laisser une adresse en double.')}</td></tr>
           <tr><td><b>RPP en agglo</b></td><td>Souvent <b>légitime</b> : l'entrée donne sur une autre voie que l'adresse postale, ce qu'un numéro sur segment ne sait pas exprimer. Le script ne tranche donc pas… sauf quand il peut le prouver.</td></tr>
           <tr><td><b>… doublon</b></td><td>Le même numéro est déjà posé sur la même rue, tout près : le POI fait double emploi.</td></tr>
           <tr><td><b>… accès sur sa propre voie</b></td><td>Le point d'accès du POI donne sur la voie de son adresse : il n'exprime aucun décalage.</td></tr>
@@ -9233,7 +9252,7 @@
           bâtiments nommés — et de leur adresse.</p>
         <table class="agn-aide-t">
           <tr><td><b>Adresse incomplète</b></td><td>Rue ou commune manquante. Le script <b>propose une adresse</b> : la voie nommée la plus proche du point d'accès, et la commune du contour INSEE.</td></tr>
-          <tr><td><b>⚡ sur un POI</b></td><td>Applique rue + commune. Si plusieurs noms sont possibles, le clic <b>ouvre une liste</b> : le plus probable en tête, les numéros de route ensuite, et une saisie libre.</td></tr>
+          ${siCorrecteur('<tr><td><b>⚡ sur un POI</b></td><td>Applique rue + commune. Si plusieurs noms sont possibles, le clic <b>ouvre une liste</b> : le plus probable en tête, les numéros de route ensuite, et une saisie libre.</td></tr>')}
           <tr><td><b>Le numéro</b></td><td>Proposé, <b>jamais appliqué</b> : à quelques dizaines de mètres, ce peut être celui du voisin. À saisir à la main après vérification.</td></tr>
           <tr><td><b>Commune différente</b></td><td>Présenté comme <b>à vérifier</b>, avec la distance à la limite communale : près d'une frontière, l'adresse de la voisine peut être la bonne.</td></tr>
           <tr><td><b>Numéro manquant</b></td><td>Contrôle <b>décoché par défaut</b> : il concerne environ la moitié des POI et noierait le reste.</td></tr>
@@ -9332,7 +9351,14 @@
     const aide = document.getElementById('agn-aide');
     if (!corps || !aide) return;
     aideOuverte = on === undefined ? !aideOuverte : !!on;
-    if (aideOuverte && !aide.innerHTML) {
+    // ⚠️⚠️ L'AIDE EST BATIE UNE SEULE FOIS, ET SON CONTENU DEPEND DU RANG.
+    // Or `getUserInfo()` et `loginManager` sont MUETS pendant les premieres
+    // secondes (bug deja vecu : « ton rang : ? », correction desactivee a tort).
+    // Une aide construite a ce moment-la masquerait le ⚡ a un L6 pour TOUTE la
+    // session. On retient donc si le profil etait lisible, et on rebatit sinon.
+    const profilLu = !!droits().rangsLus;
+    if (aideOuverte && (!aide.innerHTML || (!aideBatieAvecProfil && profilLu))) {
+      aideBatieAvecProfil = profilLu;
       aide.innerHTML = construireAide();
       aide.querySelectorAll('.agn-aide-h').forEach(h => {
         h.onclick = () => {

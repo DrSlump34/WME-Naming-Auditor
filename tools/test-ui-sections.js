@@ -265,6 +265,76 @@ titre('Geometries « Multi » : eclatees en features simples');
     /A86 - Intérieure[\s\S]{0,400}c'est le format exigé/.test(src), true);
 }
 
+// ===========================================================================
+// 16. ⚡ L'AIDE NE PARLE DU ⚡ QU'A CEUX QUI L'ONT — auteur, 03/08 :
+// « On peut pas expliquer l'existence du ⚡ à ceux qui n'ont aucune raison de
+// voir le ⚡. » La correction automatique est reservee aux L5, L6, Global
+// Editors et staff (`droits().autorise`, deja en place pour les boutons).
+//
+// ⚠️ Sa precision, et elle borne le masquage : « Pour ceux qui n'ont pas le
+// niveau, ils voient les problemes, et les suggestions de corrections, ils ne
+// peuvent juste pas corriger en auto avec le ⚡. » ⇒ on ne masque QUE ce qui
+// decrit l'application automatique. Jamais un ecart, jamais un nom propose.
+//
+// ⭐ TEST FONCTIONNEL, PAS TEXTUEL : on EXECUTE `sectionsAide()` avec les deux
+// profils et on regarde ce qui sort. Un test sur la forme du code laisserait
+// passer un ⚡ ajoute demain hors du filtre.
+// ===========================================================================
+{
+  const bloc = extraire('sectionsAide');
+  // ⚠️ L'aide interpole des constantes du script (seuils affiches a l'editeur).
+  // On les declare a la volee plutot qu'en dur : une constante ajoutee demain
+  // ne doit pas casser ce test pour une raison sans rapport avec son objet.
+  const constantes = new Set();
+  bloc.replace(/\$\{([^}]*)\}/g, (m, x) => {
+    (x.match(/\b[A-Z][A-Z0-9_]{2,}\b/g) || []).forEach(k => constantes.add(k));
+    return m;
+  });
+  const sectionsDe = autorise => new Function('autorise', [
+    [...constantes].map(k => 'const ' + k + ' = 0;').join('\n'),
+    'const droits = () => ({ autorise, niveau: "L5", motifs: [], rangsLus: 1 });',
+    'const siCorrecteur = html => (droits().autorise ? html : "");',
+    bloc,
+    'return sectionsAide();'
+  ].join('\n'))(autorise);
+  const corpsDe = autorise =>
+    sectionsDe(autorise).map(s => s.titre + s.corps).join('\n');
+  const sans = corpsDe(false), avec = corpsDe(true);
+
+  // ⚠️ Le TEMOIN d'abord : sans lui, « 0 occurrence » ne prouverait rien — le
+  // test passerait aussi si `sectionsAide` ne rendait plus rien du tout.
+  verifier('16. ⚡ temoin : un correcteur habilite voit bien le ⚡ explique',
+    (avec.match(/⚡/g) || []).length > 0, true);
+  verifier('16. ⚡⚡ un editeur NON habilite ne lit AUCUNE mention du ⚡',
+    (sans.match(/⚡/g) || []).length, 0);
+  verifier('16. ⚠️ … ni la phrase sur le depot de modification dans WME',
+    /dépose une modification dans WME/.test(sans), false);
+
+  // ⚠️⚠️ CE QUI NE DOIT PAS DISPARAITRE AVEC : il voit les memes ecarts et les
+  // memes propositions. Masquer l'outil, jamais le diagnostic.
+  verifier('16. ⭐ il garde les regles officielles',
+    /Les règles officielles françaises/.test(sans), true);
+  verifier('16. ⭐ il garde le detail de chaque controle',
+    /Ce que chaque contrôle vérifie/.test(sans), true);
+  verifier('16. ⭐ il garde le dictionnaire et ses noms proposes',
+    /dictionnaire communautaire français/.test(sans), true);
+  verifier('16. ⭐ il garde la conversion des numeros hors agglo',
+    /Proposé à la conversion en POI résidentiel/.test(sans), true);
+  // ⚠️ Aucune SECTION ne disparait : c'est le ⚡ qu'on tait, pas un pan de
+  // l'aide. Un editeur non habilite doit lire exactement les memes chapitres.
+  verifier('16. ⭐ aucune section ne disparait — seul le ⚡ est tu',
+    sectionsDe(false).map(s => s.id), sectionsDe(true).map(s => s.id));
+
+  // ⚠️⚠️ Le critere ne doit pas etre REINVENTE : deux modeles d'etat finiraient
+  // par diverger, et l'aide promettrait une fonction absente.
+  verifier('16. ⚠️⚠️ le filtre s\'appuie sur `droits()`, pas sur un second critere',
+    /const siCorrecteur = html => \(droits\(\)\.autorise \? html : ''\);/.test(src), true);
+  // ⚠️ Le rang est illisible pendant les premieres secondes : une aide batie a
+  // ce moment-la masquerait le ⚡ a un L6 pour TOUTE la session.
+  verifier('16. ⚠️⚠️ l\'aide est rebatie si elle a ete construite sans profil lisible',
+    /aideBatieAvecProfil && profilLu/.test(src), true);
+}
+
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(60));
 console.log('%d verifications OK, %d ECHEC(S)', ok, ko);
