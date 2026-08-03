@@ -257,8 +257,8 @@ titre('Geometries « Multi » : eclatees en features simples');
   // angles morts ont ete mesures le 03/08 en rejouant les exemples du guide.
   verifier('15. ⭐ l\'aide dit ce que le script NE verifie PAS',
     /Ce que WNA ne vérifie PAS/.test(src), true);
-  verifier('15. ⭐ … dont le format des bretelles, non controle',
-    /format du nom des bretelles n'est pas contrôlé/.test(src), true);
+  verifier('15. ⭐ … dont les cas qui exigent de voir le panneau',
+    /ne voit pas les panneaux/.test(src), true);
   // ⚠️ Les deux faux positifs connus sont NOMMES : un editeur qui suivrait le
   // script casserait un nom conforme au guide.
   verifier('15. ⚠️⚠️ les deux faux positifs connus sont annonces a l\'editeur',

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.31.01
+// @version      2.32.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -460,6 +460,50 @@
   const RE_FONCTION = /(voie de bus|voie bus|couloir bus|piste cyclable|parking|par[ck]ing|acc[eè]s livraison|voie de service)/i;
   // Direction dans le nom, hors bretelles (ou elle est la regle).
   const RE_DIRECTION = /\s:\s|\s>\s|^>\s/;
+
+  // ===========================================================================
+  // BRETELLES ET VOIES COMMUNALES — formats du guide FR (03/08)
+  //
+  // ⚠️⚠️ ON NE CONTROLE QUE CE QUI EST VERIFIABLE SANS VOIR LE PANNEAU. Le guide
+  // le dit lui-meme : « Si vous rencontrez un cas de figure qui n'est pas liste
+  // ci-dessous, ne tentez pas d'improviser. » Sont donc VOLONTAIREMENT hors
+  // controle, et doivent le rester :
+  //   - le nom d'echangeur (« Sortie 23 Remoulins: Avignon ») — impossible de
+  //     savoir si « Remoulins » est l'echangeur ou la direction ;
+  //   - la seconde direction (« Sortie 18: Valensole / Gréoux ») — elle n'est
+  //     admise qu'en cas d'ambiguite SUR LE PANNEAU, que WNA ne voit pas.
+  // ⭐ Arbitrage de l'auteur, 03/08 : « Arrete la. »
+  // ===========================================================================
+
+  /**
+   * Direction d'une bretelle qui est en fait un NUMERO DE ROUTE.
+   * Guide : « on saisira uniquement la premiere direction de VILLE listee, les
+   * noms d'autoroutes etant IGNORES » ⇒ « A71: A10 » est fautif.
+   * ⚠️ Ne matche que ce qui suit le deux-points, et exige un numero SEUL : une
+   * ville qui commencerait par une lettre suivie de chiffres n'existe pas, mais
+   * « D70: Vesoul » ne doit evidemment pas etre touche.
+   */
+  const RE_BRET_DIRECTION_ROUTE = /:\s*([AENDM]\s?\d+[a-zA-Z]?)\s*$/;
+
+  /**
+   * Deux numeros de route colles avant le deux-points (« A40 - E21: Paris »).
+   * Guide : « Ne mentionner le numero de route Europeen (Exxx) que si le numero
+   * national est absent. »
+   */
+  const RE_BRET_DOUBLE_NUMERO = /^[AEND]\s?\d+[a-zA-Z]?\s*[-–—]\s*[AEND]\s?\d+[a-zA-Z]?\s*:/;
+
+  /**
+   * Voie communale ecrite en toutes lettres. Guide : « Il faut mettre le nom
+   * abrege (C6 au lieu de Voie Communale n°6) pour eviter que le nom soit
+   * tronque dans le bandeau d'affichage des instructions de navigation. »
+   * ⚠️ La forme abregee attendue depend du libelle : on RECOPIE le numero, on
+   * ne devine pas le prefixe — « Voie Communale » donne « VC », « Chemin Rural »
+   * donne « CR ». Sans correspondance connue, on signale sans proposer.
+   */
+  const RE_VOIE_LONGUE =
+    /^(voie\s+communale|chemin\s+(?:rural|communal)|route\s+communale)\s*(?:n\s*°?\s*)?(\d+[a-zA-Z]?)\s*$/i;
+  const PREFIXE_VOIE = { 'voie communale': 'VC', 'chemin rural': 'CR',
+                         'chemin communal': 'CC', 'route communale': 'RC' };
 
   /** Une initiale isolee (« R. Poincare ») est une contraction interdite ; deux
    *  ou plus (« T.I.V. », « D.B. ») sont une abreviation officielle, autorisee. */
@@ -3981,10 +4025,29 @@
    * Forme du nom, independamment de la zone. Chaque controle est active
    * separement : ce sont des regles de redaction, pas de zonage, et l'auteur
    * doit pouvoir n'en retenir qu'une partie.
+   *
+   * ⚠️⚠️ `opts.bretelle` — LES BRETELLES N'ETAIENT AUDITEES SUR AUCUNE FORME.
+   * Corrige le 03/08 : « c'est un oubli » (l'auteur). Elles sortaient par la
+   * branche des voies a regle propre avec `.concat(estBretelle ? [] : forme)`,
+   * donc une bretelle nommee « sortie 18: valensole » ou « Av. de la Gare »
+   * n'etait JAMAIS signalee. Le guide FR ne les dispense que de la DIRECTION,
+   * pas de la casse ni des abreviations.
+   *
+   * ⚡ MESURE AVANT DE BRANCHER (13 noms conformes du guide, dictionnaire reel
+   * de 1 428 regles) : **aucun** n'est reecrit par le dictionnaire, et un seul
+   * declenche un controle — « > Orsay », attrape par `RE_DIRECTION`. C'est
+   * justement le format LEGITIME d'une sortie sans numero de route. D'ou la
+   * seule exemption ci-dessous, et elle est etroite : la branche `^>\s`.
+   * ⭐ Tout le reste de `RE_DIRECTION` RESTE ACTIF sur les bretelles, et c'est
+   * un cadeau : `\s:\s` exige un espace AVANT le deux-points, donc elle laisse
+   * passer « Sortie 18: Valensole » et attrape « Sortie 18 : Valensole » —
+   * exactement la regle du guide (« le : colle au numero, espace de la
+   * direction »), sans avoir eu a l'ecrire.
    */
-  function verifierForme(nam) {
+  function verifierForme(nam, opts) {
     const ecarts = [];
     const c = options.controles;
+    const bretelle = !!(opts && opts.bretelle);
     [nam.primary, ...nam.alts].forEach((e, i) => {
       const nom = (e.name || '').trim();
       if (!nom) return;
@@ -4038,9 +4101,58 @@
         ecarts.push({ champ: 'fonction dans le nom' + ou, avant: nom,
           apres: 'le nom ne doit pas decrire la fonction du segment' });
       }
-      if (c.fonctionDirection && RE_DIRECTION.test(nom)) {
-        ecarts.push({ champ: 'direction dans le nom' + ou, avant: nom,
-          apres: 'la direction n\'est admise que sur les bretelles' });
+      // ⚠️ Sur une bretelle, le « > » INITIAL est le format EXIGE par le guide
+      // pour une sortie sans numero de route (« > Orsay »).
+      // ⚠️⚠️ On retire ce seul PREFIXE avant de tester, on ne dispense PAS le
+      // nom entier : sinon « > Orsay : Paris » passerait en bloc alors que son
+      // « : » espace reste fautif. Le reste de la regle continue de s'appliquer.
+      const aTester = bretelle ? nom.replace(/^>\s/, '') : nom;
+      const directionInterdite = RE_DIRECTION.test(aTester);
+      // --- Formats propres aux bretelles (guide FR) --------------------------
+      if (bretelle && c.formatBretelle) {
+        const m = nom.match(RE_BRET_DIRECTION_ROUTE);
+        if (m) {
+          ecarts.push({ champ: 'bretelle : direction = numéro de route' + ou, avant: nom,
+            apres: 'la direction doit être une VILLE — « ' + m[1] +
+                   ' » est une route, les noms d\'autoroutes s\'ignorent',
+            sansProposition: true });
+        }
+        if (RE_BRET_DOUBLE_NUMERO.test(nom)) {
+          ecarts.push({ champ: 'bretelle : deux numéros de route' + ou, avant: nom,
+            apres: 'un seul numéro — l\'européen (Exxx) uniquement si le national est absent',
+            sansProposition: true });
+        }
+      }
+      // --- Voie communale ecrite en toutes lettres ---------------------------
+      // ⭐ On PROPOSE le nom court quand le prefixe est connu ; sinon on signale
+      // sans proposer, plutot que d'inventer une abreviation.
+      if (c.voieCommunale) {
+        const v = nom.match(RE_VOIE_LONGUE);
+        if (v) {
+          const p = PREFIXE_VOIE[v[1].toLowerCase().replace(/\s+/g, ' ')];
+          ecarts.push(p
+            ? { champ: 'voie communale en toutes lettres' + ou, avant: nom, apres: p + v[2] }
+            : { champ: 'voie communale en toutes lettres' + ou, avant: nom,
+                apres: 'à écrire sous la forme abrégée du panneau (tronqué en guidage)',
+                sansProposition: true });
+        }
+      }
+      // ⚠️⚠️ LE MESSAGE DOIT DIRE LA VRAIE FAUTE. Sur une bretelle, la direction
+      // EST la regle : lui repondre « la direction n'est admise que sur les
+      // bretelles » serait absurde — ce qui cloche chez elle, c'est
+      // l'ESPACEMENT (« Sortie 18 : Valensole »), le guide exigeant un
+      // deux-points colle au numero et espace de la direction.
+      // ⭐ Et on PROPOSE le nom corrige : la reparation est purement mecanique.
+      if (c.fonctionDirection && directionInterdite) {
+        if (bretelle) {
+          const corrige = nom.replace(/\s+:\s*/g, ': ').replace(/\s+>\s+/g, ' > ');
+          ecarts.push({ champ: 'bretelle : espacement du « : »' + ou, avant: nom,
+            apres: corrige !== nom ? corrige : 'le « : » se colle au numéro et s\'espace de la direction',
+            sansProposition: corrige === nom });
+        } else {
+          ecarts.push({ champ: 'direction dans le nom' + ou, avant: nom,
+            apres: 'la direction n\'est admise que sur les bretelles' });
+        }
       }
       // ⭐ Le dictionnaire communautaire, pousse EN DERNIER (il est CALCULE plus
       // haut, voir « option B ») : les controles ci-dessus sont plus precis sur
@@ -4192,6 +4304,12 @@
         { cle: 'nomComposite', portee: 'forme',
           libelle: 'Numéro collé au nom (« D980 - Route de… », interdit)' },
         { cle: 'fonctionDirection', portee: 'forme', libelle: 'Fonction ou direction dans le nom' },
+        // ⚠️ Ces deux controles ne portent QUE sur ce qui se verifie sans voir
+        // le panneau (voir la section BRETELLES ET VOIES COMMUNALES).
+        { cle: 'formatBretelle', portee: 'forme',
+          libelle: 'Bretelles : format du nom (numéro, direction)' },
+        { cle: 'voieCommunale', portee: 'forme',
+          libelle: 'Voies communales : forme abrégée (C6, pas « Voie Communale n°6 »)' },
         // ⭐ Le dictionnaire communautaire FR (voir la section DICTIONNAIRE plus
         // haut). Il couvre ce que les cinq controles ci-dessus ne voient pas :
         // « Che », « Pl », « Imp », « Sq », « Dr », « Gal », « Cdt », « Mal »,
@@ -6280,14 +6398,18 @@
                      editable: seg.editable !== undefined ? seg.editable : (() => { try {
                        return sdk.DataModel.Segments.hasPermissions({ segmentId: seg.id });
                      } catch (e) { return false; } })() };
-      const forme = REF.verifierForme(nam);
-
       // --- Type de voie : determine ICI, avant toute branche, parce que le
       //     garde-fou « ville sans polygone » juste en dessous en a besoin ---
       const estRail = REF.typesSansAdresseTotale.has(seg.roadType);      // rail, piste, ferry
       const estBretelle = seg.roadType === REF.typeBretelle;
       const estRocade = REF.estRocade(nomsBruts);
       const enAgglo = loc.partAgglo >= haut;
+
+      // ⚠️ `forme` se calcule APRES le type : une bretelle n'obeit pas tout a
+      // fait aux memes regles d'ecriture (voir `verifierForme`, opts.bretelle).
+      // ⚠️⚠️ Le type d'une bretelle vient du SEGMENT, pas de son nom (l'auteur,
+      // 03/08 : « la bretelle est de type Bretelle. C'est le type du segment »).
+      const forme = REF.verifierForme(nam, { bretelle: estBretelle });
 
       // ⚠️⚠️ GARDE-FOU « VILLE SANS POLYGONE » — VILLE PORTEE PAR LE NOM
       // PRINCIPAL = « ce segment se dit en agglomeration ». C'est la regle FR :
@@ -6346,7 +6468,12 @@
         // Rail/piste/ferry : ni ville ni rue. Bretelle et rocade : jamais de
         // ville (elles sont hors agglomeration par nature), mais un nom est
         // normal — c'est meme lui qui porte la direction sur une bretelle.
-        const ecarts = REF.verifierSansVille(nam, estRail).concat(estBretelle ? [] : forme);
+        // ⚠️⚠️ LES BRETELLES RECOIVENT MAINTENANT `forme`, ELLES AUSSI. Elles en
+        // etaient exclues (`estBretelle ? [] : forme`) : « c'est un oubli »
+        // (l'auteur, 03/08). Une bretelle nommee « sortie 18: valensole » ou
+        // « Av. de la Gare » ne declenchait rien du tout. `verifierForme` sait
+        // desormais qu'il s'agit d'une bretelle et n'exempte que le « > » initial.
+        const ecarts = REF.verifierSansVille(nam, estRail).concat(forme);
         if (!ecarts.length) continue;
         zones.special++;
         findings.push(Object.assign({}, base, {
@@ -9159,8 +9286,12 @@
         <p><b>Voies à règle propre :</b></p>
         <table class="agn-aide-t">
           <tr><td><b>Rocades, périphériques</b></td><td><b>Hors agglomération par nature</b> : jamais de ville, ni en principal ni en alternatif. Nommage comme les autoroutes, avec un suffixe <b>uniquement si la voie s'appelle ainsi</b> — intérieure/extérieure ou orientation — séparé par <b>espace tiret espace</b> : <span class="agn-aide-ex">A86 - Intérieure</span>, <span class="agn-aide-ex">N136 - Rocade Ouest</span>. Seule exception : le périphérique parisien (<span class="agn-aide-ex">Périphérique Intérieur</span>).</td></tr>
-          <tr><td><b>Bretelles</b></td><td><b>Jamais de ville.</b> Entrée d'autoroute : <span class="agn-aide-ex">A4: Reims</span> — deux-points <b>collé au numéro, espacé de la direction</b>, et <b>une seule</b> direction, la première du panneau. Entrée de rocade : le nom de route seul (<span class="agn-aide-ex">Périphérique Ouest</span>). Sortie numérotée : <span class="agn-aide-ex">Sortie 18: Valensole</span>, ou <span class="agn-aide-ex">Sortie 47</span> seule ; <b>le nom de l'échangeur s'ignore</b>. Sortie sans numéro de route : <span class="agn-aide-ex">&gt; Orsay</span>. Une <b>seconde direction</b> ne s'ajoute qu'en cas d'ambiguïté sur le panneau : <span class="agn-aide-ex">D118: Chartres / Villejust</span>.<br>⚠️ Une bretelle <b>sans nom</b> est <b>correcte</b> : elle hérite du segment suivant.</td></tr>
-          <tr><td><b>Voies communales</b></td><td>La <b>forme abrégée du panneau</b> : <span class="agn-aide-ex">C6</span>, <span class="agn-aide-ex">VC6</span>, <span class="agn-aide-ex">CR12</span>… et <b>pas</b> « Voie Communale n°6 », qui serait tronqué en guidage.</td></tr>
+          <tr><td><b>Bretelles</b></td><td><b>Jamais de ville.</b> Entrée d'autoroute : <span class="agn-aide-ex">A4: Reims</span> — deux-points <b>collé au numéro, espacé de la direction</b>, et <b>une seule</b> direction, la première du panneau. Entrée de rocade : le nom de route seul (<span class="agn-aide-ex">Périphérique Ouest</span>). Sortie numérotée : <span class="agn-aide-ex">Sortie 18: Valensole</span>, ou <span class="agn-aide-ex">Sortie 47</span> seule ; <b>le nom de l'échangeur s'ignore</b>. Sortie sans numéro de route : <span class="agn-aide-ex">&gt; Orsay</span>. Une <b>seconde direction</b> ne s'ajoute qu'en cas d'ambiguïté sur le panneau : <span class="agn-aide-ex">D118: Chartres / Villejust</span>.<br>⚠️ Une bretelle <b>sans nom</b> est <b>correcte</b> : elle hérite du segment suivant.<br>
+          <b>Ce que WNA contrôle ici :</b> l'espacement du « : », une direction qui serait un
+          numéro de route, un double numéro — et, depuis la v2.32, <b>les règles d'écriture
+          ordinaires</b> (majuscule, abréviations, dictionnaire), auxquelles une bretelle
+          n'échappe pas.</td></tr>
+          <tr><td><b>Voies communales</b></td><td>La <b>forme abrégée du panneau</b> : <span class="agn-aide-ex">C6</span>, <span class="agn-aide-ex">VC6</span>, <span class="agn-aide-ex">CR12</span>… et <b>pas</b> « Voie Communale n°6 », qui serait tronqué en guidage. <b>WNA le signale et propose la forme courte.</b></td></tr>
           <tr><td><b>Voie sur deux communes</b></td><td>Le <b>même nom de rue</b> en alternatif, avec la seconde ville.</td></tr>
           <tr><td><b>Voies ferrées</b></td><td>Ni nom de rue, ni ville.</td></tr>
           <tr><td><b>Pistes d'aéroport</b></td><td>Jamais de ville. Le <b>code OACI</b> de l'aéroport <b>peut</b> être mis en nom de rue.</td></tr>
@@ -9169,14 +9300,12 @@
 
         <div class="agn-aide-note">⚠️⚠️ <b>Ce que WNA ne vérifie PAS — mesuré, pas supposé.</b>
           Un contrôle absent est invisible : autant le dire.<br>
-          • <b>Le format du nom des bretelles n'est pas contrôlé du tout.</b> WNA vérifie
-          seulement qu'elles ne portent pas de ville. <span class="agn-aide-ex">Sortie 18 : Valensole</span>
-          (espace en trop), un nom d'échangeur conservé ou une seconde direction injustifiée
-          <b>passent sans un mot</b>.<br>
-          • <b>La forme abrégée des voies communales</b> n'est pas vérifiée :
-          « Voie Communale n°6 » ne déclenche rien.<br>
-          • WNA <b>ne voit pas les panneaux</b>. Il ne peut donc jamais dire si une seconde
-          direction est justifiée, ni si un mot est le nom d'un échangeur.<br>
+          • WNA <b>ne voit pas les panneaux</b>. Il ne peut donc <b>jamais</b> juger si un mot
+          est le nom d'un <b>échangeur</b> (<span class="agn-aide-ex">Sortie 23 Remoulins: Avignon</span>),
+          ni si une <b>seconde direction</b> est justifiée
+          (<span class="agn-aide-ex">Sortie 18: Valensole / Gréoux</span> — elle n'est admise
+          qu'en cas d'ambiguïté sur le panneau). Il se tait sur ces cas, volontairement :
+          le guide dit lui-même « ne tentez pas d'improviser ».<br>
           🔴 <b>Et deux défauts connus, à ne pas suivre aveuglément :</b> WNA signale
           <span class="agn-aide-ex">A86 - Intérieure</span> et <span class="agn-aide-ex">N136 - Rocade Ouest</span>
           comme « numéro collé au nom », alors que <b>c'est le format exigé</b> par le guide ;
