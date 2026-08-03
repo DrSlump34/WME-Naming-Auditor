@@ -52,15 +52,16 @@ function relire(nom) {
 const api = new Function([
   ['RE_ABREV', 'RE_ABREV_SANS_POINT', 'RE_SAINT', 'RE_FONCTION', 'RE_DIRECTION',
    'RE_NOM_COMPOSITE', 'RE_ROCADE', 'RE_BRET_DIRECTION_ROUTE',
-   'RE_BRET_DOUBLE_NUMERO', 'RE_VOIE_LONGUE', 'PREFIXE_VOIE'].map(relire).join('\n'),
-  extraire('initialeIsolee'),
+   'RE_BRET_DOUBLE_NUMERO', 'RE_VOIE_LONGUE', 'PREFIXE_VOIE',
+   'RE_SUFFIXE_ROCADE', 'SIGNTYPE_ROCADE_FR'].map(relire).join('\n'),
+  extraire('initialeIsolee'), extraire('formatRocade'), extraire('rocadeDe'),
   'const dico = { regles: [] };',
   'function ecartDeRedaction() { return null; }',
   'const options = { controles: { abreviations: true, contractions: true,',
   '  majuscule: true, fonctionDirection: true, nomComposite: true,',
   '  formatBretelle: true, voieCommunale: true, redactionDico: false } };',
   extraire('verifierForme'),
-  'return { verifierForme, RE_ROCADE };'
+  'return { verifierForme, RE_ROCADE, rocadeDe, formatRocade };'
 ].join('\n'))();
 
 let ok = 0, ko = 0;
@@ -207,7 +208,67 @@ verifier('6.2 les voies communales aussi',
 verifier('6.3 ⚠️⚠️ une bretelle se reconnaît au TYPE du segment, pas au nom',
   /const estBretelle = seg\.roadType === REF\.typeBretelle;/.test(src), true);
 verifier('6.4 ⚠️⚠️ les bretelles reçoivent bien les contrôles de forme (l\'oubli corrigé)',
-  /verifierSansVille\(nam, estRail\)\.concat\(forme\)/.test(src), true);
+  /verifierSansVille\(nam, nomPrincipalInterdit\)\.concat\(forme\)/.test(src), true);
+
+// ---------------------------------------------------------------------------
+// 7. ⚡⚡ LES ROCADES — LE CARTOUCHE TRANCHE, PAS LE NOM
+//
+// ⭐ L'auteur, 03/08 : « y'a le roadshield Rocade associé au nom principal,
+// c'est surtout ça l'élément qui tranche ». Le commentaire du code affirmait
+// l'inverse (« rien dans le modèle Waze ne dit ceci est une rocade ») — c'etait
+// FAUX, et ca nous a coute deux faux positifs sur des noms conformes.
+//
+// ⚡ VALEUR MESUREE EN LIVE (`W.model.signTypes`, pays 73 = France) :
+//   1067 Métropole · 1072 Autoroute/Nationale · 1092 Départementale
+//   3033 Voie communale / Chemin rural · 3035 ROCADE · 3036 Route européenne
+//   3037 Route territoriale
+// ⚠️⚠️ Le cartouche Rocade est declare `minTextLength: 0, maxTextLength: 0` :
+// il ne porte AUCUN texte. On ne peut donc PAS le reconnaitre a son `signText`,
+// seul le `signType` le dit. Ne jamais « simplifier » en testant le texte.
+// ---------------------------------------------------------------------------
+{
+  const nam = (nom, signType) => ({
+    primary: { name: nom, cityName: '', signText: '', signType: signType != null ? signType : null },
+    alts: []
+  });
+  verifier('7.1 ⚡ le cartouche Rocade (3035) tranche, et c\'est une CERTITUDE',
+    api.rocadeDe(nam('A86 - Intérieure', 3035)), { rocade: true, certain: true, motif: 'cartouche Rocade' });
+  verifier('7.2 ⚠️ sans cartouche, le nom ne donne qu\'un DOUTE',
+    api.rocadeDe(nam('N136 - Rocade Ouest')).certain, false);
+  verifier('7.3 ⚠️ … et le format « numéro - orientation » aussi',
+    api.rocadeDe(nam('A86 - Intérieure')).certain, false);
+  verifier('7.4 ⚠️ mais il est bien reconnu comme rocade (plus de raisonnement agglo)',
+    api.rocadeDe(nam('A86 - Intérieure')).rocade, true);
+  verifier('7.5 une voie ordinaire n\'est pas une rocade',
+    api.rocadeDe(nam('Rue de la République')).rocade, false);
+  verifier('7.6 ⚠️⚠️ un cartouche Départementale (1092) n\'en fait PAS une rocade',
+    api.rocadeDe(nam('D62', 1092)).rocade, false);
+
+  // ⭐⭐ LES DEUX FAUX POSITIFS QUI ONT MOTIVE TOUT CECI. Le format exigé par le
+  // guide tombe pile sur le motif que « numéro collé au nom » interdit.
+  verifier('7.7 🔴→✅ « A86 - Intérieure » n\'est PLUS signalé', auditer('A86 - Intérieure', 6), []);
+  verifier('7.8 🔴→✅ « N136 - Rocade Ouest » n\'est PLUS signalé', auditer('N136 - Rocade Ouest', 6), []);
+  verifier('7.9 « A86 - Extérieure » également', auditer('A86 - Extérieure', 6), []);
+  verifier('7.10 « N7 - Sud-Est » également', auditer('N7 - Sud-Est', 6), []);
+
+  // ⚠️⚠️ LA LISTE DES SUFFIXES EST FERMEE, ET C'EST TOUT L'INTERET : l'ouvrir
+  // rendrait légitime un composite quelconque. Ces deux-là restent interdits.
+  verifier('7.11 ⚠️⚠️ « A9 - Autoroute la Languedocienne » reste INTERDIT',
+    auditer('A9 - Autoroute la Languedocienne', 6).indexOf('numéro collé au nom') >= 0, true);
+  verifier('7.12 ⚠️⚠️ « N580 - Route d\'Avignon » reste INTERDIT (le cas réel de 2.14)',
+    auditer('N580 - Route d\'Avignon', 1).indexOf('numéro collé au nom') >= 0, true);
+}
+
+// ---------------------------------------------------------------------------
+// 8. ⚠️ LA PISTE D'AEROPORT N'EST PAS UNE VOIE FERREE SUR CE POINT
+// Guide : « Piste Aéroport / Taxiways : le nom de ville ne sera jamais
+// renseigné […] Le nom OACI de l'aéroport PEUT être indiqué en nom de rue. »
+// WNA les rangeait avec les rails et réclamait le retrait du nom principal.
+// ---------------------------------------------------------------------------
+verifier('8.1 🔴→✅ le nom principal d\'une piste n\'est plus interdit',
+  /const nomPrincipalInterdit = estRail && seg\.roadType !== REF\.typePiste;/.test(src), true);
+verifier('8.2 ⚠️ le type Piste est nommé, pas écrit en dur dans la condition',
+  /typePiste: 19/.test(src), true);
 
 console.log(lignes.join('\n'));
 console.log('\n' + (ok + ko) + ' verifications OK, ' + ko + ' ECHEC(S)\n');

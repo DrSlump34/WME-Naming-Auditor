@@ -65,7 +65,8 @@ function relire(nom) {
 
 const api = new Function([
   ['RE_ABREV', 'RE_ABREV_SANS_POINT', 'RE_SAINT', 'RE_FONCTION', 'RE_DIRECTION',
-   'RE_NOM_COMPOSITE', 'nettoyerNom'].map(relire).join('\n'),
+   'RE_NOM_COMPOSITE', 'RE_SUFFIXE_ROCADE', 'nettoyerNom'].map(relire).join('\n'),
+  extraire('formatRocade'),
   extraireIife('DICO_FONCTIONS'),
   extraire('initialeIsolee'), extraire('analyserDictionnaire'),
   extraire('appliquerDictionnaire'), extraire('nomEnCapitales'),

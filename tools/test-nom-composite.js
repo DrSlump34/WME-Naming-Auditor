@@ -87,7 +87,10 @@ for (const nom of permis) verifier('« ' + nom + " » épargné", !!nom.match(RE
 console.log('\n=== Le contrôle dans verifierForme ===\n');
 const PREAMBULE = [relire('RE_ROUTE'), relire('RE_ABREV'), relire('RE_ABREV_SANS_POINT'),
                    relire('RE_SAINT'), relire('RE_FONCTION'), relire('RE_DIRECTION'),
-                   relire('RE_NOM_COMPOSITE')].join('\n');
+                   relire('RE_NOM_COMPOSITE'), relire('RE_SUFFIXE_ROCADE'),
+                   // ⚠️ Le format des rocades est EXEMPTE du controle : voir
+                   // la section « rocade » du userscript et test-guide-fr.js.
+                   extraire('formatRocade')].join('\n');
 function monter(controles) {
   // ⚠️ `verifierForme` consulte aussi le dictionnaire de redaction depuis la
   // v2.28.00. On lui fournit ici un environnement NEUTRE (interrupteur ferme,

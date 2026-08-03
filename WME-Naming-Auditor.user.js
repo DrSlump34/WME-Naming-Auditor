@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.32.00
+// @version      2.33.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -444,10 +444,74 @@
     20: 'Voie de parking', 22: 'Ruelle'
   };
 
-  // ⚠️ Identifier une rocade est le point faible : rien dans le modele Waze ne
-  // dit « ceci est une rocade ». On s'en tient au NOM, seul indice fiable — une
-  // rocade nommee autrement passera au travers, et c'est assume.
+  /**
+   * ⚡⚡ IDENTIFIER UNE ROCADE — LE CARTOUCHE TRANCHE, PAS LE NOM.
+   *
+   * ⭐ Corrige le 03/08 sur indication de l'auteur : « y'a le roadshield Rocade
+   * associe au nom principal, c'est surtout ca l'element qui tranche ». Le
+   * commentaire precedent affirmait « rien dans le modele Waze ne dit ceci est
+   * une rocade » — **c'etait faux**, et ca nous a coute deux faux positifs.
+   *
+   * ⚡ VALEUR MESUREE EN LIVE dans WME (`W.model.signTypes`, pays 73 = France) :
+   *     1067 Métropole · 1072 Autoroute/Nationale · 1092 Départementale
+   *     3033 Voie communale / Chemin rural · **3035 Rocade**
+   *     3036 Route européenne · 3037 Route territoriale
+   * ⚠️⚠️ ET UN DETAIL QUI COMMANDE LE CODE : le cartouche Rocade est declare
+   * `minTextLength: 0, maxTextLength: 0` — il ne porte AUCUN texte, c'est un
+   * pictogramme. On ne peut donc PAS le reconnaitre a son `signText` (toujours
+   * vide) : seul le `signType` le dit. C'est aussi pourquoi il ne faut jamais
+   * juger une rocade « sans cartouche » sur l'absence de texte.
+   */
+  const SIGNTYPE_ROCADE_FR = 3035;
+
+  // Repli par le NOM, quand aucun cartouche n'est pose. ⚠️ Il ne PROUVE rien :
+  // ce qu'il trouve est signale comme un DOUTE, jamais comme une certitude.
   const RE_ROCADE = /(p[ée]riph[ée]rique|rocade|voie rapide urbaine|ceinture)/i;
+
+  /**
+   * Suffixes admis apres « <numero> - » sur une rocade. Guide FR : « soit a la
+   * notion d'Interieur(e)/Exterieur(e), soit une notion d'orientation
+   * geographique », a n'ajouter que si la voie s'appelle ainsi.
+   * ⚠️⚠️ LISTE FERMEE, ET ELLE DOIT LE RESTER (validee par l'auteur le 03/08) :
+   * l'ouvrir rendrait legitime « A9 - Autoroute la Languedocienne », qui est
+   * interdit. Toute forme voisine non listee reste signalee.
+   */
+  const RE_SUFFIXE_ROCADE =
+    /^(int[ée]rieur|ext[ée]rieur)(e)?$|^(rocade\s+)?(nord|sud|est|ouest)(-(est|ouest))?$/i;
+
+  /**
+   * Le nom est-il « <numero de route> - <suffixe d'orientation> » ? C'est le
+   * format EXIGE par le guide pour une rocade (« A86 - Intérieure »,
+   * « N136 - Rocade Ouest »), et il tombe pile sur le motif que le controle
+   * « numero colle au nom » interdit. PURE.
+   */
+  function formatRocade(nom) {
+    const m = String(nom || '').trim().match(RE_NOM_COMPOSITE);
+    return !!(m && RE_SUFFIXE_ROCADE.test(m[2].trim()));
+  }
+
+  /**
+   * Rocade ? Rend `{ rocade, certain }`. PURE.
+   * ⭐ `certain` vaut true UNIQUEMENT quand le cartouche Rocade est pose. Sinon
+   * on s'appuie sur le nom ou sur le format, et l'appelant DOIT afficher le
+   * doute — regle de l'auteur, 03/08 : « tout autre cas susceptible de generer
+   * un doute doit, si pertinent, indiquer le doute a l'utilisateur ».
+   */
+  function rocadeDe(nam) {
+    const entrees = nam ? [nam.primary, ...(nam.alts || [])].filter(Boolean) : [];
+    if (entrees.some(e => e && e.signType === SIGNTYPE_ROCADE_FR)) {
+      return { rocade: true, certain: true, motif: 'cartouche Rocade' };
+    }
+    const noms = entrees.map(e => (e && e.name) || '').join(' ');
+    if (RE_ROCADE.test(noms)) {
+      return { rocade: true, certain: false, motif: 'nom (aucun cartouche Rocade posé)' };
+    }
+    if (entrees.some(e => formatRocade(e && e.name))) {
+      return { rocade: true, certain: false,
+               motif: 'format « numéro - orientation » (aucun cartouche Rocade posé)' };
+    }
+    return { rocade: false, certain: false, motif: null };
+  }
 
   // --- Controles de forme du nom (guide FR, section « Ce qu'il ne faut PAS faire ») ---
   // Abreviations de type de voie : le point est exige pour eviter les faux
@@ -4168,7 +4232,16 @@
       //  - en ALTERNATIF : ⚠️ le SDK n'a PAS de `removeAlternateStreet` (voir
       //    [[wme-sdk-pieges]]), donc le script ne peut pas le retirer — c'est un
       //    geste manuel, et promettre le contraire serait mentir.
-      if (c.nomComposite) {
+      // ⚠️⚠️ SAUF SUR UNE ROCADE, OU CE MOTIF EST LE FORMAT EXIGE.
+      // Le guide impose « espace tiret espace » entre le numero et le suffixe
+      // d'orientation : « A86 - Intérieure », « N136 - Rocade Ouest ». C'est
+      // exactement le motif interdit ici — WNA reclamait donc de casser un nom
+      // JUSTE (mesure du 03/08 contre les exemples du guide).
+      // ⭐ L'exemption ne regarde PAS si le segment est une rocade : elle
+      // regarde le FORMAT, liste de suffixes FERMEE (`RE_SUFFIXE_ROCADE`). Un
+      // segment mal identifie ne doit pas se faire casser son nom pour autant,
+      // et « A9 - Autoroute la Languedocienne » reste interdit.
+      if (c.nomComposite && !formatRocade(nom)) {
         const m = nom.match(RE_NOM_COMPOSITE);
         if (m) {
           const nomSeul = m[2].trim();
@@ -4271,7 +4344,12 @@
       typesSansAdresse: ROADTYPE_SANS_ADRESSE,
       typesSansAdresseTotale: ROADTYPE_SANS_ADRESSE_TOTALE,
       typeBretelle: 4,
-      estRocade: noms => RE_ROCADE.test(noms),
+      // ⚠️ 19 = Piste d'aeroport. Elle partage l'interdiction de VILLE avec les
+      //    rails, mais PAS celle du nom : le guide y admet le code OACI.
+      typePiste: 19,
+      // ⚠️ Prend le NOMMAGE (pas les noms) : le cartouche Rocade tranche, et il
+      //    n'est lisible que sur l'entree, pas sur une chaine de noms.
+      rocadeDe: rocadeDe,
 
       // Etat cible du nommage selon la zone (le logigramme C/R/H).
       etatCible: expectedNaming,
@@ -6402,7 +6480,10 @@
       //     garde-fou « ville sans polygone » juste en dessous en a besoin ---
       const estRail = REF.typesSansAdresseTotale.has(seg.roadType);      // rail, piste, ferry
       const estBretelle = seg.roadType === REF.typeBretelle;
-      const estRocade = REF.estRocade(nomsBruts);
+      // ⚡ Le cartouche Rocade (signType 3035) tranche ; a defaut le nom ou le
+      //   format, et l'ecart portera alors la mention du DOUTE.
+      const roc = REF.rocadeDe(nam);
+      const estRocade = roc.rocade;
       const enAgglo = loc.partAgglo >= haut;
 
       // ⚠️ `forme` se calcule APRES le type : une bretelle n'obeit pas tout a
@@ -6473,14 +6554,24 @@
         // (l'auteur, 03/08). Une bretelle nommee « sortie 18: valensole » ou
         // « Av. de la Gare » ne declenchait rien du tout. `verifierForme` sait
         // desormais qu'il s'agit d'une bretelle et n'exempte que le « > » initial.
-        const ecarts = REF.verifierSansVille(nam, estRail).concat(forme);
+        // ⚠️⚠️ LA PISTE D'AEROPORT N'EST PAS UN RAIL SUR CE POINT. Guide FR :
+        // « Piste Aéroport / Taxiways : le nom de ville ne sera jamais
+        // renseigné […] **Le nom OACI de l'aéroport peut être indiqué en nom de
+        // rue.** » WNA les rangeait avec les voies ferrees et reclamait le
+        // retrait du nom principal — il demandait donc d'effacer une donnee que
+        // le guide AUTORISE (mesure du 03/08). Seule la VILLE reste interdite.
+        const nomPrincipalInterdit = estRail && seg.roadType !== REF.typePiste;
+        const ecarts = REF.verifierSansVille(nam, nomPrincipalInterdit).concat(forme);
         if (!ecarts.length) continue;
         zones.special++;
         findings.push(Object.assign({}, base, {
           cas: estRail ? 'RAIL' : estBretelle ? 'BRET' : 'ROC', ecarts, special: true,
           cible: { primary: { name: estRail ? '' : nam.primary.name, cityName: '' },
                    alts: nam.alts.map(a => ({ name: a.name, cityName: '' })) },
-          doute: estRocade ? 'identifiée comme rocade d\'après son nom' : null }));
+          // ⭐ Le doute se DIT (règle de l'auteur, 03/08). Une rocade reconnue
+          //   à son cartouche est une certitude : rien à signaler dans ce cas.
+          doute: (estRocade && !roc.certain)
+            ? 'identifiée comme rocade d\'après son ' + roc.motif : null }));
         continue;
       }
 
@@ -9285,7 +9376,9 @@
 
         <p><b>Voies à règle propre :</b></p>
         <table class="agn-aide-t">
-          <tr><td><b>Rocades, périphériques</b></td><td><b>Hors agglomération par nature</b> : jamais de ville, ni en principal ni en alternatif. Nommage comme les autoroutes, avec un suffixe <b>uniquement si la voie s'appelle ainsi</b> — intérieure/extérieure ou orientation — séparé par <b>espace tiret espace</b> : <span class="agn-aide-ex">A86 - Intérieure</span>, <span class="agn-aide-ex">N136 - Rocade Ouest</span>. Seule exception : le périphérique parisien (<span class="agn-aide-ex">Périphérique Intérieur</span>).</td></tr>
+          <tr><td><b>Rocades, périphériques</b></td><td><b>Hors agglomération par nature</b> : jamais de ville, ni en principal ni en alternatif. Nommage comme les autoroutes, avec un suffixe <b>uniquement si la voie s'appelle ainsi</b> — intérieure/extérieure ou orientation — séparé par <b>espace tiret espace</b> : <span class="agn-aide-ex">A86 - Intérieure</span>, <span class="agn-aide-ex">N136 - Rocade Ouest</span>. Seule exception : le périphérique parisien (<span class="agn-aide-ex">Périphérique Intérieur</span>).<br>
+          ⭐ <b>Ce qui identifie une rocade pour WNA, c'est le cartouche « Rocade »</b>, pas son
+          nom. À défaut, il se rabat sur le nom ou le format — et <b>affiche le doute</b>.</td></tr>
           <tr><td><b>Bretelles</b></td><td><b>Jamais de ville.</b> Entrée d'autoroute : <span class="agn-aide-ex">A4: Reims</span> — deux-points <b>collé au numéro, espacé de la direction</b>, et <b>une seule</b> direction, la première du panneau. Entrée de rocade : le nom de route seul (<span class="agn-aide-ex">Périphérique Ouest</span>). Sortie numérotée : <span class="agn-aide-ex">Sortie 18: Valensole</span>, ou <span class="agn-aide-ex">Sortie 47</span> seule ; <b>le nom de l'échangeur s'ignore</b>. Sortie sans numéro de route : <span class="agn-aide-ex">&gt; Orsay</span>. Une <b>seconde direction</b> ne s'ajoute qu'en cas d'ambiguïté sur le panneau : <span class="agn-aide-ex">D118: Chartres / Villejust</span>.<br>⚠️ Une bretelle <b>sans nom</b> est <b>correcte</b> : elle hérite du segment suivant.<br>
           <b>Ce que WNA contrôle ici :</b> l'espacement du « : », une direction qui serait un
           numéro de route, un double numéro — et, depuis la v2.32, <b>les règles d'écriture
@@ -9294,7 +9387,7 @@
           <tr><td><b>Voies communales</b></td><td>La <b>forme abrégée du panneau</b> : <span class="agn-aide-ex">C6</span>, <span class="agn-aide-ex">VC6</span>, <span class="agn-aide-ex">CR12</span>… et <b>pas</b> « Voie Communale n°6 », qui serait tronqué en guidage. <b>WNA le signale et propose la forme courte.</b></td></tr>
           <tr><td><b>Voie sur deux communes</b></td><td>Le <b>même nom de rue</b> en alternatif, avec la seconde ville.</td></tr>
           <tr><td><b>Voies ferrées</b></td><td>Ni nom de rue, ni ville.</td></tr>
-          <tr><td><b>Pistes d'aéroport</b></td><td>Jamais de ville. Le <b>code OACI</b> de l'aéroport <b>peut</b> être mis en nom de rue.</td></tr>
+          <tr><td><b>Pistes d'aéroport</b></td><td>Jamais de ville. Le <b>code OACI</b> de l'aéroport <b>peut</b> être mis en nom de rue — WNA ne le réclame donc plus.</td></tr>
           <tr><td><b>Giratoires</b></td><td>Sans nom ; la ville suit la zone.</td></tr>
         </table>
 
@@ -9306,11 +9399,10 @@
           (<span class="agn-aide-ex">Sortie 18: Valensole / Gréoux</span> — elle n'est admise
           qu'en cas d'ambiguïté sur le panneau). Il se tait sur ces cas, volontairement :
           le guide dit lui-même « ne tentez pas d'improviser ».<br>
-          🔴 <b>Et deux défauts connus, à ne pas suivre aveuglément :</b> WNA signale
-          <span class="agn-aide-ex">A86 - Intérieure</span> et <span class="agn-aide-ex">N136 - Rocade Ouest</span>
-          comme « numéro collé au nom », alors que <b>c'est le format exigé</b> par le guide ;
-          et il réclame le retrait du <b>code OACI</b> sur une piste d'aéroport, que le guide
-          autorise. <b>Dans ces deux cas, le guide a raison, pas le script.</b></div>` },
+          • <b>Une rocade sans cartouche</b> n'est reconnue qu'à son nom ou à son format. WNA
+          le fait, mais il <b>affiche alors le doute</b> au lieu de trancher : le seul élément
+          certain est le <b>cartouche « Rocade »</b>. Poser ce cartouche lève l'ambiguïté —
+          pour WNA comme pour les autres éditeurs.</div>` },
 
       { id: 'controles', titre: '🏷️ Ce que chaque contrôle vérifie', corps: `
         <p>Tout se décoche, dans <b>☰ → Contrôles</b>. Un contrôle décoché ne signale rien
