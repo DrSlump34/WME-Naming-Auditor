@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.29.01
+// @version      2.30.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -639,11 +639,34 @@
     return { nom: nettoyerNom(s), lignes };
   }
 
-  /** Un nom est « en capitales » des qu'il porte au moins deux mots alphabetiques
-   *  d'au moins trois lettres sans la moindre minuscule. Ce critere epargne les
-   *  numeros de route (« D18 », « A9 ») et les sigles courts (« ZA »). PURE. */
+  /**
+   * Un nom est « en capitales » des qu'il porte au moins deux mots alphabetiques
+   * d'au moins DEUX lettres sans la moindre minuscule. Ce critere epargne les
+   * numeros de route (« D18 », « A9 »), les sigles seuls (« ZA ») et les
+   * abreviations a points (« T.I.V. », dont les lettres sont isolees). PURE.
+   *
+   * ⚠️⚠️ LE SEUIL EST PASSE DE 3 A 2 LETTRES LE 03/08, ET C'EST UN CORRECTIF DE
+   * SURETE, PAS UN REGLAGE. A 3 lettres, « AV. DU CHATEAU » ne laissait qu'UN
+   * seul mot (« CHATEAU ») : le garde-fou ne se declenchait pas, et le nom
+   * partait au dictionnaire comme un nom ordinaire.
+   *
+   * ⚡ MESURE SUR LES VRAIES FEUILLES CRN (1 428 regles) — ce que le
+   * dictionnaire produisait alors :
+   *     AV. DU CHATEAU   -> « Avenue DU ChâtEAU »
+   *     BD DE LA GARE    -> « Boulevard de la GARE »
+   *     PL. DE L EGLISE  -> « Place de L Église »
+   * Trois noms batards. Tant que la redaction n'etait qu'AFFICHEE, l'editeur les
+   * voyait et ne les appliquait pas. Depuis que le ⚡ sait ecrire une correction
+   * de redaction (v2.30.00), ils seraient POSES SUR LA CARTE.
+   *
+   * ⭐ La lecon, et c'est la deuxieme fois sur ce dictionnaire : un garde-fou
+   * suffisant pour un AFFICHAGE ne l'est plus des qu'on ECRIT. Le changement
+   * dangereux n'etait pas dans le garde-fou, il etait dans ce qu'on fait de sa
+   * sortie. ⇒ Verrous : tools/test-dictionnaire.js 13-18 et
+   * tools/test-redaction-eclair.js 11-12b.
+   */
   function nomEnCapitales(nom) {
-    const mots = String(nom || '').split(/[^A-Za-zÀ-ÿ]+/).filter(m => m.length >= 3);
+    const mots = String(nom || '').split(/[^A-Za-zÀ-ÿ]+/).filter(m => m.length >= 2);
     if (mots.length < 2) return false;
     return mots.every(m => m === m.toUpperCase()) && /[A-ZÀ-Ý]/.test(nom);
   }
@@ -665,9 +688,14 @@
     if (nomEnCapitales(origine)) {
       // ⚠️ Libelle COURT : il s'affiche dans une colonne de tableau. Le pourquoi
       // est dans l'aide (section « Ce que chaque controle verifie »).
-      // ⚠️ Aucun bouton ⚡ ne peut naitre de cet ecart : `planDeCorrection` ne
-      // fabrique d'operation que pour « principal », « giratoire », « ville
-      // interdite (principal) » et « alt manquant » (verifie, pas suppose).
+      // ⚠️⚠️ AUCUN BOUTON ⚡ NE PEUT NAITRE DE CET ECART, ET C'EST DELIBERE.
+      // Depuis la v2.30.00, `planDeCorrection` SAIT appliquer une correction de
+      // redaction — mais il ne reconnait que le champ « rédaction (dictionnaire
+      // FR) », et il refuse en plus tout ecart marque `sansProposition`. Ce
+      // cas-ci porte un AUTRE champ (« nom en capitales ») ET le drapeau : deux
+      // verrous, parce qu'il n'y a ici aucun nom juste a ecrire.
+      // (Avant la v2.30.00 la garantie venait de ce qu'AUCUNE redaction n'etait
+      // applicable. Ce n'est plus vrai — ne pas se fier a l'ancienne lecture.)
       return { champ: 'nom en capitales', avant: origine,
         apres: 'à réécrire en minuscules accentuées (nom non proposé)',
         sansProposition: true };
@@ -3961,15 +3989,48 @@
       const nom = (e.name || '').trim();
       if (!nom) return;
       const ou = i === 0 ? '' : ' (alt)';
-      if (c.abreviations && (RE_ABREV.test(nom) || RE_ABREV_SANS_POINT.test(nom))) {
+
+      // ⭐⭐ ARBITRAGE DE L'AUTEUR (03/08) — « OPTION B ». Le dictionnaire est
+      // consulte EN PREMIER, avant les trois controles de redaction ci-dessous,
+      // parce que sa proposition peut les rendre MUETS.
+      //
+      // Origine : son test live sur « Av. du Chateau ». Le controle
+      // « abreviation » ne sait qu'expliquer la faute (« ecrire le type de voie
+      // en toutes lettres »), le dictionnaire sait donner le nom juste
+      // (« Avenue du Château »). Deux lignes pour le meme nom dont une SANS nom
+      // propose, c'est du bruit — et le risque reel est qu'il applique la
+      // moins bonne. ⇒ Un segment, un report (regle posee en 2.27.04).
+      //
+      // ⚠️ L'ecart du dictionnaire reste pousse EN DERNIER (voir plus bas) :
+      // seul son CALCUL remonte ici, pas son affichage.
+      const e2 = (c.redactionDico && dico.regles.length)
+        ? ecartDeRedaction(nom, dico.regles) : null;
+
+      // ⚠️⚠️ LE GARDE-FOU, ET IL EST MESURE, PAS SUPPOSE : on ne se tait QUE si
+      // la faute a REELLEMENT disparu du nom propose. Le dictionnaire peut tres
+      // bien redresser l'accent SANS developper l'abreviation (« Av. du
+      // Chateau » -> « Av. du Château ») : se taire dans ce cas ferait PERDRE
+      // l'information, et l'editeur appliquerait un nom encore fautif en
+      // croyant avoir tout corrige. On REJOUE donc le controle sur la
+      // proposition. Un nom sans proposition (`sansProposition`, cas des
+      // CAPITALES) ne fait jamais taire personne.
+      const propose = (e2 && !e2.sansProposition && e2.apres) ? e2.apres : null;
+      const dicoLeCorrige = test => propose != null && !test(propose);
+
+      const faute = {
+        abrev: s => RE_ABREV.test(s) || RE_ABREV_SANS_POINT.test(s),
+        contraction: s => RE_SAINT.test(s) || initialeIsolee(s),
+        minuscule: s => /^[a-zà-ÿ]/.test(s)
+      };
+      if (c.abreviations && faute.abrev(nom) && !dicoLeCorrige(faute.abrev)) {
         ecarts.push({ champ: 'abreviation' + ou, avant: nom,
           apres: 'écrire le type de voie en toutes lettres' });
       }
-      if (c.contractions && (RE_SAINT.test(nom) || initialeIsolee(nom))) {
+      if (c.contractions && faute.contraction(nom) && !dicoLeCorrige(faute.contraction)) {
         ecarts.push({ champ: 'contraction' + ou, avant: nom,
           apres: 'écrire le nom complet (contractions interdites)' });
       }
-      if (c.majuscule && /^[a-zà-ÿ]/.test(nom)) {
+      if (c.majuscule && faute.minuscule(nom) && !dicoLeCorrige(faute.minuscule)) {
         ecarts.push({ champ: 'majuscule' + ou, avant: nom,
           apres: nom.charAt(0).toUpperCase() + nom.slice(1) });
       }
@@ -3981,16 +4042,13 @@
         ecarts.push({ champ: 'direction dans le nom' + ou, avant: nom,
           apres: 'la direction n\'est admise que sur les bretelles' });
       }
-      // ⭐ Le dictionnaire communautaire, en DERNIER : les controles ci-dessus
-      // sont plus precis sur ce qu'ils couvrent (ils nomment la faute), le
-      // dictionnaire ratisse le reste. Un nom deja signale plus haut peut donc
-      // l'etre une seconde fois — c'est voulu : les deux disent des choses
-      // differentes (« abreviation interdite » n'est pas « voici le nom juste »).
-      if (c.redactionDico && dico.regles.length) {
-        const e2 = ecartDeRedaction(nom, dico.regles);
-        if (e2) ecarts.push({ champ: e2.champ + ou, avant: e2.avant, apres: e2.apres,
-                              sansProposition: e2.sansProposition });
-      }
+      // ⭐ Le dictionnaire communautaire, pousse EN DERNIER (il est CALCULE plus
+      // haut, voir « option B ») : les controles ci-dessus sont plus precis sur
+      // ce qu'ils couvrent — ils nomment la faute — le dictionnaire ratisse le
+      // reste et donne le nom juste. Depuis l'option B, ils ne se doublonnent
+      // plus : celui qui n'a rien de plus a dire se tait.
+      if (e2) ecarts.push({ champ: e2.champ + ou, avant: e2.avant, apres: e2.apres,
+                            sansProposition: e2.sansProposition });
       // ⚠️⚠️ « Dxxx - Nom de la route » : ancienne regle FR, INTERDITE aujourd'hui.
       // Le remede depend de l'endroit ou le composite se trouve, et on le DIT,
       // parce que les deux cas ne se corrigent pas de la meme facon :
@@ -6213,7 +6271,11 @@
       // le 332839183). Pire : le bouton de correction disparaissait avec.
       // L'objet de l'API porte deja son editabilite (lockRank vs rang) ;
       // `hasPermissions` ne sert que pour le balayage, ou l'objet EST charge.
+      // ⚠️ `villeActuelle` : la ville portee AUJOURD'HUI par le principal. Elle
+      // sert au ⚡ de la correction de redaction — `updateAddress` ecrit nom ET
+      // ville d'un coup, l'omettre EFFACERAIT la ville du segment.
       const base = { segId: seg.id, roadType: seg.roadType, libelle: fmt(nam.primary),
+                     villeActuelle: (nam.primary && nam.primary.cityName) || '',
                      centre: centreDe(coords), geom: seg.geometry,
                      editable: seg.editable !== undefined ? seg.editable : (() => { try {
                        return sdk.DataModel.Segments.hasPermissions({ segmentId: seg.id });
@@ -7012,6 +7074,36 @@
     // principal sur la meme rue, sans ville.
     if (cur.some(e => /^ville interdite \(principal\)/.test(e.champ)) && f.cible.primary.name) {
       ops.push({ type: 'principal', nom: f.cible.primary.name, ville: '' });
+    }
+    // --- ⚡ Redaction : appliquer le nom propose par le dictionnaire ----------
+    // Demande de l'auteur (03/08) : « ce qui serait top, c'est que la
+    // modification puisse etre automatique en cliquant sur l'eclair ».
+    //
+    // ✅ CE QUI REND CETTE ECRITURE SURE, ET IL FALLAIT LE VERIFIER : l'op
+    // `principal` passe par `updateAddress({ streetName, cityName })`, qui ecrit
+    // sur LE SEGMENT. Elle ne renomme PAS l'objet Street, qui est PARTAGE : les
+    // autres segments de la voie ne bougent pas. (C'est la difference avec le
+    // cartouche, qui lui se pose sur la Street — voir `cartoucheAReprendre`.)
+    //
+    // ⚠️⚠️ TROIS REFUS DELIBERES :
+    //  1. LE PRINCIPAL SEULEMENT. Sur un alternatif, le SDK ne sait pas RETIRER
+    //     l'ancien (pas de `removeAlternateStreet`, voir [[wme-sdk-pieges]]) :
+    //     on ajouterait le nom corrige A COTE du fautif, laissant un doublon —
+    //     pire qu'avant. L'ecart (alt) reste signale, sans bouton.
+    //  2. RIEN SI LE LOGIGRAMME A DEJA UNE OPINION SUR LE PRINCIPAL. Il vise
+    //     peut-etre un tout autre nom (« D62 » hors agglomeration) : y coller le
+    //     nom redresse ecraserait sa decision par une correction de forme. La
+    //     redaction restera a faire a la main, et `resteAlaMain` le dira.
+    //  3. JAMAIS DE `sansProposition` — c'est le cas des CAPITALES, ou le
+    //     dictionnaire produit « RUE DES ÉcolES ». Il n'y a pas de nom a ecrire.
+    //
+    // ⚠️ La VILLE est reprise telle quelle (`f.villeActuelle`) : `updateAddress`
+    // ecrit les deux champs d'un coup, et omettre la ville l'EFFACERAIT. Une
+    // correction de redaction ne doit toucher qu'au nom.
+    const red = cur.find(e => e.champ === 'rédaction (dictionnaire FR)');
+    if (red && red.apres && !red.sansProposition &&
+        !ops.some(o => o.type === 'principal')) {
+      ops.push({ type: 'principal', nom: red.apres, ville: f.villeActuelle || '' });
     }
     for (const e of cur) {
       if (e.champ !== 'alt manquant') continue;
