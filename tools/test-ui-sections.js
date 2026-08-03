@@ -261,8 +261,17 @@ titre('Geometries « Multi » : eclatees en features simples');
     /ne voit pas les panneaux/.test(src), true);
   // ⚠️ Les deux faux positifs connus sont NOMMES : un editeur qui suivrait le
   // script casserait un nom conforme au guide.
-  verifier('15. ⚠️⚠️ les deux faux positifs connus sont annonces a l\'editeur',
-    /A86 - Intérieure[\s\S]{0,400}c'est le format exigé/.test(src), true);
+  // ⚠️⚠️ CE TEST A CHANGE DE SENS LE 03/08, ET C'EST NORMAL. Il verifiait que
+  // l'aide ANNONCE les deux faux positifs rocade (« A86 - Intérieure » signale
+  // a tort). Ils sont corriges en v2.33.00 : le cartouche « Rocade » identifie
+  // desormais la voie. L'aide ne doit donc plus les annoncer — mais elle doit
+  // expliquer ce qui reste incertain, et comment l'editeur le leve.
+  // ⭐ Un bloc « ce que je ne verifie pas » qui garderait un defaut corrige
+  // serait aussi trompeur qu'un bloc qui tairait un defaut reel.
+  verifier('15. ⚠️ l\'aide n\'annonce plus un defaut CORRIGE',
+    /c'est le format exigé/.test(src), false);
+  verifier('15. ⭐ … et elle dit ce qui leve le doute : poser le cartouche Rocade',
+    /cartouche « Rocade »[\s\S]{0,200}lève l'ambiguïté/.test(src), true);
 }
 
 // ===========================================================================
