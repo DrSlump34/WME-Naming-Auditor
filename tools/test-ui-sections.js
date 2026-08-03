@@ -226,6 +226,45 @@ titre('Geometries « Multi » : eclatees en features simples');
     /Deux infobulles superpos/.test(src) && /Surlignage sur la carte<\/b>/.test(src), true);
 }
 
+// ===========================================================================
+// 15. 📖 LA SECTION « REGLES OFFICIELLES » — demandee par l'auteur le 03/08 :
+// « il faut integrer dans l'appli, comme l'aide, les regles que ce script
+// surveille, et mettre le lien vers les regles officielles vers Discuss ».
+//
+// ⭐ CE QUE CES TESTS PROTEGENT VRAIMENT : que WNA ne se presente jamais comme
+// la source de la norme. La regle vient du guide France, WNA ne fait que
+// l'appliquer — donc le lien doit etre la, et la section doit PRECEDER
+// « Ce que chaque controle verifie ».
+// ===========================================================================
+{
+  const LIEN = 'waze.com/discuss/t/nommage-des-segments-des-rues-des-routes/375658';
+  verifier('15. la section des regles officielles existe',
+    /\{ id: 'regles', titre: '📖 Les règles officielles françaises'/.test(src), true);
+  verifier('15. ⭐ elle PRECEDE « Ce que chaque controle verifie » (la regle avant le controle)',
+    src.indexOf("id: 'regles'") < src.indexOf("id: 'controles'"), true);
+  verifier('15. le guide FR est lie depuis la section',
+    src.slice(src.indexOf("id: 'regles'"), src.indexOf("id: 'controles'"))
+       .indexOf(LIEN) !== -1, true);
+  verifier('15. … et depuis le pied de l\'aide',
+    /agn-aide-pied[\s\S]{0,400}nommage-des-segments/.test(src), true);
+  // ⚠️⚠️ Un lien qui remplace l'onglet ferait quitter WME a l'editeur, avec ses
+  // modifications non enregistrees. Et sans `rel="noopener"`, la page ouverte
+  // garde une poignee sur l'onglet WME.
+  verifier('15. ⚠️⚠️ AUCUN lien de l\'aide ne peut remplacer l\'onglet WME',
+    (src.match(/<a href="https:\/\/[^"]+"/g) || []).length,
+    (src.match(/<a href="https:\/\/[^"]+"\s*\n?\s*target="_blank" rel="noopener"/g) || []).length);
+  // ⭐ L'honnetete du script : ce qu'il NE verifie pas doit etre ecrit. Les
+  // angles morts ont ete mesures le 03/08 en rejouant les exemples du guide.
+  verifier('15. ⭐ l\'aide dit ce que le script NE verifie PAS',
+    /Ce que WNA ne vérifie PAS/.test(src), true);
+  verifier('15. ⭐ … dont le format des bretelles, non controle',
+    /format du nom des bretelles n'est pas contrôlé/.test(src), true);
+  // ⚠️ Les deux faux positifs connus sont NOMMES : un editeur qui suivrait le
+  // script casserait un nom conforme au guide.
+  verifier('15. ⚠️⚠️ les deux faux positifs connus sont annonces a l\'editeur',
+    /A86 - Intérieure[\s\S]{0,400}c'est le format exigé/.test(src), true);
+}
+
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(60));
 console.log('%d verifications OK, %d ECHEC(S)', ok, ko);

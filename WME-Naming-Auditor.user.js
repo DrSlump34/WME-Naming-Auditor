@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.30.00
+// @version      2.31.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -7970,6 +7970,10 @@
   .agn-aide-pied{margin-top:10px;padding-top:8px;border-top:1px solid #e0e0e0;
     font-size:11px;color:var(--agn-gris, #546e7a);text-align:center}
   .agn-aide-pied a{color:var(--agn-bleu, #1e88e5)}
+  .agn-aide-c a{color:var(--agn-bleu, #1e88e5);text-decoration:underline}
+  .agn-aide-src{background:#e3f2fd;border-left:3px solid var(--agn-bleu, #1e88e5);
+    padding:6px 8px;margin:2px 0 8px;border-radius:0 3px 3px 0}
+  .agn-aide-ex{font-family:monospace;background:#f5f5f5;padding:0 3px;border-radius:2px}
   /* ── Guidage pas a pas : mettre en avant LE geste suivant ───────────────── */
   /* ⚠️ Le halo doit se REMARQUER : un liseré fin passait inaperçu au milieu de
      boutons deja bordes (l'auteur est revenu deux fois dessus). Trait epais,
@@ -9085,6 +9089,81 @@
           <tr><td><b>Le cas (C3, H5, EB10…)</b></td><td>Le code de la situation, repris du logigramme de nommage. Survole une ligne sur la carte pour le revoir.</td></tr>
         </table>` },
 
+      // ⭐ SECTION AJOUTEE LE 03/08 A LA DEMANDE DE L'AUTEUR : « il faut integrer
+      // dans l'appli, comme l'aide, les regles que ce script surveille, et
+      // mettre le lien vers les regles officielles vers Discuss ».
+      //
+      // ⚠️⚠️ ELLE PRECEDE « Ce que chaque controle verifie », ET C'EST L'ORDRE
+      // QUI COMPTE : d'abord LA REGLE (qui ne nous appartient pas, et dont on
+      // donne la source), ensuite ce que le script en surveille. L'inverse
+      // laisserait croire que les controles SONT la norme.
+      //
+      // ⚠️⚠️ LE BLOC « CE QUE WNA NE VERIFIE PAS » N'EST PAS UNE COQUETTERIE.
+      // Les angles morts et les deux faux positifs qui y figurent ont ete
+      // MESURES le 03/08 en rejouant les 48 exemples du guide contre le code
+      // (scratchpad/mesure-wiki-nommage.js). Un editeur qui lit « bretelles :
+      // jamais de ville » peut croire que le FORMAT du nom est verifie — il ne
+      // l'est pas. Et surtout : WNA signale a tort « A86 - Intérieure », qui est
+      // le format EXIGE par le guide. Taire ca ferait casser des noms justes.
+      // ⇒ Tenir ce bloc a jour a chaque evolution : le jour ou les faux
+      //   positifs sont corriges, ils sortent d'ici.
+      //
+      // ⚠️ `target="_blank"` est OBLIGATOIRE : un lien qui remplace l'onglet
+      // ferait quitter WME a l'editeur, avec ses modifications non enregistrees.
+      { id: 'regles', titre: '📖 Les règles officielles françaises', corps: `
+        <div class="agn-aide-src">📖 <b>La source, et elle fait foi :</b>
+          <a href="https://www.waze.com/discuss/t/nommage-des-segments-des-rues-des-routes/375658"
+             target="_blank" rel="noopener">Nommage des segments, des rues, des routes</a>
+          — le guide France sur Waze Discuss.<br>
+          ⚠️ <b>Les règles ci-dessous n'appartiennent pas à WNA</b> : il ne fait que les
+          appliquer. En cas de désaccord entre cette aide et le guide, <b>c'est le guide qui
+          a raison</b> — et un message serait bienvenu pour qu'on corrige le script.</div>
+
+        <p><b>Le cœur de la règle française :</b> la zone décide de tout.</p>
+        <table class="agn-aide-t">
+          <tr><td><b>En agglomération</b></td><td>Le nom <b>principal</b> porte le nom de rue <b>et la ville</b>. Le numéro de route (Dxxx…) passe en <b>alternatif</b>.</td></tr>
+          <tr><td><b>Hors agglomération</b></td><td>Le nom <b>principal</b> porte le numéro de route, <b>sans ville</b>. Le nom de rue et la ville vivent en <b>alternatif</b>.</td></tr>
+          <tr><td><b>Limites</b></td><td>Panneaux d'entrée (EB10) et de sortie (EB20) d'agglomération. Une commune peut contenir plusieurs agglomérations.</td></tr>
+          <tr><td><b>Village rattaché</b></td><td>Format <span class="agn-aide-ex">Village (Commune)</span>. ⚠️ Village rattaché ou hameau : cela se tranche avec le <b>State</b> ou <b>Regional Manager</b>.</td></tr>
+        </table>
+
+        <p><b>Écrire le nom :</b></p>
+        <table class="agn-aide-t">
+          <tr><td><b>Source</b></td><td>Le nom <b>officiel et complet</b>. En cas de désaccord entre sources, <b>le panneau de signalisation prime</b> sur le cadastre et les plans ; les autres noms officiels peuvent aller en alternatif.</td></tr>
+          <tr><td><b>Majuscules, accents</b></td><td><span class="agn-aide-ex">Rue de la République</span>, jamais <span class="agn-aide-ex">rue de la republique</span>.</td></tr>
+          <tr><td><b>Abréviations</b></td><td><b>Interdites</b> (« Av. », « Bd »…), <b>sauf</b> un sigle officiel porté par la plaque : alors en majuscules <b>avec un point après chaque lettre</b> — <span class="agn-aide-ex">Rue du T.I.V.</span>, <span class="agn-aide-ex">Rue de la Deuxième D.B.</span>, le nom complet allant en alternatif.</td></tr>
+          <tr><td><b>Contractions</b></td><td>Interdites : ni <span class="agn-aide-ex">Rue R. Poincaré</span>, ni <span class="agn-aide-ex">Route de St-Fargeau</span>.</td></tr>
+          <tr><td><b>Nombres</b></td><td>En chiffres ou en lettres <b>selon le panneau</b> : <span class="agn-aide-ex">Rue du 11 Novembre</span> comme <span class="agn-aide-ex">Rue du Onze Novembre</span>.</td></tr>
+          <tr><td><b>Jamais dans un nom</b></td><td>La <b>fonction</b> du segment (« Voie de bus », « Parking »), la <b>nature</b> d'un lieu, et la <b>direction</b> — sauf sur les bretelles, où elle est la règle.</td></tr>
+        </table>
+
+        <p><b>Voies à règle propre :</b></p>
+        <table class="agn-aide-t">
+          <tr><td><b>Rocades, périphériques</b></td><td><b>Hors agglomération par nature</b> : jamais de ville, ni en principal ni en alternatif. Nommage comme les autoroutes, avec un suffixe <b>uniquement si la voie s'appelle ainsi</b> — intérieure/extérieure ou orientation — séparé par <b>espace tiret espace</b> : <span class="agn-aide-ex">A86 - Intérieure</span>, <span class="agn-aide-ex">N136 - Rocade Ouest</span>. Seule exception : le périphérique parisien (<span class="agn-aide-ex">Périphérique Intérieur</span>).</td></tr>
+          <tr><td><b>Bretelles</b></td><td><b>Jamais de ville.</b> Entrée d'autoroute : <span class="agn-aide-ex">A4: Reims</span> — deux-points <b>collé au numéro, espacé de la direction</b>, et <b>une seule</b> direction, la première du panneau. Entrée de rocade : le nom de route seul (<span class="agn-aide-ex">Périphérique Ouest</span>). Sortie numérotée : <span class="agn-aide-ex">Sortie 18: Valensole</span>, ou <span class="agn-aide-ex">Sortie 47</span> seule ; <b>le nom de l'échangeur s'ignore</b>. Sortie sans numéro de route : <span class="agn-aide-ex">&gt; Orsay</span>. Une <b>seconde direction</b> ne s'ajoute qu'en cas d'ambiguïté sur le panneau : <span class="agn-aide-ex">D118: Chartres / Villejust</span>.<br>⚠️ Une bretelle <b>sans nom</b> est <b>correcte</b> : elle hérite du segment suivant.</td></tr>
+          <tr><td><b>Voies communales</b></td><td>La <b>forme abrégée du panneau</b> : <span class="agn-aide-ex">C6</span>, <span class="agn-aide-ex">VC6</span>, <span class="agn-aide-ex">CR12</span>… et <b>pas</b> « Voie Communale n°6 », qui serait tronqué en guidage.</td></tr>
+          <tr><td><b>Voie sur deux communes</b></td><td>Le <b>même nom de rue</b> en alternatif, avec la seconde ville.</td></tr>
+          <tr><td><b>Voies ferrées</b></td><td>Ni nom de rue, ni ville.</td></tr>
+          <tr><td><b>Pistes d'aéroport</b></td><td>Jamais de ville. Le <b>code OACI</b> de l'aéroport <b>peut</b> être mis en nom de rue.</td></tr>
+          <tr><td><b>Giratoires</b></td><td>Sans nom ; la ville suit la zone.</td></tr>
+        </table>
+
+        <div class="agn-aide-note">⚠️⚠️ <b>Ce que WNA ne vérifie PAS — mesuré, pas supposé.</b>
+          Un contrôle absent est invisible : autant le dire.<br>
+          • <b>Le format du nom des bretelles n'est pas contrôlé du tout.</b> WNA vérifie
+          seulement qu'elles ne portent pas de ville. <span class="agn-aide-ex">Sortie 18 : Valensole</span>
+          (espace en trop), un nom d'échangeur conservé ou une seconde direction injustifiée
+          <b>passent sans un mot</b>.<br>
+          • <b>La forme abrégée des voies communales</b> n'est pas vérifiée :
+          « Voie Communale n°6 » ne déclenche rien.<br>
+          • WNA <b>ne voit pas les panneaux</b>. Il ne peut donc jamais dire si une seconde
+          direction est justifiée, ni si un mot est le nom d'un échangeur.<br>
+          🔴 <b>Et deux défauts connus, à ne pas suivre aveuglément :</b> WNA signale
+          <span class="agn-aide-ex">A86 - Intérieure</span> et <span class="agn-aide-ex">N136 - Rocade Ouest</span>
+          comme « numéro collé au nom », alors que <b>c'est le format exigé</b> par le guide ;
+          et il réclame le retrait du <b>code OACI</b> sur une piste d'aéroport, que le guide
+          autorise. <b>Dans ces deux cas, le guide a raison, pas le script.</b></div>` },
+
       { id: 'controles', titre: '🏷️ Ce que chaque contrôle vérifie', corps: `
         <p>Tout se décoche, dans <b>☰ → Contrôles</b>. Un contrôle décoché ne signale rien
           et le bilan le rappelle.</p>
@@ -9223,10 +9302,19 @@
         </div>
         <div class="agn-aide-c" id="agn-aide-${s.id}"${s.ouvert ? '' : ' style="display:none"'}>${s.corps}</div>
       </div>`).join('') +
+      // ⚠️ `rel="noopener"` sur TOUS les liens : sans lui, la page ouverte garde
+      // une poignee sur l'onglet WME (`window.opener`) et peut le renavigater.
+      // ⚠️ Le guide FR est mis EN TETE du pied : c'est la seule source de norme,
+      // les deux autres liens ne sont que le code.
       `<div class="agn-aide-pied">
-        🔗 <a href="https://greasyfork.org/fr/scripts/588554-wme-naming-auditor" target="_blank">GreasyFork</a>
+        📖 <a href="https://www.waze.com/discuss/t/nommage-des-segments-des-rues-des-routes/375658"
+              target="_blank" rel="noopener">Règles de nommage FR</a>
         &nbsp;·&nbsp;
-        <a href="https://github.com/DrSlump34/WME-Naming-Auditor" target="_blank">GitHub</a>
+        🔗 <a href="https://greasyfork.org/fr/scripts/588554-wme-naming-auditor"
+              target="_blank" rel="noopener">GreasyFork</a>
+        &nbsp;·&nbsp;
+        <a href="https://github.com/DrSlump34/WME-Naming-Auditor"
+           target="_blank" rel="noopener">GitHub</a>
         &nbsp;·&nbsp; v${VERSION}
       </div>`;
   }
