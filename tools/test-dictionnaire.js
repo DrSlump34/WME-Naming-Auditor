@@ -216,25 +216,37 @@ verifier('30. ⚠️ le chargeur exige la feuille principale, pas seulement « u
                                src.indexOf('function chargerDictionnaireFr') + 2200)), true);
 
 // ---------------------------------------------------------------------------
-// 8. ⚠️⚠️ L'INTERRUPTEUR D'ATTENTE — publie le 01/08 en position INERTE
-// Une demande d'accord a ete adressee a buchet37 : tant qu'elle n'a pas de
-// reponse, le script ne doit RIEN telecharger chez lui. Ces tests figent le
-// fait que la coupure est TOTALE (pas seulement une case decochee), et
-// serviront de rappel le jour ou on la levera.
-// ⭐ Tests de VOLONTE : si `DICO_AUTORISE` passe a true un jour, le test 31
-// echouera exprès — c'est le signal qu'il faut relire cette section, pas la
-// contourner.
+// 8. ⚠️⚠️ CE QU'ON A PROMIS A L'AUTEUR DES DICTIONNAIRES — buchet37, 03/08/2026
+//
+// Il a donne son accord SANS reserve sur l'emploi des dictionnaires (« ils sont
+// le resultat d'un travail communautaire »), avec UNE demande precise :
+//   « Peut-etre eviter l'acces direct au dico pour modif (mon bouton "FRA"),
+//     pour eviter que des utilisateurs "non utilisateurs de CRN" y aient acces
+//     et fassent des betises. »
+// ⭐ Ces quatre tests sont des tests de VOLONTE : ils ne mesurent pas un
+// calcul, ils figent une PAROLE DONNEE. WNA lit, et rien d'autre. Le jour ou
+// l'un d'eux echoue, ce n'est pas le test qu'il faut ajuster — c'est qu'on est
+// en train de revenir sur un engagement pris envers quelqu'un.
+// (Ils remplacent les 4 tests de l'interrupteur d'attente `DICO_AUTORISE`,
+// leve le 03/08 : l'accord est arrive, la garde n'avait plus d'objet.)
 // ---------------------------------------------------------------------------
-const autorise = /const DICO_AUTORISE\s*=\s*(true|false)\s*;/.exec(src);
-verifier('31. ⚠️ le dictionnaire est encore en attente d\'accord (a lever le jour venu)',
-  autorise && autorise[1], 'false');
-verifier('32. ⚠️ le chargeur refuse de partir sans accord (garde au plus pres du reseau)',
-  /if \(!DICO_AUTORISE\)[\s\S]{0,220}attente-accord/.test(
-    src.slice(src.indexOf('function chargerDictionnaireFr'))), true);
-verifier('33. ⚠️ la case est retiree de la liste des reglages, pas seulement decochee',
-  /cle === 'redactionDico' && !DICO_AUTORISE/.test(src), true);
-verifier('34. ⚠️ l\'audit ne consulte pas le dictionnaire sans accord',
-  /if \(DICO_AUTORISE && c\.redactionDico/.test(src), true);
+verifier('31. ⚠️⚠️ une seule URL vers les classeurs, et elle est en LECTURE (export CSV)',
+  (src.match(/docs\.google\.com\/spreadsheets/g) || []).length === 1 &&
+  /const dicoUrl = cle =>[^;]*\/export\?format=csv'/.test(src), true);
+verifier('32. ⚠️⚠️ aucun lien cliquable vers les classeurs n\'est offert a l\'editeur',
+  /<a[^>]*docs\.google\.com|href="[^"]*docs\.google/.test(src), false);
+verifier('33. ⚠️ l\'aide renvoie vers CRN pour proposer une regle (on ne modifie pas a sa place)',
+  /ne se corrige pas dans WNA[\s\S]{0,200}Check Road Name/.test(src), true);
+verifier('34. ⚠️ rien n\'est telecharge chez lui si le controle est decoche',
+  /if \(options\.controles\.redactionDico\) \{\s*\n\s*chargerDictionnaireFr\(\)/.test(src), true);
+
+// ---------------------------------------------------------------------------
+// 9. ⭐ LE PARTAGE DES ROLES AVEC CRN — deux scripts qui se repetent, c'est du
+// bruit. Le controle est donc DECOCHE D'OFFICE quand CRN est installe : il dit
+// deja la meme chose, a partir des memes regles.
+// ---------------------------------------------------------------------------
+verifier('35. le dictionnaire est decoche d\'office si WME Check Road Name est installe',
+  /cle: 'redactionDico'[\s\S]{0,120}defaut: \(\) => !crnPresent\(\)/.test(src), true);
 
 console.log(lignes.join('\n'));
 console.log('\n' + (ok + ko) + ' verifications OK, ' + ko + ' ECHEC(S)\n');
