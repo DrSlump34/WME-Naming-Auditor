@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.33.00
+// @version      2.34.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -4067,8 +4067,29 @@
    * voies ferrees, pistes et ferries ne portent NI ville NI rue ; bretelles et
    * rocades sont systematiquement hors agglomeration, donc jamais de ville.
    */
-  function verifierSansVille(nam, nomPrincipalInterdit) {
+  /**
+   * ⚠️ `regleNom` dit jusqu'ou le NOM est interdit — la VILLE, elle, l'est
+   * toujours, partout. Trois valeurs, et chacune vient du guide FR :
+   *   'libre'     : le nom est normal (bretelle, rocade — c'est meme lui qui
+   *                 porte la direction ; piste d'aeroport, ou le code OACI est
+   *                 explicitement admis).
+   *   'tous'      : ⚠️⚠️ VOIE FERREE. « Le nom de ville **et rue** ne sera donc
+   *                 jamais renseignée, **ni en nom principal, ni en nom
+   *                 alternatif**. » Le guide ne laisse aucune place.
+   *   'principal' : le principal seulement. Retenu pour les FERRIES, dont le
+   *                 guide ne parle NULLE PART. ⭐ On garde le comportement
+   *                 etabli plutot que de durcir sans texte : on ne fabrique pas
+   *                 de norme quand la norme se tait.
+   *
+   * ⚠️⚠️ CE QUI A CHANGE LE 04/08, ET C'EST UNE CORRECTION D'ECART : WNA
+   * interdisait le nom principal d'une voie ferree **et proposait de le
+   * BASCULER EN ALTERNATIF** (« utile à la recherche », commentaire datant de la
+   * v2.02, aucun arbitrage documente). Il poussait donc activement vers ce que
+   * le guide interdit. ⭐ Le guide prime sur une commodite qu'on s'etait donnee.
+   */
+  function verifierSansVille(nam, regleNom) {
     const ecarts = [];
+    const regle = regleNom === true ? 'principal' : (regleNom || 'libre');
     [nam.primary, ...nam.alts].forEach((e, i) => {
       const ou = i === 0 ? 'principal' : 'alt';
       if (e.cityName) {
@@ -4076,11 +4097,24 @@
           apres: (e.name || '‹sans nom›') + ' / ‹sans ville›' });
       }
     });
-    // Voie ferree : le nom PRINCIPAL doit rester vide, mais un nom alternatif
-    // est admis — il sert la recherche dans l'application.
-    if (nomPrincipalInterdit && nam.primary.name) {
+    if (regle !== 'libre' && nam.primary.name) {
       ecarts.push({ champ: 'nom principal interdit', avant: nam.primary.name,
-        apres: '‹sans nom› — à basculer en nom alternatif (utile à la recherche)' });
+        // ⚠️ Sur une voie ferree on ne propose PLUS de basculer en alternatif :
+        //    le guide l'y interdit aussi.
+        apres: regle === 'tous'
+          ? '‹sans nom› — une voie ferrée ne porte de nom ni en principal ni en alternatif'
+          : '‹sans nom› — à basculer en nom alternatif (utile à la recherche)' });
+    }
+    if (regle === 'tous') {
+      nam.alts.forEach(a => {
+        if (a.name) {
+          ecarts.push({ champ: 'nom alternatif interdit', avant: a.name,
+            // ⚠️ Le SDK ne sait pas RETIRER un alternatif ([[wme-sdk-pieges]]) :
+            //    aucun ⚡ ne peut le faire, et le dire evite une fausse promesse.
+            apres: '‹sans nom› — à retirer à la main (le script ne sait pas supprimer un alternatif)',
+            sansProposition: true });
+        }
+      });
     }
     return ecarts;
   }
@@ -4347,6 +4381,9 @@
       // ⚠️ 19 = Piste d'aeroport. Elle partage l'interdiction de VILLE avec les
       //    rails, mais PAS celle du nom : le guide y admet le code OACI.
       typePiste: 19,
+      // ⚠️ 18 = Voie ferree, le SEUL type ou le nom est interdit jusqu'en
+      //    alternatif. 15 = Ferry, dont le guide ne dit rien.
+      typeRail: 18,
       // ⚠️ Prend le NOMMAGE (pas les noms) : le cartouche Rocade tranche, et il
       //    n'est lisible que sur l'entree, pas sur une chaine de noms.
       rocadeDe: rocadeDe,
@@ -4372,7 +4409,10 @@
         { cle: 'cartouches', portee: 'segment', libelle: 'Cartouches des Dxxx / Nxxx / Cxxx',
           executer: verifierCartouches },
         { cle: 'bretelles', portee: 'type', libelle: 'Bretelles : jamais de ville' },
-        { cle: 'rails', portee: 'type', libelle: 'Voies ferrées, pistes, ferries : ni ville ni nom' },
+        // ⚠️ Le libelle disait « ni ville ni nom » pour les trois : c'etait faux
+        //    depuis que les trois regimes sont distingues (voir `verifierSansVille`).
+        { cle: 'rails', portee: 'type',
+          libelle: 'Voies ferrées, pistes, ferries : jamais de ville (et règles de nom propres)' },
         { cle: 'rocades', portee: 'type', libelle: 'Rocades et périphériques : jamais de ville' },
         { cle: 'giratoires', portee: 'type', libelle: 'Giratoires : sans nom (ville selon la zone)' },
         { cle: 'abreviations', portee: 'forme', libelle: 'Abréviations interdites (Av., Bd., Rte...)' },
@@ -6554,14 +6594,20 @@
         // (l'auteur, 03/08). Une bretelle nommee « sortie 18: valensole » ou
         // « Av. de la Gare » ne declenchait rien du tout. `verifierForme` sait
         // desormais qu'il s'agit d'une bretelle et n'exempte que le « > » initial.
-        // ⚠️⚠️ LA PISTE D'AEROPORT N'EST PAS UN RAIL SUR CE POINT. Guide FR :
-        // « Piste Aéroport / Taxiways : le nom de ville ne sera jamais
-        // renseigné […] **Le nom OACI de l'aéroport peut être indiqué en nom de
-        // rue.** » WNA les rangeait avec les voies ferrees et reclamait le
-        // retrait du nom principal — il demandait donc d'effacer une donnee que
-        // le guide AUTORISE (mesure du 03/08). Seule la VILLE reste interdite.
-        const nomPrincipalInterdit = estRail && seg.roadType !== REF.typePiste;
-        const ecarts = REF.verifierSansVille(nam, nomPrincipalInterdit).concat(forme);
+        // ⚠️⚠️ LES TROIS TYPES « SANS ADRESSE » N'OBEISSENT PAS A LA MEME REGLE,
+        // et les confondre a produit deux ecarts avec le guide FR :
+        //  - VOIE FERREE (18) : ni nom ni ville, « ni en nom principal, ni en
+        //    nom alternatif ». Le guide est explicite.
+        //  - PISTE (19) : seule la ville est interdite — « le nom OACI de
+        //    l'aéroport peut être indiqué en nom de rue ». WNA reclamait son
+        //    retrait (corrige le 03/08).
+        //  - FERRY (15) : le guide n'en parle NULLE PART ⇒ on garde le
+        //    comportement etabli (principal interdit) sans durcir l'alternatif.
+        //    ⭐ On ne fabrique pas de norme quand la norme se tait.
+        const regleNom = !estRail ? 'libre'
+          : seg.roadType === REF.typeRail ? 'tous'
+          : seg.roadType === REF.typePiste ? 'libre' : 'principal';
+        const ecarts = REF.verifierSansVille(nam, regleNom).concat(forme);
         if (!ecarts.length) continue;
         zones.special++;
         findings.push(Object.assign({}, base, {
@@ -9386,7 +9432,7 @@
           n'échappe pas.</td></tr>
           <tr><td><b>Voies communales</b></td><td>La <b>forme abrégée du panneau</b> : <span class="agn-aide-ex">C6</span>, <span class="agn-aide-ex">VC6</span>, <span class="agn-aide-ex">CR12</span>… et <b>pas</b> « Voie Communale n°6 », qui serait tronqué en guidage. <b>WNA le signale et propose la forme courte.</b></td></tr>
           <tr><td><b>Voie sur deux communes</b></td><td>Le <b>même nom de rue</b> en alternatif, avec la seconde ville.</td></tr>
-          <tr><td><b>Voies ferrées</b></td><td>Ni nom de rue, ni ville.</td></tr>
+          <tr><td><b>Voies ferrées</b></td><td>Ni nom de rue, ni ville — et <b>ni en principal, ni en alternatif</b>. ⚠️ WNA signale donc aussi un nom porté en alternatif ; il ne peut pas le retirer lui-même (l'éditeur de Waze ne sait pas supprimer un alternatif), c'est un geste manuel.</td></tr>
           <tr><td><b>Pistes d'aéroport</b></td><td>Jamais de ville. Le <b>code OACI</b> de l'aéroport <b>peut</b> être mis en nom de rue — WNA ne le réclame donc plus.</td></tr>
           <tr><td><b>Giratoires</b></td><td>Sans nom ; la ville suit la zone.</td></tr>
         </table>
@@ -9411,7 +9457,7 @@
           <tr><td><b>Nommage agglo / hors agglo</b></td><td>Le cœur : en agglomération une voie porte la ville, hors agglomération elle ne la porte pas — et le numéro de route passe au principal.</td></tr>
           <tr><td><b>Cartouches</b></td><td>Un numéro de route (Dxxx, Nxxx, Cxxx) doit porter son écusson. ⚠️ En agglomération, <b>aucun cartouche sur un nom de rue en principal</b>.</td></tr>
           <tr><td><b>Bretelles · Rocades</b></td><td>Ne portent <b>jamais</b> de ville.</td></tr>
-          <tr><td><b>Voies ferrées, pistes, ferries</b></td><td>Ni ville, ni nom.</td></tr>
+          <tr><td><b>Voies ferrées, pistes, ferries</b></td><td><b>Jamais de ville</b>, dans les trois cas. Le <b>nom</b>, lui, suit trois règles distinctes : une <b>voie ferrée</b> n'en porte <b>ni en principal ni en alternatif</b> ; une <b>piste d'aéroport</b> peut porter son <b>code OACI</b> ; un <b>ferry</b> n'en porte pas en principal.</td></tr>
           <tr><td><b>Giratoires</b></td><td>Sans nom ; la ville suit la zone (et le format « Village (Commune) » s'il y a lieu).</td></tr>
           <tr><td><b>Abréviations</b></td><td>« Av. », « Bd », « Rte »… à écrire en toutes lettres.</td></tr>
           <tr><td><b>Contractions</b></td><td>« St- » pour Saint-, « R. Poincaré »…</td></tr>

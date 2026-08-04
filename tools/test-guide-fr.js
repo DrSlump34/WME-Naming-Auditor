@@ -61,7 +61,9 @@ const api = new Function([
   '  majuscule: true, fonctionDirection: true, nomComposite: true,',
   '  formatBretelle: true, voieCommunale: true, redactionDico: false } };',
   extraire('verifierForme'),
-  'return { verifierForme, RE_ROCADE, rocadeDe, formatRocade };'
+  "function fmt(e){ return (e.name||'‹sans nom›') + ' / ' + (e.cityName||'‹sans ville›'); }",
+  extraire('verifierSansVille'),
+  'return { verifierForme, RE_ROCADE, rocadeDe, formatRocade, verifierSansVille };'
 ].join('\n'))();
 
 let ok = 0, ko = 0;
@@ -208,7 +210,7 @@ verifier('6.2 les voies communales aussi',
 verifier('6.3 ⚠️⚠️ une bretelle se reconnaît au TYPE du segment, pas au nom',
   /const estBretelle = seg\.roadType === REF\.typeBretelle;/.test(src), true);
 verifier('6.4 ⚠️⚠️ les bretelles reçoivent bien les contrôles de forme (l\'oubli corrigé)',
-  /verifierSansVille\(nam, nomPrincipalInterdit\)\.concat\(forme\)/.test(src), true);
+  /verifierSansVille\(nam, regleNom\)\.concat\(forme\)/.test(src), true);
 
 // ---------------------------------------------------------------------------
 // 7. ⚡⚡ LES ROCADES — LE CARTOUCHE TRANCHE, PAS LE NOM
@@ -260,15 +262,67 @@ verifier('6.4 ⚠️⚠️ les bretelles reçoivent bien les contrôles de forme
 }
 
 // ---------------------------------------------------------------------------
-// 8. ⚠️ LA PISTE D'AEROPORT N'EST PAS UNE VOIE FERREE SUR CE POINT
-// Guide : « Piste Aéroport / Taxiways : le nom de ville ne sera jamais
-// renseigné […] Le nom OACI de l'aéroport PEUT être indiqué en nom de rue. »
-// WNA les rangeait avec les rails et réclamait le retrait du nom principal.
+// 8. ⚠️⚠️ LES TROIS TYPES « SANS ADRESSE » N'OBEISSENT PAS A LA MEME REGLE
+//
+// Les confondre a produit deux ecarts avec le guide. Ce que le guide dit, mot
+// pour mot :
+//  - VOIE FERREE : « Le nom de ville **et rue** ne sera donc jamais renseignée,
+//    ni en nom principal, ni en nom alternatif. »
+//  - PISTE AEROPORT : « Le nom de ville sera donc jamais renseignée […] Le nom
+//    OACI de l'aéroport peut être indiqué en nom de rue. »
+//  - FERRY : le guide n'en parle NULLE PART.
+// ⭐ D'ou trois regimes, et le troisieme est un choix de RETENUE : on garde le
+// comportement etabli pour le ferry plutot que de durcir sans texte. On ne
+// fabrique pas de norme quand la norme se tait.
 // ---------------------------------------------------------------------------
-verifier('8.1 🔴→✅ le nom principal d\'une piste n\'est plus interdit',
-  /const nomPrincipalInterdit = estRail && seg\.roadType !== REF\.typePiste;/.test(src), true);
-verifier('8.2 ⚠️ le type Piste est nommé, pas écrit en dur dans la condition',
-  /typePiste: 19/.test(src), true);
+{
+  const nam = (nom, ville, alts) => ({
+    primary: { name: nom || '', cityName: ville || '' },
+    alts: (alts || []).map(a => ({ name: a, cityName: '' }))
+  });
+  const ch = (n, regle) => api.verifierSansVille(n, regle).map(e => e.champ);
+
+  // VOIE FERREE — le nom est interdit jusqu'en alternatif.
+  verifier('8.1 ⚠️⚠️ voie ferrée : le nom PRINCIPAL est interdit',
+    ch(nam('Ligne Paris-Lyon'), 'tous'), ['nom principal interdit']);
+  verifier('8.2 ⚠️⚠️ voie ferrée : le nom ALTERNATIF aussi (l\'écart corrigé le 04/08)',
+    ch(nam('', '', ['Ligne Paris-Lyon']), 'tous'), ['nom alternatif interdit']);
+  // ⚠️ Le mot « alternatif » figure dans les DEUX messages, l'ancien comme le
+  //    nouveau : le chercher ferait passer ce test pour la mauvaise raison.
+  //    C'est la PROPOSITION de bascule qu'il faut traquer.
+  verifier('8.3 ⭐ … et on ne propose PLUS de BASCULER en alternatif',
+    api.verifierSansVille(nam('Ligne Paris-Lyon'), 'tous')[0].apres.includes('à basculer'), false);
+  verifier('8.3b ⭐ … le ferry, lui, garde cette proposition (le guide se tait)',
+    api.verifierSansVille(nam('Bac de Blaye'), 'principal')[0].apres.includes('à basculer'), true);
+  verifier('8.4 ⚠️ le retrait d\'un alternatif est annoncé comme MANUEL (le SDK ne sait pas)',
+    api.verifierSansVille(nam('', '', ['X']), 'tous')[0].sansProposition, true);
+  verifier('8.5 une voie ferrée nue ne remonte rien', ch(nam(''), 'tous'), []);
+
+  // PISTE — seule la ville est interdite, le code OACI est ADMIS.
+  verifier('8.6 🔴→✅ piste : le code OACI en nom de rue ne remonte RIEN',
+    ch(nam('LFPG'), 'libre'), []);
+  verifier('8.7 ⚠️ piste : la ville reste interdite',
+    ch(nam('LFPG', 'Roissy'), 'libre'), ['ville interdite (principal)']);
+
+  // FERRY — comportement etabli conserve : principal interdit, alternatif libre.
+  verifier('8.8 ferry : le nom principal reste interdit',
+    ch(nam('Bac de Blaye'), 'principal'), ['nom principal interdit']);
+  verifier('8.9 ⭐ ferry : l\'alternatif n\'est PAS durci (le guide se tait)',
+    ch(nam('', '', ['Bac de Blaye']), 'principal'), []);
+
+  // ⚠️ La ville est interdite dans TOUS les regimes, alternatif compris.
+  verifier('8.10 ⚠️ la ville est interdite même en alternatif',
+    ch(nam('', '', []), 'libre').length === 0 &&
+    api.verifierSansVille({ primary: { name: '', cityName: '' },
+      alts: [{ name: 'X', cityName: 'Nîmes' }] }, 'libre')
+      .map(e => e.champ), ['ville interdite (alt)']);
+
+  // ⚠️ Verrou de branchement : les trois types doivent etre distingues.
+  verifier('8.11 ⚠️⚠️ les trois régimes sont bien distingués dans l\'analyse',
+    /seg\.roadType === REF\.typeRail \? 'tous'[\s\S]{0,120}typePiste \? 'libre' : 'principal'/.test(src), true);
+  verifier('8.12 ⚠️ les types sont nommés, pas écrits en dur',
+    /typePiste: 19/.test(src) && /typeRail: 18/.test(src), true);
+}
 
 console.log(lignes.join('\n'));
 console.log('\n' + (ok + ko) + ' verifications OK, ' + ko + ' ECHEC(S)\n');
