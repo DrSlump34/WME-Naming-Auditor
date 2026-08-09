@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.34.00
+// @version      2.35.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -860,6 +860,17 @@
     // Charger tout seul les contours du departement survole. Coche par defaut :
     // c'est une corvee sans valeur ajoutee, et elle se refait a chaque fois.
     autoDep: true,
+    // ⚠️⚠️ DECHARGER les departements dont on s'est eloigne. DECOCHE par defaut,
+    // et ce n'est pas un oubli : le cumul est un CONTRAT affiche depuis la v1.88
+    // (« charger un departement n'efface pas les autres »), et on n'enleve pas a
+    // l'editeur ce qu'il a charge sans qu'il l'ait demande — meme lecon que la
+    // 2.25.01 et la 2.27.10 (« Reviens en arriere. Je regrette »). L'ecran DIT
+    // ce que ca pese ; c'est lui qui decide.
+    // ⚡ MESURE du 09/08 (audit de Corentin48) : 12 departements en base chez
+    // l'auteur = 4 113 communes, 1 558 011 points, ~97 Mo de heap MESURES dans
+    // Chrome, rechargés a CHAQUE session par `restaurerContours`.
+    purgeAuto: false,
+    purgeGarde: 3,
     // Guidage pas a pas (v2.21) : montre le geste suivant tant qu'il reste
     // quelque chose a faire. Decochable — un editeur qui connait l'outil n'a pas
     // besoin qu'on lui tienne la main a chaque commune.
@@ -1434,6 +1445,205 @@
   /** Les departements presents en base, dans l'ordre. */
   const depsCharges = () => [...new Set(communes.map(c => depDuCode(c.code)))].sort();
 
+  // ---------------------------------------------------------------------------
+  // CE QUE LES CONTOURS PESENT, ET COMMENT S'EN DEFAIRE (v2.35, audit perf 09/08)
+  //
+  // ⚡ D'OU VIENT LE CHIFFRE. Un editeur qui parcourt la France accumule les
+  // departements sans que rien ne les libere, et `restaurerContours` les remonte
+  // TOUS en RAM a chaque demarrage. Mesure du 09/08 sur la base de l'auteur :
+  // 12 departements, 4 113 communes, 1 558 011 points => heap de 181,8 a 278,8 Mo,
+  // soit 97 Mo MESURES dans Chrome (temoin : le relevé devait bouger de plus de
+  // 5 Mo, il a bougé de 97).
+  //
+  // ⚠️ POURQUOI ON COMPTE DES POINTS ET NON DES OCTETS. `JSON.stringify` sur
+  // 31,76 Mo de contours coute des centaines de ms : impensable a chaque rendu.
+  // On compte les points de polygone, et on applique un facteur MESURE.
+  // ⭐ LE FACTEUR EST CROISE, PAS DEVINE : 69,9 / 70,3 / 70,0 octets par point
+  // sur les dep. 78, 77 et 62 (parse Node, `--expose-gc`) ; applique aux
+  // 1 558 011 points de la base reelle il annonce 104 Mo contre 97 MESURES en
+  // live, soit +7,2 %. C'est un ORDRE DE GRANDEUR affiche comme tel — jamais
+  // une comptabilite, et l'UI ne doit pas le presenter autrement.
+  // ---------------------------------------------------------------------------
+
+  const OCTETS_PAR_POINT = 70;
+
+  /** Nombre de points d'une geometrie, quel que soit son emboitement. */
+  function pointsDeGeom(geom) {
+    const co = geom && geom.coordinates;
+    if (!co) return 0;
+    const p = x => (Array.isArray(x[0]) ? x.reduce((s, y) => s + p(y), 0) : 1);
+    return p(co);
+  }
+
+  /**
+   * Idem, mais RETENU sur la commune.
+   *
+   * ⚠️⚠️ MESURE, PAS PRECAUTION DE PRINCIPE : recompter les points a chaque
+   * rendu coutait **47 ms** sur la base reelle de l'auteur (4 113 communes,
+   * 1 558 011 points) — presque TROIS frames, mesure en live le 09/08. Ecrire
+   * un panneau qui gele l'ecran pendant qu'on chasse les coups de CPU aurait
+   * ete le comble. Le compte d'une commune ne change jamais : on le garde.
+   * ⚡ `_pts` part dans IndexedDB avec le reste : les demarrages suivants n'ont
+   * plus rien a compter (un nombre par commune, poids negligeable).
+   */
+  function pointsDeCommune(c) {
+    if (!c) return 0;
+    if (typeof c._pts !== 'number') c._pts = pointsDeGeom(c.geom);
+    return c._pts;
+  }
+
+  /**
+   * Ce que chaque departement en base represente. PURE : elle lit `communes`
+   * et ne touche a rien.
+   */
+  function statsParDep() {
+    const par = new Map();
+    for (const c of communes) {
+      const d = depDuCode(c.code);
+      let e = par.get(d);
+      if (!e) { e = { code: d, nom: (DEPARTEMENTS.find(x => x.code === d) || {}).nom || d,
+                      communes: 0, points: 0 }; par.set(d, e); }
+      e.communes++; e.points += pointsDeCommune(c);
+    }
+    return [...par.values()]
+      .map(e => ({ ...e, octets: e.points * OCTETS_PAR_POINT }))
+      .sort((a, b) => b.octets - a.octets);       // le plus lourd en tete : c'est lui qu'on vise
+  }
+
+  /** Poids total estime des contours, en octets. */
+  const poidsContours = () => communes.reduce((s, c) => s + pointsDeCommune(c), 0) * OCTETS_PAR_POINT;
+
+  /** « 15,5 Mo », « 480 Ko ». Un seul endroit qui met en forme un poids. */
+  function direPoids(octets) {
+    if (octets >= 1048576) return (octets / 1048576).toFixed(1).replace('.', ',') + ' Mo';
+    return Math.round(octets / 1024) + ' Ko';
+  }
+
+  /**
+   * Au-dela de ce poids, l'ecran le DIT. 40 Mo = environ 5 departements moyens
+   * (mesure : 6,75 Mo par departement), donc un editeur qui a franchement
+   * bourlingue — pas celui qui travaille sur son coin et le departement d'a cote.
+   */
+  const SEUIL_ALERTE_OCTETS = 40 * 1048576;
+
+  /**
+   * Departements vus recemment, du plus recent au plus ancien. Sert de base a
+   * la purge automatique : « recent » veut dire « la carte s'y est arretee »,
+   * pas « charge il y a peu » — c'est l'usage qui compte, pas l'anciennete.
+   */
+  let depsVus = [];
+
+  /** Bilan du dernier dechargement automatique, pour le DIRE a l'ecran. */
+  let dernierePurge = null;
+
+  function noterDepsVus(codes) {
+    for (const d of codes) {
+      if (!d) continue;
+      const i = depsVus.indexOf(d);
+      if (i !== -1) depsVus.splice(i, 1);
+      depsVus.unshift(d);
+    }
+  }
+
+  /**
+   * Retire des departements de la base.
+   *
+   * ⚠️⚠️ `depsTentes` DOIT ETRE VIDE DE CES CODES. Sans ca le retrait serait
+   * un aller SANS RETOUR dans la session : `autoChargerDepartement` ne retente
+   * jamais un departement deja tenté (« une seule tentative », v2.09), et
+   * l'editeur qui revient sur sa zone la trouverait vide sans rien pouvoir y
+   * faire. C'est le piege n°1 de cette fonction.
+   *
+   * ⚠️ La commune EN COURS peut disparaitre avec son departement : on la lache
+   * proprement et on le DIT, exactement comme quand des contours changent sous
+   * les pieds de l'editeur (v2.27.06) — un bouton qui se grise sans explication
+   * a deja ete signale une fois.
+   *
+   * ⚡ Les agglomerations tracees ne bougent PAS : elles sont rangees par code
+   * INSEE, independamment des contours. Retirer le Gard ne perd pas le travail
+   * de zonage fait dans le Gard — c'est deja ce que promet « tout vider ».
+   */
+  async function retirerDepartements(codes) {
+    const set = new Set((Array.isArray(codes) ? codes : [codes]).map(String));
+    if (!set.size) return { retires: [], communes: 0, octets: 0 };
+    const avantN = communes.length;
+    const avantO = poidsContours();
+    const restantes = communes.filter(c => !set.has(depDuCode(c.code)));
+    if (restantes.length === avantN) return { retires: [], communes: 0, octets: 0 };
+    communes = restantes;
+
+    // ⚠️ LE PIEGE : sans ca, plus aucun rechargement automatique possible.
+    set.forEach(d => depsTentes.delete(d));
+    depsVus = depsVus.filter(d => !set.has(d));
+
+    // La commune en cours vivait peut-etre dans un departement retire.
+    if (communeActive && set.has(depDuCode(communeActive.code))) {
+      ui.communePerdue = communeActive.nom;
+      communeActive = null; oublierPanneaux(); redrawCommune();
+      replierSection('commune', true);
+    }
+
+    const deps = depsCharges();
+    metaContours = communes.length
+      ? { ...(metaContours || {}), nb: communes.length, deps }
+      : null;
+    try {
+      await idbSet('communes', communes);
+      await idbSet('meta', metaContours);
+    } catch (e) { log('retrait de départements : écriture impossible', e); }
+
+    rafraichirCommunesDeLaVue(); renderContours(); renderAgglos();
+    redrawCommune(); redrawAgglos();
+    return { retires: [...set], communes: avantN - communes.length, octets: avantO - poidsContours() };
+  }
+
+  /**
+   * Decharge les departements dont on s'est eloigne. Ne fait rien si l'option
+   * est decochee — et elle l'est par defaut.
+   *
+   * ⚠️⚠️ TROIS CHOSES NE SE PURGENT JAMAIS, et ce sont des refus DELIBERES :
+   *  1. les departements SOUS LES YEUX (on ne retire pas ce qu'on regarde) ;
+   *  2. celui de la COMMUNE EN COURS (on ne casse pas un travail entame) ;
+   *  3. les `purgeGarde` derniers vus (on revient sans cesse sur 2-3 zones).
+   * Un test de VOLONTE fige chacun des trois : le jour ou l'un tombe, c'est une
+   * decision qu'on reprend, pas une optimisation.
+   *
+   * PURE dans son calcul : `departementsAPurger` decide, elle n'agit pas.
+   */
+  function departementsAPurger(enBase, sousLesYeux, deCommuneActive, vus, garde) {
+    const proteges = new Set(sousLesYeux);
+    if (deCommuneActive) proteges.add(deCommuneActive);
+    vus.slice(0, Math.max(0, garde)).forEach(d => proteges.add(d));
+    return enBase.filter(d => !proteges.has(d));
+  }
+
+  async function purgerEloignes() {
+    if (!options.purgeAuto) return null;
+    const enBase = depsCharges();
+    if (enBase.length <= 1) return null;
+    const sousLesYeux = [...new Set(communesDeLaVue().map(c => depDuCode(c.code)))];
+    noterDepsVus(sousLesYeux);
+    const aPurger = departementsAPurger(
+      enBase, sousLesYeux,
+      communeActive ? depDuCode(communeActive.code) : null,
+      depsVus, options.purgeGarde);
+    if (!aPurger.length) return null;
+    // ⚠️⚠️ LE PREMIER PASSAGE EST LE PLUS BRUTAL, et c'est voulu : au demarrage
+    // `depsVus` est vide, donc TOUT ce qui n'est pas sous les yeux part d'un
+    // coup (11 departements sur 12 chez l'auteur). C'est ce que la case promet
+    // — mais ca ne doit pas se faire en silence.
+    const r = await retirerDepartements(aPurger);
+    if (r.communes) {
+      // ⭐⭐ ON LE DIT A L'ECRAN, pas seulement dans la console : une purge
+      // silencieuse laisserait l'editeur croire a une perte de donnees le jour
+      // ou il retourne sur une zone et la trouve vide. `log` ne se lit pas.
+      dernierePurge = { deps: r.retires.slice(), octets: r.octets, communes: r.communes };
+      renderContours();
+      log('contours déchargés : ' + r.retires.join(', ') + ' (' + direPoids(r.octets) + ' libérés)');
+    }
+    return r;
+  }
+
   /**
    * ⚠️⚠️ LES CONTOURS SE CUMULENT, ILS NE SE REMPLACENT PLUS (demande de
    * l'auteur, 22/07 : « surtout, de le refaire a chaque fois alors que ca a
@@ -1454,7 +1664,11 @@
       const m = f.properties && f.properties.mairie;
       const mairie = (m && Array.isArray(m.coordinates)) ? m.coordinates
         : (Array.isArray(m) && typeof m[0] === 'number') ? m : null;
-      out.push({ code: code || nom, nom, geom: f.geometry, bbox: bboxOf(f.geometry), mairie });
+      // ⚡ `_pts` est compte ICI, une fois : c'est ce qui permet d'afficher le
+      // poids d'un departement sans reparcourir 1,5 million de coordonnees a
+      // chaque rendu (mesure : 47 ms sinon).
+      out.push({ code: code || nom, nom, geom: f.geometry, bbox: bboxOf(f.geometry), mairie,
+                 _pts: pointsDeGeom(f.geometry) });
     }
     if (!out.length) throw new Error('aucune commune exploitable (nom introuvable dans les propriétés)');
     const depsNouveaux = new Set(out.map(c => depDuCode(c.code)));
@@ -8093,6 +8307,25 @@
   .agn-dep-chip{display:inline-block;background:var(--agn-vert, #2e7d32);color:#fff;border-radius:8px;
     padding:0 6px;margin:1px 2px 0 0;font-size:10px;font-weight:700}
   .agn-dep span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* Liste des departements EN BASE, avec leur poids (v2.35). A ne pas confondre
+     avec `.agn-deps` juste au-dessus, qui est le SELECTEUR de telechargement. */
+  .agn-dep-liste{max-height:180px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;
+    margin:4px 0;background:#fafafa}
+  .agn-dep-l{display:flex;align-items:center;gap:6px;font-size:11px;padding:2px 4px;
+    border-bottom:1px solid #eee}
+  .agn-dep-l:last-child{border-bottom:0}
+  .agn-dep-l:hover{background:var(--agn-fond-doux, #eceff1)}
+  .agn-dep-tenu{opacity:.65}
+  .agn-dep-nom{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .agn-dep-n{color:var(--agn-gris-clair, #78909c);font-size:10px;min-width:34px;text-align:right}
+  .agn-dep-mo{min-width:52px;text-align:right;font-variant-numeric:tabular-nums}
+  .agn-dep-tenu-t{width:26px;text-align:center;font-size:11px;cursor:help}
+  /* Zone tactile confortable : un ✕ de 11 px se rate une fois sur deux. */
+  .agn-dep-x{width:26px;height:26px;line-height:1;border:0;background:transparent;cursor:pointer;
+    color:var(--agn-gris-clair, #78909c);border-radius:4px;font-size:13px;flex:0 0 auto}
+  .agn-dep-x:hover{background:var(--agn-rouge, #c62828);color:#fff}
+  .agn-dep-x:disabled{opacity:.4;cursor:default}
+  .agn-dep-approx{color:var(--agn-gris-clair, #78909c);cursor:help}
   .agn-poly{border:1px solid #ddd;border-radius:4px;padding:6px;margin:5px 0;background:#fafafa}
   .agn-poly input[type=text]{width:100%;box-sizing:border-box;margin:2px 0;padding:3px 5px;font-size:12px}
   .agn-row{display:flex;gap:6px;align-items:center;margin-top:4px}
@@ -8128,6 +8361,9 @@
   .agn-prog-note:empty{display:none}
   .agn-alerte{background:#fff3e0;border:1px solid #ffb74d;color:var(--agn-brun, #a34a00)}
   .agn-ok{background:#e8f5e9;border:1px solid #a5d6a7;color:var(--agn-vert, #2e7d32)}
+  /* Bleu : une INFORMATION sur ce que le script vient de faire — ni une alerte
+     (orange), ni un resultat d'analyse (vert). Sert au bilan de dechargement. */
+  .agn-info{background:#e3f2fd;border:1px solid #90caf9;color:#0d47a1}
   .agn-item{border:1px solid #e0e0e0;border-left-width:4px;border-radius:3px;padding:5px 7px;margin:4px 0;
     cursor:pointer;background:#fff}
   .agn-item:hover{background:#f6f9ff}
@@ -9289,6 +9525,8 @@
           <tr><td><b>Choisir un fichier GeoJSON</b></td><td>Pour charger des contours depuis un fichier local. ⚠️ Celui-là <b>remplace</b> ce qui est en place.</td></tr>
           <tr><td><b>Champ de filtre</b></td><td>Cherche par <b>nom</b> ou par <b>code INSEE</b>, sans se soucier des accents ni de la casse.</td></tr>
           <tr><td><b>📍 Sous les yeux</b></td><td>Quand il y a beaucoup de communes, celles qui occupent la vue passent en tête de liste.</td></tr>
+          <tr><td><b>Le poids de chaque département</b></td><td>Les contours restent en mémoire et sont rechargés à chaque démarrage : la liste dit ce que <b>chacun pèse</b>, le plus lourd en tête, et le <b>✕</b> le retire. Un département retiré <b>se recharge tout seul</b> si tu y reviens — rien n'est perdu. Ceux qui portent un <b>🔒</b> sont gardés : tu les as sous les yeux, ou la commune en cours s'y trouve.</td></tr>
+          <tr><td><b>Décharger les départements éloignés</b></td><td>Fait le ménage tout seul quand tu quittes une zone. <b>Décoché par défaut</b> : le cumul est le comportement normal, et on ne retire pas ce que tu as chargé sans que tu l'aies demandé. Coché, il garde toujours ce que tu regardes, la commune en cours, et les derniers départements utilisés (3 par défaut).</td></tr>
           <tr><td><b>tout vider</b></td><td>Oublie les contours chargés. Tes polygones d'agglomération, eux, sont conservés.</td></tr>
         </table>
         <p>Les contours sont volumineux : ils sont rangés dans le navigateur (IndexedDB) et
@@ -9843,6 +10081,11 @@
             <label class="agn-sb-c" title="Interroge geo.api.gouv.fr pour savoir quel département est sous les yeux, et télécharge ses contours s'ils manquent."><input type="checkbox" id="agn-r-autodep">
               Charger tout seul le département visible</label>
             <div class="agn-sb-n">Les contours se cumulent : charger un département n'efface pas les autres.</div>
+            <label class="agn-sb-c" title="Retire de la mémoire les départements que tu as quittés. Ceux que tu regardes, celui de la commune en cours et les derniers utilisés sont toujours gardés — et un département retiré se recharge tout seul si tu y reviens."><input type="checkbox" id="agn-r-purgeauto">
+              Décharger les départements éloignés</label>
+            <label class="agn-sb-l" title="Nombre de départements récemment utilisés qu'on garde en plus de ceux sous les yeux.">
+              <span>En garder</span>
+              <input type="number" id="agn-r-purgegarde" min="1" max="20" step="1"></label>
             <!-- ⚠️ Le chargement MANUEL vient se loger ici au demarrage (voir
                  rangerChargementContours) : il ne sert qu'en secours, il n'avait
                  rien a faire en tete du parcours (auteur, 27/07). -->
@@ -9965,6 +10208,24 @@
     // Recocher la case doit tenter TOUT DE SUITE : l'editeur vient d'exprimer
     // son besoin, il n'a pas a bouger la carte pour que ca se declenche.
     coche('#agn-r-autodep', 'autoDep', () => { if (options.autoDep) autoChargerDepartement(); });
+    // ⚠️ Cocher la purge ne purge PAS dans la seconde : `depsVus` est encore
+    // vide au moment du clic, tout passerait donc pour « eloigne » — y compris
+    // la zone qu'on vient de quitter pour ouvrir les reglages. On note d'abord
+    // ce qu'on a sous les yeux, le premier deplacement de carte fera le reste.
+    coche('#agn-r-purgeauto', 'purgeAuto', () => {
+      if (options.purgeAuto) {
+        noterDepsVus([...new Set(communesDeLaVue().map(c => depDuCode(c.code)))]);
+      }
+      renderContours();
+    });
+    const pg = q('#agn-r-purgegarde');
+    if (pg) {
+      pg.value = options.purgeGarde;
+      pg.onchange = () => {
+        const v = Math.min(20, Math.max(1, parseInt(pg.value, 10) || 3));
+        pg.value = v; options.purgeGarde = v; saveUI();
+      };
+    }
     // Le guidage s'allume ou s'eteint tout de suite : une case qui ne fait rien
     // avant le prochain clic passe pour cassee.
     coche('#agn-r-guidage', 'guidage', majGuidage);
@@ -10260,18 +10521,74 @@
     // On liste les DEPARTEMENTS en base, pas le dernier fichier charge : depuis
     // que les contours se cumulent, « dep. 11 » ne dit plus ce qu'on a sous la
     // main. L'editeur doit voir qu'il possede deja le 30 et le 34.
-    const deps = (metaContours.deps && metaContours.deps.length) ? metaContours.deps : depsCharges();
-    const noms = deps.map(d => {
-      const dd = DEPARTEMENTS.find(x => x.code === d);
-      return '<span class="agn-dep-chip" title="' + esc(dd ? dd.nom : d) + '">' + esc(d) + '</span>';
+    //
+    // ⚡ v2.35 : chaque departement DIT CE QU'IL PESE et se retire tout seul.
+    // Avant, l'accumulation etait invisible — 12 departements et ~97 Mo chez
+    // l'auteur sans que rien ne l'ait jamais annonce (audit du 09/08). Le plus
+    // lourd vient en tete : c'est celui qu'on retire en premier.
+    const stats = statsParDep();
+    const total = stats.reduce((s, e) => s + e.octets, 0);
+    const sousLesYeux = new Set(communesDeLaVue().map(c => depDuCode(c.code)));
+    const depActive = communeActive ? depDuCode(communeActive.code) : null;
+
+    const lignes = stats.map(e => {
+      // ⚠️ On MONTRE pourquoi une ligne ne se retire pas, au lieu de la griser
+      // sans rien dire : un bouton inerte et muet a deja ete signale (27/07).
+      const raison = (e.code === depActive) ? 'commune en cours'
+                   : sousLesYeux.has(e.code) ? 'sous les yeux' : '';
+      return `<div class="agn-dep-l${raison ? ' agn-dep-tenu' : ''}">
+          <span class="agn-dep-chip">${esc(e.code)}</span>
+          <span class="agn-dep-nom" title="${esc(e.nom)}">${esc(e.nom)}</span>
+          <span class="agn-dep-n">${e.communes}</span>
+          <span class="agn-dep-mo">${direPoids(e.octets)}</span>
+          ${raison
+            ? `<span class="agn-dep-tenu-t" title="Ce département est gardé : ${esc(raison)}.">🔒</span>`
+            : `<button class="agn-dep-x" data-dep="${esc(e.code)}" title="Retirer ${esc(e.nom)} de la mémoire. Il se rechargera tout seul si tu y reviens.">✕</button>`}
+        </div>`;
     }).join('');
-    ui.statutContours.innerHTML = `<div class="agn-stat agn-ok">
-        <b>${communes.length}</b> commune(s) en base — ${deps.length} département(s) : ${noms}</div>
+
+    const alerte = total >= SEUIL_ALERTE_OCTETS
+      ? `<div class="agn-stat agn-alerte">⚠️ <b>${direPoids(total)}</b> de contours en mémoire, rechargés à chaque
+           démarrage. Retire les départements sur lesquels tu ne travailles plus — ils se rechargent
+           tout seuls si tu y reviens.</div>`
+      : '';
+
+    // ⭐ Ce que la purge automatique vient d'emporter. Sans ca, un editeur qui
+    // retourne sur une zone et la trouve vide croit a une perte de donnees.
+    const purge = dernierePurge
+      ? `<div class="agn-stat agn-info">🧹 <b>${dernierePurge.deps.length}</b> département(s) déchargé(s)
+           (${esc(dernierePurge.deps.join(', '))}) — ${direPoids(dernierePurge.octets)} libérés.
+           <b>Rien n'est perdu</b> : ils se rechargent tout seuls si tu y reviens, et tes agglomérations
+           tracées n'ont pas bougé.</div>`
+      : '';
+
+    ui.statutContours.innerHTML = `${alerte}${purge}
+      <div class="agn-stat agn-ok"><b>${communes.length}</b> commune(s) en base —
+        ${stats.length} département(s), <b>${direPoids(total)}</b>
+        <span class="agn-dep-approx" title="Estimation à partir du nombre de points de contour (~70 octets par point, facteur mesuré). Ordre de grandeur, pas une comptabilité.">≈</span></div>
+      <div class="agn-dep-liste">${lignes}</div>
       <button class="agn-lien" id="agn-vider">tout vider</button>`;
+
+    ui.statutContours.querySelectorAll('.agn-dep-x').forEach(b => {
+      b.onclick = async () => {
+        const d = b.dataset.dep;
+        const e = stats.find(x => x.code === d);
+        if (!e) return;
+        // ⚠️ On demande AVANT : c'est une suppression, meme si elle se repare
+        // par un rechargement. Le message dit ce qui NE PART PAS.
+        if (!confirm('Retirer ' + e.nom + ' (' + e.communes + ' communes, ' + direPoids(e.octets) + ') ?\n\n'
+          + 'Les agglomérations que tu as tracées sont conservées.\n'
+          + 'Le département se rechargera tout seul si tu y reviens.')) return;
+        b.disabled = true;
+        await retirerDepartements([d]);
+      };
+    });
+
     const v = ui.statutContours.querySelector('#agn-vider');
     if (v) v.onclick = () => {
-      if (confirm('Vider tous les contours en base (' + communes.length + ' communes) ?\n\n' +
-        'Les agglomérations tracées, elles, sont conservées : elles sont rangees par code INSEE.')) viderContours();
+      if (confirm('Vider tous les contours en base (' + communes.length + ' communes, '
+        + direPoids(total) + ') ?\n\n'
+        + 'Les agglomérations tracées, elles, sont conservées : elles sont rangees par code INSEE.')) viderContours();
     };
   }
 
@@ -11715,7 +12032,15 @@
           rafraichirCommunesDeLaVue();
           // ⚠️ Apres le rafraichissement, pas avant : si les contours sont deja
           // la, il n'y a rien a telecharger et rien ne part sur le reseau.
-          autoChargerDepartement().then(rafraichirCommunesDeLaVue);
+          // ⚠️⚠️ ET LA PURGE VIENT APRES LE CHARGEMENT, jamais avant : lancees
+          // dans l'autre ordre, elles se battraient — on purgerait un
+          // departement que la seconde d'apres irait retelecharger. C'est aussi
+          // pour ca qu'elle vit dans le gestionnaire DEBOUNCE (700 ms) et non
+          // sur `wme-map-move` : une purge par frame de glissement serait une
+          // reecriture d'IndexedDB a chaque image.
+          autoChargerDepartement()
+            .then(rafraichirCommunesDeLaVue)
+            .then(purgerEloignes);
         }, 700);
       } });
     } catch (e) { log('abonnement au déplacement impossible', e); }
