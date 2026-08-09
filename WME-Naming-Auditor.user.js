@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.35.00
+// @version      2.35.01
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -8308,7 +8308,9 @@
     padding:0 6px;margin:1px 2px 0 0;font-size:10px;font-weight:700}
   .agn-dep span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* Liste des departements EN BASE, avec leur poids (v2.35). A ne pas confondre
-     avec `.agn-deps` juste au-dessus, qui est le SELECTEUR de telechargement. */
+     avec la classe agn-deps juste au-dessus, qui est le SELECTEUR de
+     telechargement. (Aucun accent grave ici : ce bloc vit DANS un template
+     literal, un seul suffirait a le refermer — 10e fois, cf. v2.35.00.) */
   .agn-dep-liste{max-height:180px;overflow-y:auto;border:1px solid #ddd;border-radius:4px;
     margin:4px 0;background:#fafafa}
   .agn-dep-l{display:flex;align-items:center;gap:6px;font-size:11px;padding:2px 4px;
