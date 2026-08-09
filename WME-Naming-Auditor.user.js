@@ -2782,9 +2782,29 @@
         derniereErreurSave = ''; cacherBandeauErreur();
       }
     };
+    /**
+     * ⚠️⚠️ `characterData` RETIRE le 09/08 — ET LE GAIN CPU EST NUL, mesure a
+     * l'appui. Un audit exterieur reprochait a l'ecosysteme WME ses observateurs
+     * globaux ; ce qui a ete MESURE ici, c'est qu'il n'apportait qu'UNE mutation
+     * sur 29 670. On le retire donc parce qu'il ne SERT a rien, surtout pas en
+     * pretendant que ca fait gagner quoi que ce soit : ce serait 0,003 % des
+     * declenchements.
+     * ⇒ Le seul cas qu'il couvrait seul — WME reecrit le texte d'une popover
+     *   DEJA posee, sans toucher a la structure — est repris par les deux
+     *   rappels de `releverErreurSave()` a l'ouverture et au depliage de la
+     *   fenetre (verrouilles par test-bandeau-erreur).
+     *
+     * ⚠️ CE QUI PESE ICI, C'EST `subtree` SUR `document.body`, pas le reste :
+     * il porte les 29 669 autres. Ne PAS le retirer a l'aveugle — il faudrait
+     * un ancetre stable du popover, qui n'existe pas forcement au demarrage, et
+     * ca ne se mesure qu'en live dans WME. Tant que ce n'est pas mesure, on n'y
+     * touche pas. ⭐ Rappel de la mesure du 09/08 : un observateur livre par
+     * LOTS (10 900 mutations = 32 appels, 0,3 ms) — le cout n'est PAS
+     * proportionnel au nombre de mutations.
+     */
     try {
       new MutationObserver(() => releverErreurSave()).observe(document.body,
-        { childList: true, subtree: true, characterData: true });
+        { childList: true, subtree: true });
     } catch (e) { log('surveillance des erreurs d\'enregistrement impossible', e); }
   }
 

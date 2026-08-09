@@ -135,6 +135,53 @@ verifier('basculerRepli redemande un releve',
   /releverErreurSave\s*\(\s*\)/.test(extraire('basculerRepli')), true);
 
 /* ------------------------------------------------------------------ */
+console.log('\n— La surveillance du DOM reste au minimum utile (09/08)');
+
+/**
+ * ⚠️⚠️ 8ᵉ FOIS QUE CE PIEGE MORD, ET IL A MORDU EN ECRIVANT CES LIGNES :
+ * `extraire()` rend le corps ENTIER, commentaires compris. Un verrou pose sur
+ * tout le corps aurait trouve le mot `characterData` dans le commentaire qui
+ * explique son retrait — et aurait declare le retrait rate alors qu'il etait
+ * fait. On ne lit donc QUE les options passees a `.observe(...)`.
+ */
+function optionsObserve(corps) {
+  const i = corps.indexOf('.observe(');
+  if (i < 0) return '';
+  let par = 0, j = corps.indexOf('(', i);
+  for (; j < corps.length; j++) {
+    if (corps[j] === '(') par++;
+    else if (corps[j] === ')') { par--; if (!par) return corps.slice(i, j + 1); }
+  }
+  return '';
+}
+const options = optionsObserve(surveille);
+
+/* ⚠️ Sans ce temoin, les deux verrous ci-dessous passeraient au vert sur une
+   chaine VIDE le jour ou l'extraction casserait — un controle qui ne regarde
+   rien dit toujours oui. */
+verifier('l\'extracteur d\'options a bien lu quelque chose',
+  options.length > 20 && /document\.body/.test(options), true);
+
+/* ⚠️⚠️ `characterData` a ete retire le 09/08. MESURE : il n'apportait qu'UNE
+   mutation sur 29 670, et le cas qu'il couvrait seul (WME reecrit le texte
+   d'une popover DEJA posee) est repris par les deux rappels verifies
+   ci-dessus. ⇒ Ce verrou n'est pas un verrou de PERFORMANCE — le gain CPU est
+   nul et il ne faut pas le presenter autrement. C'est un verrou de SURFACE :
+   on n'observe que ce qui sert. Le remettre demanderait de montrer un cas ou
+   les deux rappels ne suffisent pas. */
+verifier('⭐ la surveillance n\'ecoute plus characterData',
+  /characterData/.test(options), false);
+verifier('elle ecoute toujours les insertions (c\'est par la que la popover arrive)',
+  /childList\s*:\s*true/.test(options), true);
+
+/* ⚠️ Le jour ou quelqu'un voudra restreindre `subtree`, il lui faudra un
+   ancetre stable du popover — a MESURER en live, jamais a deviner. Ce test ne
+   fige pas `document.body` : il constate seulement que la surveillance existe
+   encore, pour qu'un retrait pur et simple ne passe pas inapercu. */
+verifier('la surveillance observe toujours quelque chose',
+  /\.observe\s*\(/.test(surveille), true);
+
+/* ------------------------------------------------------------------ */
 console.log('\n— L\'explication du refus 406 survit a la refonte');
 
 const expliquerRefus = monter('expliquerRefus', {
