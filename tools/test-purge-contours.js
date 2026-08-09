@@ -194,6 +194,26 @@ t('34. statsParDep et poidsContours passent par le compte RETENU',
   && /poidsContours[\s\S]{0,120}pointsDeCommune\(c\)/.test(src),
   'un seul des deux suffirait a ramener les 47 ms');
 
+console.log('\n=== 35-37. La liste suit la CARTE (defaut trouve en live) ===');
+// ⚠️⚠️ Trouve le 09/08 en posant la carte dans le Gard : le Gard s'affichait
+// avec une croix, sans son cadenas, parce que `renderContours` n'etait jamais
+// rappele au deplacement. L'ecran disait le CONTRAIRE de ce que le code fait.
+// Aucun test ne pouvait le voir : ils verifient le CALCUL, pas le REDESSIN.
+const srcMaj = corps('majListeContoursSiBesoin');
+t('35. la liste est redessinee apres un deplacement de carte',
+  /\.then\(majListeContoursSiBesoin\)/.test(src),
+  'sans ca les cadenas restent ceux du demarrage');
+t('36. elle ne redessine QUE si les departements vus ont change',
+  /if\s*\(\s*sig\s*===\s*signatureVue\s*\)\s*return false/.test(srcMaj),
+  'reconstruire le DOM a chaque arret de carte casserait un survol pour rien');
+// ⚠️ Fenetre large a dessein : un commentaire s'intercale entre les deux
+// maillons, et mon premier seuil (240) le coupait — le test etait faux, pas
+// le code. Ce qui compte est l'ORDRE, pas la distance.
+t('37. elle vient APRES la purge, jamais avant',
+  src.indexOf('.then(majListeContoursSiBesoin)') > src.indexOf('.then(purgerEloignes)')
+  && src.indexOf('.then(purgerEloignes)') !== -1,
+  'sinon elle dessinerait un etat que la purge invalide aussitot');
+
 console.log('\n=== 28-30. Ce que le retrait NE touche PAS ===');
 t('28. les agglomerations tracees ne sont pas touchees',
   !/agglos\s*=\s*\{\}/.test(srcRetirer) && !/delete\s+agglos/.test(srcRetirer));

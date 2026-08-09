@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.35.01
+// @version      2.35.02
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -1535,6 +1535,36 @@
 
   /** Bilan du dernier dechargement automatique, pour le DIRE a l'ecran. */
   let dernierePurge = null;
+
+  /**
+   * Derniers departements SOUS LES YEUX, pour ne re-rendre la liste que quand
+   * ca change vraiment.
+   *
+   * ⚠️⚠️ DEFAUT TROUVE EN LIVE le 09/08, et invisible aux tests : la liste des
+   * contours n'etait rendue qu'au demarrage et apres un chargement. Les 🔒
+   * (« garde : tu l'as sous les yeux ») restaient donc figes sur la position
+   * de depart — carte posee dans le Gard, le Gard s'affichait quand meme avec
+   * une croix, comme s'il n'etait pas protege. **L'ecran disait le contraire de
+   * ce que le code faisait.** Aucun test ne pouvait le voir : ils verifient le
+   * CALCUL (`departementsAPurger`), pas le moment ou l'on redessine.
+   */
+  let signatureVue = '';
+
+  /**
+   * Redessine la liste des contours UNIQUEMENT si les departements sous les
+   * yeux ont change. Appelee a chaque arret de carte : reconstruire le DOM a
+   * chaque fois couterait un survol interrompu pour rien.
+   */
+  function majListeContoursSiBesoin() {
+    if (!communes.length || !ui.statutContours) return false;
+    let sig;
+    try { sig = [...new Set(communesDeLaVue().map(c => depDuCode(c.code)))].sort().join(','); }
+    catch (e) { return false; }
+    if (sig === signatureVue) return false;
+    signatureVue = sig;
+    renderContours();
+    return true;
+  }
 
   function noterDepsVus(codes) {
     for (const d of codes) {
@@ -12042,7 +12072,11 @@
           // reecriture d'IndexedDB a chaque image.
           autoChargerDepartement()
             .then(rafraichirCommunesDeLaVue)
-            .then(purgerEloignes);
+            .then(purgerEloignes)
+            // ⚠️ EN DERNIER : les 🔒 de la liste dependent de ce qu'on a sous
+            // les yeux. Sans ce rappel, ils restent ceux du demarrage et la
+            // liste ment (defaut trouve en live, jamais par les tests).
+            .then(majListeContoursSiBesoin);
         }, 700);
       } });
     } catch (e) { log('abonnement au déplacement impossible', e); }
