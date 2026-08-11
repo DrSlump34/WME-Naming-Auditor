@@ -1,0 +1,5 @@
+# Les fins de ligne sont en LF dans le depot ET sur le disque.
+# Sans cette regle, un poste ayant core.autocrlf=true recoit le script en CRLF au
+# checkout : le fichier grossit de ~12 000 caracteres, et toutes les verifications de
+# longueur faites avant publication (presse-papiers, champ GreasyFork) deviennent fausses.
+* text=auto eol=lf
