@@ -195,6 +195,97 @@ console.log('\n=== Cible HORS AGGLOMERATION (H5 a H9) ===\n');
 }
 
 // ---------------------------------------------------------------------------
+// H-VP — VOIE PRIVEE / PARKING HORS AGGLO : LE NOM EST IGNORE, PAS LA VILLE.
+//
+// ⭐ ORIGINE, ET C'EST UNE MESURE : Glenan56, le 14/08/2026 — « Road Selector me
+// trouve encore des segments nommes en ville alors qu'ils sont hors ville,
+// Naming Editor est passe a cote ». Le segment de son permalien (266373094) est
+// « Sans nom, Caraman, Haute-Garonne », de type VOIE PRIVEE : le `continue` de
+// l'exclusion par type tombait AVANT le calcul de zone, donc aucun report ne
+// pouvait naitre. Sur son secteur, 59 des 246 segments a ville (24 %) sont de
+// type 17 ou 20.
+//
+// ⚠️ CE SONT DES TESTS DE VOLONTE autant que de calcul : l'exclusion par type
+// reste voulue pour le NOM (une absence de nom n'est pas une anomalie sur un
+// parking). Ne pas les « corriger » en elargissant l'audit de ces voies.
+// ---------------------------------------------------------------------------
+{
+  const api2 = new Function([
+    relire('normSansAccent'),
+    extraire('ecartsCertainsEnZoneGrise'),
+    'return { ecartsCertainsEnZoneGrise };'
+  ].join('\n'))();
+  const eczg = api2.ecartsCertainsEnZoneGrise;
+
+  const sansNomAvecVille = { primary: { name: '', cityName: COMMUNE }, alts: [] };
+  const e = eczg(sansNomAvecVille, false, COMMUNE);
+  verifier('H-VP. sans nom + ville hors agglo — un ecart, un seul', e.length, 1);
+  verifier('H-VP. et il porte le champ « ville en trop »',
+    e[0] && e[0].champ, 'ville en trop (hors agglomération)');
+  verifier('H-VP. la cible retire la ville sans inventer de nom',
+    e[0] && e[0].apres, '‹sans nom› / ‹sans ville›');
+
+  // Une voie privee NOMMEE hors agglo porte aussi une ville en trop.
+  verifier('H-VP. nommee + ville hors agglo — signalee aussi',
+    eczg({ primary: { name: 'Les Acacias', cityName: COMMUNE }, alts: [] }, false, COMMUNE).length, 1);
+
+  // ⚠️ LES TROIS REFUS, et ils comptent autant que le report.
+  verifier('H-VP. EN agglo, on ne dit rien (la ville y est normale)',
+    eczg(sansNomAvecVille, true, COMMUNE).length, 0);
+  verifier('H-VP. sans ville du tout, on ne dit rien',
+    eczg({ primary: { name: '', cityName: '' }, alts: [] }, false, COMMUNE).length, 0);
+  verifier('H-VP. ville VOISINE : on se taît (son agglo ne nous est pas connue)',
+    eczg({ primary: { name: '', cityName: 'Auriac-sur-Vendinelle' }, alts: [] }, false, COMMUNE).length, 0);
+}
+
+// --- Verrous d'ASSEMBLAGE : le calcul juste doit etre appele au bon endroit ---
+// ⭐ LECON DU 09/08 (v2.35.02) : un calcul juste appele au mauvais moment reste
+// un resultat FAUX, et aucun test de calcul ne peut le voir. Ici l'ordre EST le
+// correctif : si la garde de type retombe avant `localiser`, tout le reste est
+// mort sans qu'une seule verification de calcul ne bronche.
+{
+  const iLoc = src.indexOf('const loc = localiser(coords, listeAgglos);');
+  const iGarde = src.indexOf('if (!options.sansAdresse && REF.typesSansAdresse.has(seg.roadType))');
+  verifier('assemblage. `localiser` est bien lu AVANT la garde par type',
+    iLoc > 0 && iGarde > 0 && iLoc < iGarde, true);
+
+  // Le corps de la garde, isole par comptage d'accolades.
+  let bloc = '';
+  if (iGarde > 0) {
+    let prof = 0, j = src.indexOf('{', iGarde);
+    for (let k = j; k < src.length; k++) {
+      if (src[k] === '{') prof++;
+      else if (src[k] === '}') { prof--; if (!prof) { bloc = src.slice(j, k + 1); break; } }
+    }
+  }
+  verifier('assemblage. la garde par type appelle `ecartsCertainsEnZoneGrise`',
+    /ecartsCertainsEnZoneGrise/.test(bloc), true);
+  verifier('assemblage. elle pousse un report au cas H-VP',
+    /cas: 'H-VP'/.test(bloc), true);
+  verifier('assemblage. elle compte ce qu\'elle signale (`villeSansAdressage`)',
+    /villeSansAdressage\+\+/.test(bloc), true);
+  verifier('assemblage. elle respecte encore la garde « chez la voisine »',
+    /loc\.partCommune >= bas/.test(bloc), true);
+  verifier('assemblage. elle reste soumise au controle `nommageZone`',
+    /c\.nommageZone/.test(bloc), true);
+  verifier('assemblage. et elle sort toujours par un `continue`',
+    /continue;/.test(bloc), true);
+  // ⚠️ Test de VOLONTE : l'exclusion par type NE DOIT PAS disparaitre.
+  verifier('assemblage. l\'exclusion par type est toujours en place',
+    /skipped\.sansAdresse\+\+/.test(bloc), true);
+}
+
+// --- L'aide et l'infobulle DISENT le nouveau comportement -------------------
+// ⭐ LECON DU 14/08 : l'infobulle promettait « des ecarts de redaction sur leur
+// nom » et ne parlait pas des villes — l'editeur ne pouvait pas savoir ce qu'il
+// ratait. Un changement de comportement se cherche AUSSI dans les textes.
+verifier('textes. l\'aide annonce le cas H-VP', /H-VP<\/b>/.test(src), true);
+verifier('textes. l\'infobulle de la case parle de la ville en trop',
+  /ville en trop hors agglomération est signalée quand même/.test(src), true);
+verifier('textes. le bandeau distingue les ignores des signales',
+  /signalé\(s\) pour une ville en trop/.test(src), true);
+
+// ---------------------------------------------------------------------------
 // Verrou de CONTRAT — l'extracteur lit-il encore quelque chose ?
 // (lecon de la v2.26 : un harnais qui n'extrait plus rien rend un verdict
 //  qui ment ; on eprouve donc le harnais lui-meme)

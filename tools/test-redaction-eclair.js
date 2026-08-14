@@ -265,8 +265,25 @@ verifier('21. la redaction se cumule avec un alternatif manquant',
 // Sans lui, `planDeCorrection` ecrirait une ville vide et EFFACERAIT la ville du
 // segment. Le test regarde le userscript lui-meme, pas la fonction extraite.
 // ---------------------------------------------------------------------------
-verifier('22. ⚠️⚠️ `villeActuelle` est bien pose sur chaque report de segment',
-  /const base = \{[\s\S]{0,220}villeActuelle:/.test(src), true);
+// ⚠️⚠️ CE VERROU A DEJA MORDU POUR LA MAUVAISE RAISON (14/08) : il cherchait
+// litteralement « const base = { … villeActuelle: », et le jour ou le socle du
+// report est devenu une FABRIQUE (`baseDe`, pour que les deux branches qui
+// poussent des reports n'en aient qu'une seule source), il est tombe alors que
+// le contrat qu'il protege etait INTACT.
+// ⭐ LA LECON : un verrou qui epouse la FORME du code tombe a la premiere
+// refactorisation, et fait croire a une regression. On protege donc l'INTENTION,
+// en deux temps — et c'est plus fort qu'avant : non seulement la fabrique pose
+// `villeActuelle`, mais AUCUN report ne peut plus se fabriquer un socle a la
+// main sans passer par elle.
+verifier('22a. ⚠️⚠️ la fabrique du socle pose bien `villeActuelle`',
+  /const baseDe = \([\s\S]{0,320}villeActuelle:/.test(src), true);
+// ⚠️ 1re redaction de ce test : je comptais les « segId: seg.id ». Il y en a DEUX,
+// et la seconde est LEGITIME (un regroupement de segments pour les cartouches,
+// pas un report). Le test etait faux, pas le code — on vise donc le champ qui
+// porte reellement le contrat : `villeActuelle` ne doit avoir qu'UN seul point
+// d'ecriture, sinon la garantie se dedouble et l'une des deux copies derivera.
+verifier('22b. ⚠️⚠️ `villeActuelle` n\'a qu\'UNE source dans tout le script',
+  (src.match(/villeActuelle:/g) || []).length === 1, true);
 verifier('23. ⚠️ l\'ecriture passe par `updateAddress` (le segment), pas par un renommage de Street',
   /op\.type === 'principal'[\s\S]{0,400}updateAddress/.test(src), true);
 

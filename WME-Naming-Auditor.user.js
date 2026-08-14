@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.35.04
+// @version      2.36.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -6765,7 +6765,15 @@
                     // examinees plutot que de les taire. `mitoyenSansVille` en
                     // isole celles qui ne portent pas notre commune : hors agglo
                     // c'est normal, en agglo cela meriterait un coup d'œil.
-                    mitoyen: 0, mitoyenSansVille: 0, villes: new Map() };
+                    mitoyen: 0, mitoyenSansVille: 0,
+                    // `villeSansAdressage` : voies privees et parkings hors
+                    // agglomeration qui portent quand meme la ville en principal.
+                    // Ils restent comptes dans `skipped.sansAdresse` (ils ne sont
+                    // PAS audites sur leur nom) : ce compteur-ci dit combien
+                    // d'entre eux ont tout de meme produit un report. ⭐ Sans lui,
+                    // le bandeau annoncerait « N ignores » alors que N reports en
+                    // sont sortis — un chiffre qui se contredit a l'ecran.
+                    villeSansAdressage: 0, villes: new Map() };
     const c = options.controles;
     const dejaVus = new Set();     // un segment vu dans deux cellules ne compte qu'une fois
     // Cartouche sur le nom principal : jugement de VOIE, pas de segment. On
@@ -6779,6 +6787,33 @@
      * d'ou une analyse au fil de l'eau plutot qu'une collecte puis un calcul.
      */
     async function analyserSegments(segs, prog) {
+    /**
+     * Le socle commun d'un report de segment. ⚠️ UNE SEULE SOURCE DE VERITE :
+     * deux branches produisent des reports (le flux ordinaire et les types sans
+     * adressage), et un `base` recopie diverge au premier champ ajoute.
+     *
+     * ⚠️ L'editabilite se releve MAINTENANT, pendant que le segment est charge :
+     * apres le balayage la carte sera revenue ailleurs et `hasPermissions` ne
+     * repondrait plus.
+     * ⚠️⚠️ NE PAS INTERROGER LE MODELE SUR UN OBJET VENU DE L'API : il n'y est
+     * pas, `hasPermissions` leve `DataModelNotFoundError`, le catch rendait
+     * `false` et le script annoncait « verrouille au-dessus de ton niveau » sur un
+     * segment L1 a un editeur L6 (signale par l'auteur sur le 332839183). Pire :
+     * le bouton de correction disparaissait avec. L'objet de l'API porte deja son
+     * editabilite (lockRank vs rang) ; `hasPermissions` ne sert que pour le
+     * balayage, ou l'objet EST charge.
+     * ⚠️ `villeActuelle` : la ville portee AUJOURD'HUI par le principal. Elle sert
+     * au ⚡ de la correction de redaction — `updateAddress` ecrit nom ET ville
+     * d'un coup, l'omettre EFFACERAIT la ville du segment.
+     */
+    const baseDe = (seg, nam, coords) => ({
+      segId: seg.id, roadType: seg.roadType, libelle: fmt(nam.primary),
+      villeActuelle: (nam.primary && nam.primary.cityName) || '',
+      centre: centreDe(coords), geom: seg.geometry,
+      editable: seg.editable !== undefined ? seg.editable : (() => { try {
+        return sdk.DataModel.Segments.hasPermissions({ segmentId: seg.id });
+      } catch (e) { return false; } })()
+    });
     for (const seg of segs) {
       // ⚠️ Point de controle OBLIGATOIRE : sans lui cette boucle tient la main
       // ~25 s d'affilee (1607 segments), la barre reste figee et le bouton
@@ -6787,7 +6822,6 @@
       if (prog) { await prog.respirer(); prog.avance(); }
       if (dejaVus.has(seg.id)) continue;
       dejaVus.add(seg.id);
-      if (!options.sansAdresse && REF.typesSansAdresse.has(seg.roadType)) { skipped.sansAdresse++; continue; }
       const coords = seg.geometry && seg.geometry.coordinates;
       if (!coords || !coords.length) { skipped.sansGeom++; continue; }
       const nam = readNaming(seg);
@@ -6796,29 +6830,57 @@
       const loc = localiser(coords, listeAgglos);
       const haut = options.seuil, bas = 1 - options.seuil;
 
+      // ⚠️⚠️ TYPES SANS VOCATION D'ADRESSAGE (voie privee, parking) : L'EXCLUSION
+      // VAUT POUR LE NOM, PAS POUR LA VILLE.
+      //
+      // Retour de Glenan56 le 14/08 : « Road Selector me trouve encore des
+      // segments nommes en ville alors qu'ils sont hors ville, Naming Editor est
+      // passe a cote ». ⚡ MESURE sur le segment qu'il a mis en permalien
+      // (266373094) : « Sans nom, Caraman, Haute-Garonne », type VOIE PRIVEE. Le
+      // `continue` tombait AVANT le calcul de zone — le zonage n'etait jamais
+      // atteint, et aucun report ne pouvait naitre. Sur son secteur (301 segments
+      // charges au zoom 16), 59 des 246 segments a ville, soit 24 %, sont de ces
+      // deux types.
+      //
+      // ⭐ MEME RAISONNEMENT QUE LA ZONE GRISE (26/07, `ecartsCertainsEnZoneGrise`)
+      // ET IL A DEJA SERVI UNE FOIS : le `continue` n'etait pas un oubli — une
+      // absence de nom n'est pas une anomalie sur un parking — mais il etait TROP
+      // LARGE. Hors agglomeration le principal ne porte JAMAIS de ville, quel que
+      // soit le type de la voie : la faute est la meme que sur une rue. On ne dit
+      // donc QUE ca, et on continue d'ignorer tout le reste de leur nommage.
+      //
+      // ⚠️ `localiser` se calcule maintenant AUSSI pour ces types (+20 % d'appels
+      // mesures sur le secteur de Caraman). C'est assume : le filtre bbox de
+      // `pointInGeom` ecarte presque tout en 4 comparaisons, et le cout mesure le
+      // 09/08 etait de 3 a 6 µs par appel.
+      //
+      // ⚠️ PAS DE BOUTON ⚡, ET C'EST DELIBERE : l'ecart porte le champ « ville en
+      // trop (hors agglomération) », que `planDeCorrection` ne reconnait pas (il
+      // n'agit que sur « principal »). C'est exactement le comportement du cas
+      // LIM. Ne pas l'ouvrir ici sans arbitrage — ecrire sur ces voies-la n'a
+      // jamais ete demande.
+      if (!options.sansAdresse && REF.typesSansAdresse.has(seg.roadType)) {
+        skipped.sansAdresse++;
+        // ⚠️ La garde « majoritairement chez la voisine » s'applique ICI AUSSI :
+        // sans elle, un parking de la commune d'a cote portant SON nom de ville
+        // ressortirait comme un ecart chez nous.
+        const certains = loc.partCommune >= bas
+          ? ecartsCertainsEnZoneGrise(nam, loc.partAgglo >= haut, communeActive.nom)
+          : [];
+        if (certains.length && c.nommageZone) {
+          zones.villeSansAdressage++;
+          findings.push(Object.assign({}, baseDe(seg, nam, coords),
+            { cas: 'H-VP', doute: null, ecarts: certains }));
+        }
+        continue;
+      }
+
       // Majoritairement chez la voisine : ce n'est pas notre chantier.
       if (loc.partCommune < bas) { skipped.horsCommune++; continue; }
 
       const nomsBruts = [nam.primary.name, ...nam.alts.map(a => a.name)].join(' ');
-      // ⚠️ L'editabilite se releve MAINTENANT, pendant que le segment est
-      // charge : apres le balayage la carte sera revenue ailleurs et
-      // `hasPermissions` ne repondrait plus.
-      // ⚠️⚠️ NE PAS INTERROGER LE MODELE SUR UN OBJET VENU DE L'API : il n'y
-      // est pas, `hasPermissions` leve `DataModelNotFoundError`, le catch
-      // rendait `false` et le script annoncait « verrouille au-dessus de ton
-      // niveau » sur un segment L1 a un editeur L6 (signale par l'auteur sur
-      // le 332839183). Pire : le bouton de correction disparaissait avec.
-      // L'objet de l'API porte deja son editabilite (lockRank vs rang) ;
-      // `hasPermissions` ne sert que pour le balayage, ou l'objet EST charge.
-      // ⚠️ `villeActuelle` : la ville portee AUJOURD'HUI par le principal. Elle
-      // sert au ⚡ de la correction de redaction — `updateAddress` ecrit nom ET
-      // ville d'un coup, l'omettre EFFACERAIT la ville du segment.
-      const base = { segId: seg.id, roadType: seg.roadType, libelle: fmt(nam.primary),
-                     villeActuelle: (nam.primary && nam.primary.cityName) || '',
-                     centre: centreDe(coords), geom: seg.geometry,
-                     editable: seg.editable !== undefined ? seg.editable : (() => { try {
-                       return sdk.DataModel.Segments.hasPermissions({ segmentId: seg.id });
-                     } catch (e) { return false; } })() };
+      // Le socle du report : voir `baseDe` en tete de la boucle.
+      const base = baseDe(seg, nam, coords);
       // --- Type de voie : determine ICI, avant toute branche, parce que le
       //     garde-fou « ville sans polygone » juste en dessous en a besoin ---
       const estRail = REF.typesSansAdresseTotale.has(seg.roadType);      // rail, piste, ferry
@@ -9786,7 +9848,7 @@
         <p>Tout se décoche, dans <b>☰ → Contrôles</b>. Un contrôle décoché ne signale rien
           et le bilan le rappelle.</p>
         <table class="agn-aide-t">
-          <tr><td><b>Nommage agglo / hors agglo</b></td><td>Le cœur : en agglomération une voie porte la ville, hors agglomération elle ne la porte pas — et le numéro de route passe au principal.</td></tr>
+          <tr><td><b>Nommage agglo / hors agglo</b></td><td>Le cœur : en agglomération une voie porte la ville, hors agglomération elle ne la porte pas — et le numéro de route passe au principal.<br>⚠️ <b>Y compris sur les parkings et les voies privées</b>, qui sont pourtant exclus du reste de l'audit : leur nom n'est pas jugé (une absence de nom n'y est pas une anomalie), mais une <b>ville en trop hors agglomération</b> y est une faute comme partout ailleurs. Ces reports portent le cas <b>H-VP</b> ; la ville se retire <b>à la main</b>, aucune correction automatique n'est proposée sur ces voies.</td></tr>
           <tr><td><b>Cartouches</b></td><td>Un numéro de route (Dxxx, Nxxx, Cxxx) doit porter son écusson. ⚠️ En agglomération, <b>aucun cartouche sur un nom de rue en principal</b>.</td></tr>
           <tr><td><b>Bretelles · Rocades</b></td><td>Ne portent <b>jamais</b> de ville.</td></tr>
           <tr><td><b>Voies ferrées, pistes, ferries</b></td><td><b>Jamais de ville</b>, dans les trois cas. Le <b>nom</b>, lui, suit trois règles distinctes : une <b>voie ferrée</b> n'en porte <b>ni en principal ni en alternatif</b> ; une <b>piste d'aéroport</b> peut porter son <b>code OACI</b> ; un <b>ferry</b> n'en porte pas en principal.</td></tr>
@@ -10121,7 +10183,7 @@
             <label class="agn-sb-l" title="Part de longueur au-delà de laquelle un segment à cheval est rattaché d'office à un côté. En dessous, il est signalé comme à couper.">
               <span>Seuil de rattachement</span>
               <input type="number" id="agn-r-seuil" min="50" max="100" step="5"> %</label>
-            <label class="agn-sb-c"><input type="checkbox" id="agn-r-sansadresse" title="Parkings et voies privées sont exclus par défaut : ils n'ont pas d'adressage. Les inclure remonte des écarts de rédaction sur leur nom.">
+            <label class="agn-sb-c"><input type="checkbox" id="agn-r-sansadresse" title="Parkings et voies privées sont exclus par défaut : une absence de nom n'y est pas une anomalie. Les inclure les audite comme n'importe quelle voie (nom, rédaction, zone). ⚠️ Sans cocher, une ville en trop hors agglomération est signalée quand même : c'est une faute quel que soit le type de voie.">
               Inclure parkings et voies privées</label>
             <label class="agn-sb-c"><input type="checkbox" id="agn-r-alt" title="Un nom alternatif en trop est souvent légitime (voie connue sous plusieurs noms) : désactivé par défaut pour ne pas noyer les vrais écarts.">
               Signaler les noms alternatifs surnuméraires</label>`)}
@@ -11892,7 +11954,9 @@
           z.cartouche ? ' · ' + z.cartouche + ' cartouche(s) a poser' : ''}${
           z.special ? ' · ' + z.special + ' voie(s) a règle propre' : ''}${
           z.giratoire ? ' · ' + z.giratoire + ' giratoire(s)' : ''}.<br>
-        Ignores : ${s.skipped.horsCommune} hors commune, ${s.skipped.sansAdresse} sans adressage, ${s.skipped.horsRegle} règles propres.
+        Ignores : ${s.skipped.horsCommune} hors commune, ${s.skipped.sansAdresse} sans adressage${
+          z.villeSansAdressage ? '<span title="Voies privées et parkings : leur nom n\'est pas audité (une absence de nom n\'y est pas une anomalie), mais hors agglomération le nom principal ne porte jamais de ville. Ceux-là sont donc signalés quand même.">' +
+            ' (dont <b>' + z.villeSansAdressage + '</b> signalé(s) pour une ville en trop)</span>' : ''}, ${s.skipped.horsRegle} règles propres.
       </div>${bandeauVillesSansPolygone()}${bandeauCommunesVoisines()}${bandeauInterrompu()}${bandeauSource()}`
         : `<div class="agn-stat">
         ${s.adr ? '<b>' + s.adr.hnLus + '</b> numéro(s) lu(s) a ' + esc(communeActive.nom) +
