@@ -67,6 +67,43 @@ const api = new Function([
   'return { zoomPour, cadrageDeReport, emprise, sommetsDe };'
 ].join('\n'))();
 
+/**
+ * La garde « la carte y est-elle deja ? » LIT le SDK : elle ne peut pas se
+ * tester comme une fonction pure. On la reconstruit donc autour d'un SDK
+ * simule, injecte cas par cas — y compris un SDK qui LEVE, parce qu'un cadrage
+ * qui ne se fait pas par accident est pire que le cadrage de trop.
+ */
+function fabriquerGarde(sdk) {
+  return new Function('sdk', [
+    'const ZOOM_CHARGEMENT = ' + ZOOM_CHARGEMENT + ';',
+    extraire('pointInRing'), extraire('pointInRings'), extraire('pointInGeom'),
+    extraire('carteDejaDans'),
+    'return carteDejaDans;'
+  ].join('\n'))(sdk);
+}
+/**
+ * La meme garde, mais pour le DEPART DU TRACE : elle lit en plus la commune en
+ * cours, qui est une variable de module dans le userscript.
+ */
+function fabriquerGardeTrace(sdk, communeActive) {
+  return new Function('sdk', 'communeActive', [
+    'const ZOOM_CHARGEMENT = ' + ZOOM_CHARGEMENT + ';',
+    extraire('pointInRing'), extraire('pointInRings'), extraire('pointInGeom'),
+    extraire('carteDejaDans'), extraire('pointDejaEnVue'),
+    extraire('departDejaSousLesYeux'),
+    'return departDejaSousLesYeux;'
+  ].join('\n'))(sdk, communeActive);
+}
+/** Un SDK de carte reduit a ce que les gardes lisent vraiment. */
+const sdkSimule = (lon, lat, zoom, demi) => {
+  const d = demi === undefined ? 0.02 : demi;
+  return { Map: {
+    getZoomLevel: () => zoom,
+    getMapCenter: () => ({ lon, lat }),
+    getMapExtent: () => [lon - d, lat - d, lon + d, lat + d]
+  } };
+};
+
 let ok = 0, ko = 0;
 function verifie(titre, condition, detail) {
   if (condition) { ok++; return; }
@@ -228,7 +265,103 @@ console.log('— Cadrage avant selection —');
 }
 
 // ===========================================================================
-// 8. VERROU DE CONTRAT — le garde-fou du garde-fou
+// 8. CHOISIR UNE COMMUNE OU L'ON TRAVAILLE DEJA NE DEPLACE RIEN
+//
+// ⚠️⚠️ RETOUR TERRAIN Glenan56 (14/08/2026) : « je choisis une commune et mon
+// zoom est deja correct, le script me fait un zoom arriere trop eloigne et je
+// suis oblige de le reprendre systematiquement ».
+//
+// ⭐ La liste ne propose QUE les communes de la vue : etre deja dans celle
+// qu'on choisit est le cas COURANT. Le cadrage sur la commune entiere reste
+// juste pour qui arrive de loin — il ne doit plus rien coûter aux autres.
+// ===========================================================================
+{
+  // Un carre d'environ 6 km de cote : une commune ordinaire.
+  const commune = { type: 'Polygon', coordinates: [[
+    [1.70, 43.50], [1.80, 43.50], [1.80, 43.56], [1.70, 43.56], [1.70, 43.50]]] };
+
+  verifie('la carte posee DANS la commune, a un zoom de travail, ne bouge plus',
+    fabriquerGarde(sdkSimule(1.75, 43.53, 16))(commune) === true);
+  verifie('au zoom de chargement pile, la carte ne bouge pas non plus',
+    fabriquerGarde(sdkSimule(1.75, 43.53, ZOOM_CHARGEMENT))(commune) === true);
+
+  // --- TEMOIN : sans ces trois refus, la garde bloquerait des cadrages utiles.
+  verifie('une commune VOISINE se cadre toujours (la carte n\'y est pas)',
+    fabriquerGarde(sdkSimule(1.90, 43.53, 16))(commune) === false);
+  verifie('vu de trop loin, on cadre : sous le zoom 14, WME n\'a rien charge',
+    fabriquerGarde(sdkSimule(1.75, 43.53, ZOOM_CHARGEMENT - 1))(commune) === false);
+  verifie('une commune sans contour se cadre par son emprise, comme avant',
+    fabriquerGarde(sdkSimule(1.75, 43.53, 16))(null) === false);
+
+  // Un SDK muet ne doit pas immobiliser la carte : en cas de doute, on cadre.
+  const sdkMuet = { Map: { getZoomLevel() { throw new Error('SDK indisponible'); },
+                           getMapCenter() { throw new Error('SDK indisponible'); } } };
+  verifie('un SDK qui leve fait cadrer, il ne fige pas la carte en silence',
+    fabriquerGarde(sdkMuet)(commune) === false);
+
+  // Le trou d'un contour (enclave) n'est pas la commune : on y cadre.
+  const avecEnclave = { type: 'Polygon', coordinates: [
+    commune.coordinates[0],
+    [[1.74, 43.52], [1.76, 43.52], [1.76, 43.54], [1.74, 43.54], [1.74, 43.52]]] };
+  verifie('une enclave au milieu du contour n\'est pas « dans la commune »',
+    fabriquerGarde(sdkSimule(1.75, 43.53, 16))(avecEnclave) === false);
+}
+
+// ===========================================================================
+// 9. LE DEPART DU TRACE NE RENVOIE PLUS L'EDITEUR A L'AUTRE BOUT DE LA COMMUNE
+//
+// ⚠️⚠️ RETOUR TERRAIN Glenan56 (14/08/2026), captures a l'appui, sur CARAMAN
+// dont l'agglomeration principale etait DEJA tracee : cliquer « ＋ Tracer »
+// posait la carte sur la commune entiere — cinq communes voisines a l'ecran.
+// A ce zoom-la WME DECHARGE les segments, et en revenant il avait perdu
+// l'affichage des limitations de vitesse de la Toolbox : « je rezoome et je
+// constate que je n'ai plus les LV ».
+//
+// ⭐ CADRER N'EST PAS GRATUIT : ça vide la vue de WME et emporte au passage ce
+// que les autres scripts y dessinent. Un cadrage ne se paie que s'il MONTRE
+// quelque chose que l'editeur n'a pas deja devant lui.
+// ===========================================================================
+{
+  const commune = { type: 'Polygon', coordinates: [[
+    [1.70, 43.50], [1.80, 43.50], [1.80, 43.56], [1.70, 43.56], [1.70, 43.50]]] };
+  const dansLaCommune = { lon: 1.75, lat: 43.53 };
+
+  // --- Le cas exact de Caraman : plus de secteur libre, pas de mairie.
+  const large = { centre: dansLaCommune, zoom: 13, quoi: 'Caraman', large: true };
+  verifie('CARAMAN : le repli « commune entiere » ne s\'impose plus a qui y est deja',
+    fabriquerGardeTrace(sdkSimule(1.75, 43.53, 16), { nom: 'Caraman', geom: commune })(large) === true);
+
+  // --- TEMOINS : ce repli garde tout son sens quand il apprend quelque chose.
+  verifie('venu d\'ailleurs, le trace cadre encore la commune entiere',
+    fabriquerGardeTrace(sdkSimule(1.95, 43.53, 16), { nom: 'Caraman', geom: commune })(large) === false);
+  verifie('vu de trop loin, le trace cadre : sous le zoom 14, WME n\'a rien charge',
+    fabriquerGardeTrace(sdkSimule(1.75, 43.53, ZOOM_CHARGEMENT - 1), { nom: 'Caraman', geom: commune })(large) === false);
+
+  // --- LA HAGUE : une cible PRECISE (secteur d'entrees, mairie) se cadre des
+  // qu'elle n'est pas a l'ecran — c'est tout l'interet du guidage, il reste.
+  const precis = { centre: { lon: 1.85, lat: 43.53 }, zoom: 15, quoi: 'le bourg (mairie)' };
+  verifie('LA HAGUE : un bourg hors ecran se cadre toujours',
+    fabriquerGardeTrace(sdkSimule(1.75, 43.53, 16), { nom: 'Caraman', geom: commune })(precis) === false);
+  verifie('un bourg deja au milieu de l\'ecran ne fait plus bouger la carte',
+    fabriquerGardeTrace(sdkSimule(1.75, 43.53, 16), { nom: 'Caraman', geom: commune })(
+      { centre: dansLaCommune, zoom: 15, quoi: 'le bourg' }) === true);
+  verifie('un bourg colle au bord de l\'ecran se cadre quand meme',
+    fabriquerGardeTrace(sdkSimule(1.75, 43.53, 16), { nom: 'Caraman', geom: commune })(
+      { centre: { lon: 1.7655, lat: 43.53 }, zoom: 15, quoi: 'le bourg' }) === false,
+    'a 0.0155° du bord d\'une vue de 0.04°, la cible est dans la marge');
+
+  // Un SDK muet fait cadrer, il ne fige pas la carte en silence.
+  const sdkMuet = { Map: { getZoomLevel() { throw new Error('SDK indisponible'); },
+                           getMapCenter() { throw new Error('SDK indisponible'); },
+                           getMapExtent() { throw new Error('SDK indisponible'); } } };
+  verifie('un SDK qui leve fait cadrer le trace, comme avant',
+    fabriquerGardeTrace(sdkMuet, { nom: 'Caraman', geom: commune })(large) === false &&
+    fabriquerGardeTrace(sdkMuet, { nom: 'Caraman', geom: commune })(precis) === false);
+  verifie('sans depart, rien a annuler', fabriquerGardeTrace(sdkSimule(1.75, 43.53, 16), { nom: 'Caraman', geom: commune })(null) === false);
+}
+
+// ===========================================================================
+// 10. VERROU DE CONTRAT — le garde-fou du garde-fou
 // ===========================================================================
 {
   // ⚠️ Lecon de l'extracteur du test 21 (v2.26) : un harnais qui n'extrait plus
@@ -249,6 +382,23 @@ console.log('— Cadrage avant selection —');
     /direSelection\(dispo\.length, attendus\)/.test(src));
   verifie('les tentatives d\'un report abandonne sont annulees',
     /gen !== selGen/.test(src));
+  // ⚠️ La garde ne vaut que si le CHOIX DE COMMUNE la consulte : testee toute
+  // seule, elle peut etre parfaite et n'etre appelee nulle part.
+  verifie('le choix d\'une commune ne cadre plus que si la carte n\'y est pas',
+    /if \(communeActive && !carteDejaDans\(communeActive\.geom\)\)/.test(src),
+    'le `onchange` de la liste de communes cadre sans consulter `carteDejaDans`');
+  verifie('le trace ne cadre plus que si son depart n\'est pas deja a l\'ecran',
+    /if \(depart && !departDejaSousLesYeux\(depart\)\)/.test(src),
+    '`tracerAgglo` deplace la carte sans consulter `departDejaSousLesYeux`');
+  // ⚠️⚠️ `large` NE MARQUE QUE L'AVEU D'IGNORANCE. Le poser sur les replis
+  // precis (secteur libre, mairie) ferait rentrer LA HAGUE par la fenetre :
+  // l'editeur serait laisse devant sa vue, sans savoir par ou commencer.
+  verifie('un seul depart de trace porte `large` : celui de la commune entiere',
+    (extraire('departDuTrace').match(/large: true/g) || []).length === 1,
+    'departDuTrace : ' + (extraire('departDuTrace').match(/large: true/g) || []).length + ' repli(s) marques `large`');
+  verifie('le repli « commune entiere » est bien le dernier de departDuTrace',
+    extraire('departDuTrace').indexOf('large: true') >
+    extraire('departDuTrace').indexOf('mairie'));
 }
 
 console.log((ko ? '✗' : '✓') + ' ' + ok + ' verification(s), ' + ko + ' echec(s)');

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.35.03
+// @version      2.35.04
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -3924,8 +3924,47 @@
                zoom: 15, quoi: 'le bourg (mairie)' };
     }
     const em = empriseDeGeom(communeActive.geom);
+    // ⚠️ `large` MARQUE L'AVEU D'IGNORANCE : ni secteur libre ni mairie, on ne
+    // sait pas ou l'editeur va tracer, alors on montre la commune ENTIERE. Ce
+    // cadrage-la est le plus brutal (il descend souvent sous le zoom 14), et
+    // c'est le seul que `departDejaSousLesYeux` a le droit d'annuler d'office.
     return em ? { centre: em.centre, zoom: zoomPour(2 * em.rx, 2 * em.ry, em.centre.lat),
-                  quoi: communeActive.nom } : null;
+                  quoi: communeActive.nom, large: true } : null;
+  }
+
+  /** Ce point est-il deja a l'ecran, franchement — pas colle au bord ? */
+  function pointDejaEnVue(lonLat) {
+    if (!lonLat) return false;
+    try {
+      if (sdk.Map.getZoomLevel() < ZOOM_CHARGEMENT) return false;
+      const e = sdk.Map.getMapExtent();
+      if (!e || e.length !== 4) return false;
+      // Une cible au ras du bord n'est pas « sous les yeux » : on garde un
+      // cinquieme de vue de marge de chaque cote avant de renoncer a cadrer.
+      const mx = (e[2] - e[0]) * 0.2, my = (e[3] - e[1]) * 0.2;
+      return lonLat.lon >= e[0] + mx && lonLat.lon <= e[2] - mx &&
+             lonLat.lat >= e[1] + my && lonLat.lat <= e[3] - my;
+    } catch (err) { return false; }
+  }
+
+  /**
+   * Le depart du trace est-il DEJA sous les yeux de l'editeur ?
+   *
+   * ⚠️⚠️ RETOUR TERRAIN Glenan56 (14/08, captures a l'appui) : sur Caraman, dont
+   * l'agglomeration principale etait DEJA tracee, cliquer « ＋ Tracer » le
+   * renvoyait a la commune entiere — cinq communes voisines a l'ecran. A ce
+   * zoom-la WME DECHARGE les segments ; en revenant, il a perdu l'affichage des
+   * limitations de vitesse de la Toolbox, qui ne s'est pas redessine.
+   *
+   * ⭐ CADRER N'EST PAS GRATUIT : ça ne coute pas qu'un zoom a refaire, ça vide
+   * la vue de WME et emporte au passage ce que les autres scripts y dessinent.
+   * Le cadrage ne se justifie donc que s'il MONTRE quelque chose que l'editeur
+   * n'a pas deja devant lui.
+   */
+  function departDejaSousLesYeux(depart) {
+    if (!depart) return false;
+    if (depart.large) return carteDejaDans(communeActive && communeActive.geom);
+    return pointDejaEnVue(depart.centre);
   }
 
   /**
@@ -3949,7 +3988,7 @@
     // ⚠️ CADRER AVANT DE REPLIER : une fois l'interface fermee, l'editeur n'a
     // plus aucun repere pour se placer lui-meme.
     const depart = departDuTrace();
-    if (depart) {
+    if (depart && !departDejaSousLesYeux(depart)) {
       try { centrerSurZoneVisible(depart.centre, depart.zoom); }
       catch (e) { try { sdk.Map.setMapCenter({ lonLat: depart.centre, zoomLevel: depart.zoom }); }
                   catch (e2) { /* on trace quand meme */ } }
@@ -9100,8 +9139,11 @@
         // le 27/07. Replier une etape, c'est s'engager a rouvrir la suivante.
         replierSection('agglo', true);
       }
-      // Cadrage sur la commune choisie, dans la zone reellement visible (v2.12).
-      if (communeActive) {
+      // Cadrage sur la commune choisie, dans la zone reellement visible (v2.12)
+      // — SAUF si la carte y est deja posee (Glenan56, 14/08 : voir
+      // `carteDejaDans`). Choisir une commune ou l'on travaille deja ne doit
+      // plus rien deplacer.
+      if (communeActive && !carteDejaDans(communeActive.geom)) {
         const em = empriseDeGeom(communeActive.geom);
         if (em) centrerSurZoneVisible(em.centre, zoomPour(2 * em.rx, 2 * em.ry, em.centre.lat));
       }
@@ -10846,8 +10888,12 @@
     // sous la liste, et l'avertissement ci-dessous (auteur, 27/07).
     const suite = el('<button class="agn-btn" id="agn-tracer-encore">' +
       '＋ Ajouter une autre agglomération</button>');
+    // ⚠️ Cette infobulle PROMETTAIT un cadrage inconditionnel. Depuis la 2.35.04
+    // la carte ne bouge plus quand le secteur est deja sous les yeux : le texte
+    // doit dire la regle, sinon l'immobilite se lit comme une panne.
     suite.title = 'Bourg, hameau, village rattaché : chaque agglomération de la commune ' +
-      'a son propre polygone. La carte se cadrera sur le prochain secteur d\'entrées à couvrir.';
+      'a son propre polygone. La carte se cadre sur le prochain secteur d\'entrées à ' +
+      'couvrir — sauf si tu l\'as déjà sous les yeux.';
     suite.onclick = tracerAgglo;
     ui.listeAgglos.appendChild(suite);
     ui.listeAgglos.appendChild(avertissementExhaustivite());
@@ -11337,6 +11383,32 @@
     pts.forEach(c => { rx = Math.max(rx, Math.abs(c[0] - centre.lon));
                        ry = Math.max(ry, Math.abs(c[1] - centre.lat)); });
     return { centre, rx, ry };
+  }
+
+  /**
+   * La carte est-elle DEJA posee dans cette geometrie, a un zoom de travail ?
+   *
+   * ⚠️⚠️ RETOUR TERRAIN Glenan56 (14/08) : « je choisis une commune et mon zoom
+   * est deja correct, le script me fait un zoom arriere trop eloigne et je suis
+   * oblige de le reprendre systematiquement ».
+   *
+   * ⭐ CADRER, C'EST DEPLACER LE TRAVAIL DE QUELQU'UN. Le cadrage sur la commune
+   * ENTIERE sert a celui qui arrive de loin ; il ne rend aucun service a celui
+   * qui est deja dessus, en train d'editer — il lui coute un zoom a refaire a
+   * chaque passage dans la liste. Or cette liste ne propose QUE les communes de
+   * la vue : etre deja dedans est le cas COURANT, pas l'exception.
+   *
+   * ⇒ On ne bouge la carte que si l'editeur n'y est pas, ou s'il la regarde de
+   * si loin que WME n'y a rien charge (< ZOOM_CHARGEMENT) — la, le cadrage lui
+   * apporte quelque chose au lieu de le deranger.
+   */
+  function carteDejaDans(geom) {
+    if (!geom) return false;
+    try {
+      if (sdk.Map.getZoomLevel() < ZOOM_CHARGEMENT) return false;
+      const c = sdk.Map.getMapCenter();
+      return !!c && pointInGeom(c.lon, c.lat, geom);
+    } catch (e) { return false; }
   }
 
   /**
