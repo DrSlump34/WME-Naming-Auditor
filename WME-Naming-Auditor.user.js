@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.36.00
+// @version      2.37.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -423,6 +423,35 @@
   const POI_CATEGORIES_NATURELLES = new Set([
     'RIVER_STREAM', 'SEA_LAKE_POOL', 'ISLAND', 'FOREST_GROVE',
     'CANAL', 'SWAMP_MARSH', 'POOL', 'NATURAL_FEATURES', 'BEACH'
+  ]);
+
+  /**
+   * POI dont l'adresse EST une autoroute, SANS VILLE.
+   *
+   * ⚠️⚠️ C'est une regle FR ecrite, pas une tolerance. Aires d'autoroute :
+   * « Le nom sera celui de l'autoroute a laquelle l'aire est rattachee. Aucune
+   * Ville. » (regles de normalisation des aires, Waze Discuss 70053). Jonctions,
+   * echangeurs et peages : « Adresse : nom de la Freeway dont il depend »
+   * (Discuss 71786, repris au Wazeopedia « Lieux Particuliers » §2.4, 2.12 et
+   * 2.13).
+   *
+   * ⭐ SANS CETTE LISTE, WNA RECLAMAIT DE DEGRADER CES POI : une aire renseignee
+   * « A9 » / sans ville declenchait DEUX ecarts — « rue = numero de route » et
+   * « commune absente » — dont l'application aurait rendu le POI non conforme.
+   * C'est la correction a l'envers que le projet redoute (meme famille que les
+   * 22 giratoires de Gruissan, v2.11).
+   *
+   * ⚡ Les cles ne sont PAS inventees : relevees le 23/08 dans WME
+   * (`I18n.translations.fr.venues.categories`, 134 categories) —
+   *   REST_AREAS « Aire de repos »   FOOD_COURT « Aire de restauration »
+   *   JUNCTION_INTERCHANGE « Jonction, echangeur »
+   * ⚠️ GAS_STATION n'y est PAS : une station-service a une adresse postale
+   * ordinaire des qu'elle n'est pas sur une aire. Celle qui l'est se reconnait a
+   * la rue qu'elle porte deja (voir `RE_AUTOROUTE` dans `auditerPoi`) — c'est le
+   * second critere, et il n'a pas besoin de la categorie.
+   */
+  const POI_CATEGORIES_AUTOROUTE = new Set([
+    'REST_AREAS', 'FOOD_COURT', 'JUNCTION_INTERCHANGE'
   ]);
 
   // Voies qui ne portent NI ville NI nom de rue : ferry, voie ferree, piste.
@@ -4681,6 +4710,10 @@
       typesSansAdresse: ROADTYPE_SANS_ADRESSE,
       typesSansAdresseTotale: ROADTYPE_SANS_ADRESSE_TOTALE,
       typeBretelle: 4,
+      // ⚠️ 3 = Autoroute. Elle ne porte AUCUNE ville, ni en principal ni en
+      //    alternatif, quelle que soit la zone traversee (voir RE_AUTOROUTE) :
+      //    son nommage ne depend donc d'aucune limite, communale ou d'agglo.
+      typeAutoroute: 3,
       // ⚠️ 19 = Piste d'aeroport. Elle partage l'interdiction de VILLE avec les
       //    rails, mais PAS celle du nom : le guide y admet le code OACI.
       typePiste: 19,
@@ -5871,9 +5904,36 @@
       // ⚠️ « Deja bonne » = un vrai nom de voie. Un NUMERO DE ROUTE n'en est pas
       // un (doctrine de `rueDuPoi`) : le camp militaire porte « D121 », et c'est
       // precisement ce qu'il faut remplacer par « Route de Laudun ».
-      const rueDejaBonne = !!nomRue && !RE_ROUTE.test(nomRue);
-      const propose = (c.poiAdresse && (v.streetID == null || !nomRue || !ville))
+      // ⚠️⚠️ ADRESSE D'AUTOROUTE : deux criteres, et ils ne font pas le meme
+      // travail (arbitrage de l'auteur, 23/08 — « les deux, cumules ») :
+      //  - la RUE PORTEE (`rueAutoroute`) suffit a dire que l'adresse EST deja
+      //    conforme : le POI annonce lui-meme de quelle autoroute il depend.
+      //    Elle couvre du meme coup la station-service ou le restaurant d'une
+      //    aire, sans qu'on ait a deviner qu'ils y sont.
+      //  - la CATEGORIE (`estCatAutoroute`) sert quand il n'y a AUCUNE adresse :
+      //    la rue est muette, seule la categorie dit quelle cible annoncer.
+      // ⚠️ RE_AUTOROUTE, pas RE_ROUTE : « D121 » sur un POI reste une adresse a
+      //    revoir (doctrine de `rueDuPoi`) — seule l'autoroute est une adresse
+      //    LEGITIME pour un lieu.
+      const rueAutoroute = !!nomRue && RE_AUTOROUTE.test(nomRue);
+      const estCatAutoroute = cats.some(x => POI_CATEGORIES_AUTOROUTE.has(x));
+      const adresseAutoroute = rueAutoroute || estCatAutoroute;
+      if (adresseAutoroute) stats.poiAutoroute++;
+      const rueDejaBonne = !!nomRue && (!RE_ROUTE.test(nomRue) || rueAutoroute);
+      // ⚠️ La ville manquante ne declenche plus la recherche quand l'adresse est
+      // celle d'une autoroute : il n'y a PAS de ville a proposer, et le calcul
+      // coute une distance par segment de la commune.
+      const propose = (c.poiAdresse && (v.streetID == null || !nomRue || (!ville && !adresseAutoroute)))
         ? proposerAdressePoi(situation.point, segs, numeros) : null;
+      // L'autoroute la plus proche parmi les voies deja relevees : c'est elle
+      // qu'on propose comme adresse, plutot que de renvoyer l'editeur la chercher.
+      // ⚡ Les candidats sont deja tries par distance a categorie egale.
+      const autoProche = propose && propose.candidats
+        ? propose.candidats.filter(x => RE_AUTOROUTE.test(x.nom))[0] : null;
+      const cibleAutoroute = autoProche
+        ? 'renseigner « ' + autoProche.nom + ' » (autoroute à ' + Math.round(autoProche.d) +
+          ' m), et AUCUNE commune'
+        : 'renseigner le nom de l\'autoroute dont ce lieu dépend, et AUCUNE commune';
       const commePhrase = p => p.rue + ' / ' + commune.nom +
         (p.numero ? ' — n° ' + p.numero.num + ' ?' : '') +
         ' (voie à ' + Math.round(p.dist) + ' m' +
@@ -5901,10 +5961,12 @@
                 autresQue(propose) + ' (⚡ pour choisir)';
         if (v.streetID == null) {
           ecarts.push({ champ: 'adresse absente', avant: '—',
-            apres: suite || 'renseigner la rue et la commune (' + commune.nom + ')' });
+            apres: estCatAutoroute ? cibleAutoroute
+                 : suite || 'renseigner la rue et la commune (' + commune.nom + ')' });
         } else {
           if (!nomRue) ecarts.push({ champ: 'rue absente', avant: '—',
-            apres: suite || 'renseigner le nom de la voie' });
+            apres: estCatAutoroute ? cibleAutoroute
+                 : suite || 'renseigner le nom de la voie' });
           // ⚠️ La rue du POI est un NUMERO DE ROUTE : ce n'est pas une adresse
           // postale, et c'est le cas qui a servi d'exemple a l'auteur (« D121 »
           // au camp militaire). On le DIT, avec ce que le script propose a la
@@ -5912,13 +5974,17 @@
           // c'est l'adresse entiere qui est a revoir.
           if (nomRue && !rueDejaBonne) ecarts.push({ champ: 'rue = numéro de route', avant: nomRue,
             apres: suite || 'un numéro de route n\'est pas une adresse : renseigner le nom de la voie' });
-          if (!ville) ecarts.push({ champ: 'commune absente', avant: '—',
+          // ⚠️⚠️ PAS DE COMMUNE SUR UNE ADRESSE D'AUTOROUTE : « Aucune Ville ».
+          // La reclamer serait demander de rendre le POI non conforme.
+          if (!ville && !adresseAutoroute) ecarts.push({ champ: 'commune absente', avant: '—',
             apres: 'renseigner ' + commune.nom +
               (rueDejaBonne && propose ? ' (la rue « ' + nomRue +' » est conservée)' : '') });
         }
       }
       // ── 2. Numero : controle A PART, decoche par defaut ──────────────────
-      if (c.poiNumero && v.streetID != null && !numero) {
+      // ⚠️ Meme exclusion : une aire, un echangeur ou un peage n'a pas de numero
+      // de rue — son adresse est un nom d'autoroute, pas une adresse postale.
+      if (c.poiNumero && v.streetID != null && !numero && !adresseAutoroute) {
         // ⚠️ Le numero se cherche sur la rue que le POI porte DEJA — pas sur une
         // voie proposee : ici l'adresse existe, il n'y manque que le numero.
         // ⚡ C'est le cas ou la proposition sert le plus (43 POI a
@@ -5936,7 +6002,11 @@
       // LA PLANQUE, voie MITOYENNE des deux communes — l'adresse postale peut
       // parfaitement etre celle de la voisine. Meme prudence que pour les RPP en
       // agglomeration (v1.86). On DIT donc pourquoi le doute existe.
-      if (c.poiVilleCommune && ville && ville !== commune.nom) {
+      // ⚠️ Ecarte pour les POI d'autoroute : leur adresse ne porte AUCUNE ville,
+      // leur en proposer une serait un contresens. ⚠️ On ne signale pas non plus
+      // la ville EN TROP quand ils en portent une : ce serait un controle neuf,
+      // et l'auteur a borne la v2.37 aux faux positifs (23/08).
+      if (c.poiVilleCommune && ville && ville !== commune.nom && !adresseAutoroute) {
         const p = situation.point;
         const d = p ? distanceALaLimite(p[0], p[1], commune) : Infinity;
         const pres = isFinite(d) && d <= 60;
@@ -6766,6 +6836,11 @@
                     // isole celles qui ne portent pas notre commune : hors agglo
                     // c'est normal, en agglo cela meriterait un coup d'œil.
                     mitoyen: 0, mitoyenSansVille: 0,
+                    // `autoSansCoupe` : autoroutes a cheval sur une limite
+                    // (communale ou d'agglo). Elles ne portent aucune ville : les
+                    // couper ne corrigerait rien. Comptees pour qu'on VOIE que le
+                    // script les a examinees — leur nom, lui, reste audite.
+                    autoSansCoupe: 0,
                     // `villeSansAdressage` : voies privees et parkings hors
                     // agglomeration qui portent quand meme la ville en principal.
                     // Ils restent comptes dans `skipped.sansAdresse` (ils ne sont
@@ -6889,6 +6964,10 @@
       //   format, et l'ecart portera alors la mention du DOUTE.
       const roc = REF.rocadeDe(nam);
       const estRocade = roc.rocade;
+      // ⚡ Le TYPE du segment fait foi, comme pour la bretelle ; le nom sert de
+      //   filet quand un troncon d'autoroute est type autrement.
+      const estAutoroute = seg.roadType === REF.typeAutoroute ||
+                           RE_AUTOROUTE.test((nam.primary.name || '').trim());
       const enAgglo = loc.partAgglo >= haut;
 
       // ⚠️ `forme` se calcule APRES le type : une bretelle n'obeit pas tout a
@@ -6998,9 +7077,23 @@
       // ni report, ni proposition, ni bouton.
       if (!enAgglo) collecterCartouche(seg, nam, base);
 
+      // ⚠️⚠️ UNE AUTOROUTE NE SE COUPE PAS SUR UNE LIMITE (auteur, 23/08). Le
+      // raisonnement des zones grises est « coupe d'abord, on nommera chaque
+      // moitie selon SA commune » : il suppose que le nommage depend de l'endroit
+      // ou tombe la coupe. Sur une autoroute, il n'en depend pas — AUCUNE ville,
+      // ni en principal ni en alternatif, agglo ou pas. Les deux moities seraient
+      // identiques a l'originale, exactement le cas `limComRien`.
+      // ⭐ On le COMPTE au lieu de l'ecarter en silence : un segment tu est un
+      // segment qu'on croit avoir vu.
+      // ⚠️ On ne saute PAS le segment pour autant : son NOM reste audite plus
+      // bas, comme pour les voies mitoyennes.
+      const enZoneGrise = loc.partCommune < haut ||
+                          (loc.partAgglo > bas && loc.partAgglo < haut);
+      if (estAutoroute && enZoneGrise) zones.autoSansCoupe++;
+
       // Zone grise sur la limite COMMUNALE : il faut couper avant de nommer,
       // le bon nommage depend de l'endroit de la coupe.
-      if (loc.partCommune < haut) {
+      if (loc.partCommune < haut && !estAutoroute) {
         // ⚠️⚠️ SAUF si la voie EPOUSE la limite : route MITOYENNE, chaque commune
         // en possede un cote, IL N'Y A RIEN A COUPER (retour terrain de l'auteur,
         // vecu a Saint-Michel-d'Euzet). On ne fait ce calcul QUE dans la zone
@@ -7048,7 +7141,9 @@
       }
 
       // Zone grise sur la limite d'AGGLO : idem, coupure au panneau EB10.
-      if (loc.partAgglo > bas && loc.partAgglo < haut) {
+      // ⚠️ Meme exclusion que ci-dessus : l'autoroute ne porte pas de ville, le
+      // panneau EB10 ne change donc rien a son nommage.
+      if (loc.partAgglo > bas && loc.partAgglo < haut && !estAutoroute) {
         zones.cheval++;
         findings.push(Object.assign({}, base, { cas: 'EB10', doute: null, ecarts: [{
           champ: 'limite d\'agglo',
@@ -7243,6 +7338,10 @@
     const statsPoi = { poiAudites: 0, poiHorsCommune: 0, poiNaturels: 0,
                        // `poiBati` : zones sans nom qui dessinent un batiment.
                        poiBati: 0,
+                       // `poiAutoroute` : POI juges sous la regle « adresse =
+                       // autoroute, aucune ville ». Ils restent audites — c'est
+                       // la CIBLE qui change, pas le fait de les regarder.
+                       poiAutoroute: 0,
                        poiConformes: 0, erreur: null, indisponible: null };
     let poiFindings = [];
 
@@ -9816,6 +9915,8 @@
 
         <p><b>Voies à règle propre :</b></p>
         <table class="agn-aide-t">
+          <tr><td><b>Autoroutes</b></td><td><b>Jamais de ville</b>, ni en principal ni en alternatif, <b>quelle que soit la zone traversée</b> — c'est une règle systématique, sans exception.<br>
+          ⭐ <b>Conséquence, depuis la v2.37 :</b> une autoroute à cheval sur une limite <b>n'est plus signalée « à couper »</b>, ni sur la limite communale, ni au panneau d'agglomération. On coupe pour que chaque moitié porte le nommage de <b>sa</b> commune ; ici les deux moitiés seraient identiques à l'originale. Le bilan les compte à part (<span class="agn-aide-ex">n autoroute(s) sans coupe</span>), et <b>leur nom reste audité</b>.</td></tr>
           <tr><td><b>Rocades, périphériques</b></td><td><b>Hors agglomération par nature</b> : jamais de ville, ni en principal ni en alternatif. Nommage comme les autoroutes, avec un suffixe <b>uniquement si la voie s'appelle ainsi</b> — intérieure/extérieure ou orientation — séparé par <b>espace tiret espace</b> : <span class="agn-aide-ex">A86 - Intérieure</span>, <span class="agn-aide-ex">N136 - Rocade Ouest</span>. Seule exception : le périphérique parisien (<span class="agn-aide-ex">Périphérique Intérieur</span>).<br>
           ⭐ <b>Ce qui identifie une rocade pour WNA, c'est le cartouche « Rocade »</b>, pas son
           nom. À défaut, il se rabat sur le nom ou le format — et <b>affiche le doute</b>.</td></tr>
@@ -9917,12 +10018,17 @@
           <tr><td><b>Le numéro</b></td><td>Proposé, <b>jamais appliqué</b> : à quelques dizaines de mètres, ce peut être celui du voisin. À saisir à la main après vérification.</td></tr>
           <tr><td><b>Commune différente</b></td><td>Présenté comme <b>à vérifier</b>, avec la distance à la limite communale : près d'une frontière, l'adresse de la voisine peut être la bonne.</td></tr>
           <tr><td><b>Numéro manquant</b></td><td>Contrôle <b>décoché par défaut</b> : il concerne environ la moitié des POI et noierait le reste.</td></tr>
+          <tr><td><b>Aires, échangeurs, jonctions, péages</b></td><td><b>Leur adresse est le nom de l'autoroute dont ils dépendent, et AUCUNE ville</b> — c'est la règle FR (<a href="https://www.waze.com/discuss/t/lieux-particuliers/375608" target="_blank" rel="noopener">Lieux Particuliers</a>, §2.4, 2.12 et 2.13). WNA les reconnaît à leur <b>catégorie</b> (aire de repos, aire de restauration, jonction/échangeur) ou à la <b>rue qu'ils portent déjà</b> quand c'est une autoroute — ce second critère couvre aussi la station-service ou le restaurant <b>d'une aire</b>.<br>
+          ⭐ <b>Corrigé en v2.37 :</b> jusque-là, un de ces POI renseigné <b>exactement comme la règle l'exige</b> recevait deux écarts — « rue = numéro de route » et « commune absente » — dont l'application l'aurait rendu <b>non conforme</b>. Ils sont désormais audités sur cette cible-là, et le bilan les compte (<span class="agn-aide-ex">n sur adresse d'autoroute</span>).</td></tr>
         </table>
         <p><b>Ce qui est écarté volontairement</b> : les éléments du paysage (rivière, forêt, plage…),
           qui n'ont pas d'adresse ; et le <b>bâti sans nom</b> — une zone anonyme sert à dessiner un
           bâtiment, les commerces qu'elle abrite sont des POI à part, eux-mêmes audités. Le bilan les compte.</p>
         <div class="agn-aide-note">⚠️ Cet onglet demande la <b>voie rapide</b> : le point d'accès et les
-          catégories n'existent pas en mode balayage. Le script le dit au lieu de paraître vide.</div>` },
+          catégories n'existent pas en mode balayage. Le script le dit au lieu de paraître vide.<br>
+          ⚠️⚠️ <b>Ce qu'il ne dit pas :</b> une aire ou un échangeur qui porte une <b>ville en trop</b>
+          n'est <b>pas</b> signalé. La règle l'interdit pourtant — mais c'est un contrôle qui reste
+          à écrire, et un contrôle absent est invisible : autant le dire.</div>` },
 
       { id: 'partage', titre: '💾 Sauvegarde et partage', corps: `
         <p>Trois choses sont mémorisées : tes <b>polygones d'agglomération</b>, tes communes
@@ -11919,7 +12025,10 @@
           p.poiNaturels + ' élément(s) naturel(s) écarté(s)</span>' : '') +
       (p.poiBati
         ? ' · <span title="Zones sans nom qui servent à dessiner le bâti sur l\'écran de l\'application. Ce ne sont pas des adresses : les commerces qu\'elles abritent sont des POI à part entière, eux-mêmes audités.">' +
-          p.poiBati + ' bâti(s) sans nom écarté(s)</span>' : '') + '.' +
+          p.poiBati + ' bâti(s) sans nom écarté(s)</span>' : '') +
+      (p.poiAutoroute
+        ? ' · <span title="Aires, échangeurs, jonctions et péages, ou tout POI dont la rue est déjà une autoroute. Règle FR : leur adresse est le nom de l\'autoroute dont ils dépendent, et AUCUNE ville. Ils sont audités sur cette cible-là, pas sur une adresse postale.">' +
+          p.poiAutoroute + ' sur adresse d\'autoroute</span>' : '') + '.' +
       (options.controles.poiNumero ? ''
         : '<br><span style="opacity:.8">Le contrôle « numéro de rue manquant » est ' +
           'décoché : il concerne environ la moitié des POI. Coche-le dans les réglages ' +
@@ -11950,6 +12059,8 @@
             z.mitoyen + ' mitoyenne(s) conformes</span>' : ''}${
           z.limComRien ? ' · <span title="À cheval sur la limite communale, mais sans aucun nom ni ville — ni en principal, ni en alternatif. Les couper donnerait deux moitiés identiques à l\'originale : il n\'y a rien à corriger.">' +
             z.limComRien + ' à cheval sans rien à couper</span>' : ''}${
+          z.autoSansCoupe ? ' · <span title="Autoroutes à cheval sur une limite communale ou d\'agglomération : elles ne portent aucune ville, ni en principal ni en alternatif. Les couper ne changerait rien à leur nommage. Leur nom reste audité.">' +
+            z.autoSansCoupe + ' autoroute(s) sans coupe</span>' : ''}${
           z.limitrophe ? ' · ' + z.limitrophe + ' débordent légèrement' : ''}${
           z.cartouche ? ' · ' + z.cartouche + ' cartouche(s) a poser' : ''}${
           z.special ? ' · ' + z.special + ' voie(s) a règle propre' : ''}${

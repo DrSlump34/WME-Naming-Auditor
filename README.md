@@ -1,8 +1,8 @@
 # WME Naming Auditor
 
-Userscript pour l'éditeur de cartes Waze (WME). Il audite le **nommage des segments** — nom principal et noms alternatifs — en s'appuyant sur les **contours communaux officiels** et sur un **polygone d'agglomération** tracé à la main, puis liste les écarts à la règle.
+Userscript pour l'éditeur de cartes Waze (WME). Il audite le **nommage des segments** — nom principal et noms alternatifs — ainsi que l'**adressage** (numéros de rue, POI résidentiels, adresse des lieux), en s'appuyant sur les **contours communaux officiels** et sur un **polygone d'agglomération** tracé à la main, puis liste les écarts à la règle.
 
-> **État : lecture seule.** Le script n'écrit rien dans la base Waze. Il diagnostique, il ne corrige pas encore.
+> **Le script ne modifie ni n'enregistre jamais rien tout seul.** Il lit, compare et propose. Une correction proposée est déposée dans WME exactement comme une saisie manuelle : elle se relit, elle s'annule (Ctrl+Z), et **c'est l'éditeur qui enregistre**.
 
 ## Le principe
 
@@ -17,6 +17,8 @@ Le script ne peut pas voir les panneaux. Il déduit donc la zone de deux géomé
 2. le **polygone d'agglomération**, tracé à la main à l'intérieur, sépare l'agglomération du reste.
 
 Un segment à cheval est tranché par un **seuil de longueur réglable** (80 % par défaut). Entre les deux, aucune correction n'est proposée : le segment est signalé comme **à couper**, puisque le bon nommage dépend de l'endroit de la coupure.
+
+Trois exceptions, où il n'y a rien à couper : la voie **mitoyenne** qui épouse la limite communale, le segment qui ne porte **ni nom ni ville** (les deux moitiés seraient identiques), et l'**autoroute**, qui ne porte aucune ville quelle que soit la zone. Le bilan les compte à part plutôt que de les taire.
 
 Le script ne **crée** jamais un nom ni un numéro : il réorganise ce qui est déjà saisi. Seule la ville peut venir d'ailleurs — du contour communal.
 
@@ -37,13 +39,18 @@ Chaque contrôle s'active ou se désactive séparément, dans l'onglet du pannea
 |---|---|
 | Nommage agglo / hors agglo | le cœur : ville, nom principal, alternatifs |
 | Cartouches | les numéros de route doivent porter leur écusson |
-| Bretelles | jamais de ville |
+| Bretelles | jamais de ville ; format de la direction (`A4: Reims`) |
+| Autoroutes | jamais de ville, quelle que soit la zone — et aucune coupe aux limites |
 | Voies ferrées, pistes, ferries | jamais de ville ; nom principal vide, alternatif admis |
 | Rocades et périphériques | jamais de ville |
+| Giratoires | sans nom ; la ville suit la zone |
 | Abréviations | `Av.`, `Bd.`, `Rte`… interdits |
 | Contractions | `St-`, `R. Poincaré`… interdits |
 | Majuscule initiale | nom commençant par une minuscule |
 | Fonction ou direction | `Voie de bus`, `… : Marseille` |
+| Rédaction | confronte le nom au dictionnaire communautaire français de **WME Check Road Name** |
+| Numérotation | numéros de rue hors agglomération, POI résidentiels, doublons |
+| POI | adresse des vrais lieux — rue, commune, numéro. Les aires, échangeurs, jonctions et péages relèvent d'une règle propre : leur adresse est le **nom de l'autoroute**, sans ville |
 
 Les segments dans une situation strictement identique sont regroupés en un seul report ; un clic les sélectionne tous.
 
@@ -55,7 +62,11 @@ Le moteur ne connaît aucune règle nationale. Tout le franco-français est isol
 
 `Recuperer-Communes.html` interroge l'API Découpage administratif de l'État (`geo.api.gouv.fr`), dont les contours proviennent d'**Admin Express (IGN)** et du Code Officiel Géographique de l'**INSEE**. À ne pas confondre avec les nombreux jeux de contours dérivés d'OpenStreetMap, sous licence ODbL.
 
-Le fichier reste sur le poste de l'éditeur : le userscript ne fait aucun appel réseau.
+Le fichier reste sur le poste de l'éditeur.
+
+Le script joint cinq hôtes, et seulement ceux-là (déclarés en `@connect`) : `geo.api.gouv.fr` pour les contours, `api.wazefrance.com` comme source de contours alternative, `docs.google.com` et `googleusercontent.com` pour le dictionnaire de rédaction, `raw.githubusercontent.com` pour charger un fichier de partage par son adresse.
+
+Ce sont toutes des **lectures** : le script n'envoie aucun contenu. Les seuls paramètres transmis sont un **numéro de département** et, pour savoir lequel est sous les yeux, les **coordonnées de la vue** (latitude, longitude). **Rien de ce que vous éditez ne quitte le navigateur.**
 
 ## Licence
 

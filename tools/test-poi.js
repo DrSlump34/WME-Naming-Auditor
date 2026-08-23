@@ -74,6 +74,8 @@ function monter(controles) {
     'const distanceM = (a, b) => Math.hypot((a[0]-b[0]) * 111320 * Math.cos((a[1]+b[1]) * Math.PI / 360), (a[1]-b[1]) * 110540);',
     extraire('distPointSegment'), extraire('distanceAuTrace'), extraire('readNaming'),
     relire('RE_ROUTE'),
+    // v2.37 : adresse d'autoroute (aires, echangeurs, jonctions, peages).
+    relire('RE_AUTOROUTE'), relire('POI_CATEGORIES_AUTOROUTE'),
     extraire('numeroLePlusProche'), extraire('proposerAdressePoi'),
     extraire('auditerPoi'),
     'return { auditerPoi, positionPoi, poiDansCommune, proposerAdressePoi };'
@@ -92,14 +94,21 @@ const POI = (o) => Object.assign({
 const RUES = { 10: { id: 10, name: 'Rue de la Poste', cityID: 100 },
                11: { id: 11, name: '', isEmpty: true, cityID: 100 },
                12: { id: 12, name: 'Chemin de la Planque', cityID: 101 },
-               13: { id: 13, name: 'Rue sans ville', cityID: 102 } };
+               13: { id: 13, name: 'Rue sans ville', cityID: 102 },
+               // v2.37 : l'adresse d'un POI d'autoroute est le nom de la
+               // freeway, sans ville (102 = ville vide).
+               // ⚠️ 20 et 21, PAS 14 : le cas 35 ECRASE `RUES[14]` en cours de
+               // route (« D121 »). Une cle reutilisee ici rendait le cas 37
+               // faux — et faux en silence, puisqu'il aurait teste D121.
+               20: { id: 20, name: 'A9', cityID: 102 },
+               21: { id: 21, name: 'A9', cityID: 101 } };   // … avec une ville EN TROP
 const VILLES = { 100: { id: 100, name: 'Saint-Laurent-des-Arbres' },
                  101: { id: 101, name: 'Saint-Geniès-de-Comolas' },
                  102: { id: 102, name: '', isEmpty: true } };
 function auditer(pois, controles) {
   const api = monter(controles || DEFAUT);
   const stats = { poiAudites: 0, poiHorsCommune: 0, poiNaturels: 0, poiBati: 0,
-                  poiConformes: 0 };
+                  poiAutoroute: 0, poiConformes: 0 };
   const out = api.auditerPoi(pois, RUES, VILLES, COMMUNE, stats);
   return { out, stats };
 }
@@ -462,6 +471,100 @@ const NUMS = [
   const e = out[0].ecarts.find(x => x.champ === 'adresse absente');
   verifier('33. sans segments : message d\'origine, aucun bouton',
     [/renseigner la rue/.test(e.apres), out[0].propositionAdresse], [true, null]);
+}
+
+// ===========================================================================
+// ADRESSE D'AUTOROUTE (v2.37)
+//
+// ⚠️⚠️ CE QUE CES TESTS PROTEGENT : une regle FR ecrite — « Le nom sera celui de
+// l'autoroute a laquelle l'aire est rattachee. Aucune Ville. » (Discuss 70053,
+// et Wazeopedia « Lieux Particuliers » §2.4 / 2.12 / 2.13). Avant la v2.37, une
+// aire renseignee EXACTEMENT comme la regle l'exige recevait DEUX ecarts —
+// « rue = numero de route » et « commune absente » — dont l'application
+// l'aurait rendue NON conforme. Le script reclamait une degradation.
+//
+// ⭐ Le vrai risque de la correction est l'exces inverse : se taire sur les POI
+// ordinaires. Le cas 40 est le TEMOIN qui l'attrape.
+// ===========================================================================
+lignes.push('\n=== Adresse d\'autoroute (v2.37) ===');
+const STATS = () => ({ poiAudites: 0, poiHorsCommune: 0, poiNaturels: 0, poiBati: 0,
+                       poiAutoroute: 0, poiConformes: 0 });
+// Une A9 qui longe la commune, sans ville — comme un vrai segment d'autoroute.
+const A9 = { id: 'A9', geometry: { type: 'LineString', coordinates: [[4.700, 44.0600], [4.720, 44.0600]] },
+             _nam: { primary: { name: 'A9', cityName: '' }, alts: [] } };
+const AIRE = o => POI(Object.assign({ categories: ['REST_AREAS'], name: 'Aire de Tavel',
+                                      streetID: 20, houseNumber: '',
+                                      geometry: { type: 'Point', coordinates: [4.7101, 44.0601] } }, o));
+{
+  // 37. L'aire CONFORME : rue = A9, aucune ville, aucun numero.
+  const s = STATS();
+  const out = monter(TOUS).auditerPoi([AIRE({})], RUES, VILLES, COMMUNE, s, [A9], []);
+  verifier('37. ⭐ une aire conforme ne dit RIEN', out.length, 0);
+  verifier('37. … et elle est comptée conforme', s.poiConformes, 1);
+  verifier('37. … et comptée sous la règle autoroute', s.poiAutoroute, 1);
+}
+{
+  // 38. Un echangeur SANS adresse : on dit la bonne cible, pas la commune.
+  const s = STATS();
+  const poi = AIRE({ categories: ['JUNCTION_INTERCHANGE'], name: 'Échangeur 23 - Tavel',
+                     streetID: null });
+  const out = monter(DEFAUT).auditerPoi([poi], RUES, VILLES, COMMUNE, s, [A9], []);
+  const e = out[0].ecarts.find(x => x.champ === 'adresse absente');
+  verifier('38. l\'autoroute proche est proposée', /« A9 » \(autoroute à \d+ m\)/.test(e.apres), true);
+  verifier('38. ⭐ et la consigne dit AUCUNE commune', /AUCUNE commune/.test(e.apres), true);
+  verifier('38. la commune INSEE n\'est PAS proposée',
+    e.apres.indexOf('Saint-Laurent-des-Arbres'), -1);
+}
+{
+  // 39. Aucune autoroute a portee : la cible reste juste, sans nom a citer.
+  const s = STATS();
+  const out = monter(DEFAUT).auditerPoi([AIRE({ streetID: null })], RUES, VILLES, COMMUNE, s, [], []);
+  const e = out[0].ecarts.find(x => x.champ === 'adresse absente');
+  verifier('39. sans autoroute à portée, la règle est quand même dite',
+    /nom de l'autoroute dont ce lieu dépend/.test(e.apres), true);
+}
+{
+  // 40. ⚠️⚠️ TEMOIN — la regle ne doit PAS avaler les POI ordinaires. Une
+  // station-service de village sans commune reste signalee.
+  const s = STATS();
+  const poi = POI({ categories: ['GAS_STATION'], streetID: 13, houseNumber: '',
+                    geometry: { type: 'Point', coordinates: [4.710, 44.0601] } });
+  const out = monter(DEFAUT).auditerPoi([poi], RUES, VILLES, COMMUNE, s, RESEAU, []);
+  verifier('40. ⚠️ TEMOIN : une station-service ordinaire reste signalée',
+    !!out.length && out[0].ecarts.some(x => x.champ === 'commune absente'), true);
+  verifier('40. … et n\'est PAS comptée sous la règle autoroute', s.poiAutoroute, 0);
+}
+{
+  // 41. Le numero : une aire n'a pas d'adresse postale, donc pas de numero.
+  const s = STATS();
+  const out = monter(TOUS).auditerPoi([AIRE({})], RUES, VILLES, COMMUNE, s, [A9], []);
+  verifier('41. aucun écart « numéro absent » sur une aire',
+    out.some(f => f.ecarts.some(x => x.champ === 'numéro absent')), false);
+}
+{
+  // 42. Une aire qui porte une ville : on se TAIT (l'ecart « ville en trop »
+  // serait un controle NEUF, hors du perimetre arbitre le 23/08). Ce que le test
+  // fige, c'est qu'on ne lui propose SURTOUT pas la commune de la carte.
+  const s = STATS();
+  const out = monter(DEFAUT).auditerPoi([AIRE({ streetID: 21 })], RUES, VILLES, COMMUNE, s, [A9], []);
+  verifier('42. aucune « commune à vérifier » sur une aire',
+    out.some(f => f.ecarts.some(x => x.champ === 'commune à vérifier')), false);
+}
+{
+  // 43. ⚠️ RE_AUTOROUTE, PAS RE_ROUTE : « D121 » n'est pas une adresse legitime.
+  // C'est la frontiere exacte entre la doctrine de `rueDuPoi` et l'exception.
+  const s = STATS();
+  const poi = POI({ streetID: 12, houseNumber: '',        // « Chemin de la Planque »
+                    geometry: { type: 'Point', coordinates: [4.7101, 44.0601] } });
+  const outD = monter(DEFAUT).auditerPoi(
+    [POI({ categories: ['RESTAURANT'], streetID: 13, houseNumber: '',
+           geometry: { type: 'Point', coordinates: [4.710, 44.0601] } })],
+    RUES, VILLES, COMMUNE, s, RESEAU, []);
+  verifier('43. un POI ordinaire sans commune est toujours signalé',
+    outD[0].ecarts.some(x => x.champ === 'commune absente'), true);
+  verifier('43. … et « Chemin de la Planque » n\'est pas une autoroute',
+    monter(DEFAUT).auditerPoi([poi], RUES, VILLES, COMMUNE, STATS(), RESEAU, [])
+      .length > 0, true);
 }
 
 console.log(lignes.join('\n'));
