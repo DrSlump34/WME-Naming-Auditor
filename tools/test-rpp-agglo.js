@@ -277,6 +277,27 @@ verifier('un ecart de 8 m suffit (au-dessus de la marge)',
                     doublon: null, photo: false }).verdict,
   RPP_MARGE_VOIE_M <= 8 ? 'ecart' : 'trancher');
 
+titre('Le VERBE des consignes : porte par le segment, jamais « passer sur »');
+// ⭐⭐⭐ LE MESSAGE FAISAIT COMMETTRE LA FAUTE QU'IL DENONCE. Un numero de rue
+// est un ATTRIBUT porte par le segment ; « le numero doit PASSER SUR le
+// segment » se lit, en cartographie, comme un DEPLACEMENT GEOMETRIQUE — donc
+// « pose ce POI sur la chaussee ». C'est exactement la mauvaise habitude que
+// les editeurs remontent : des POI plantes sur l'axe au lieu du batiment.
+// ⚠️ Ce verrou porte sur du TEXTE VISIBLE, pas sur une forme de code : il ne
+// tombera pas a la premiere refactorisation, et il ne peut mordre a tort que si
+// quelqu'un reintroduit la formulation.
+{
+  const fautifs = (src.match(/[^\n]*(passer sur le segment|passe sur le segment|numéro sur le segment|numéro sur segment)[^\n]*/g) || [])
+    // Le commentaire de doctrine CITE la formulation pour l'interdire : c'est sa
+    // raison d'etre, il ne doit pas faire echouer le verrou qu'il explique.
+    .filter(l => !/^\s*\/\//.test(l));
+  verifier('aucune consigne visible ne dit « passer sur le segment »',
+    fautifs.length ? fautifs.join(' | ') : 0, 0);
+  // Le pendant positif : la formulation juste est bien celle qui est servie.
+  verifier('la consigne dit « être porté par le segment »',
+    /le numéro doit être porté par le segment/.test(src), true);
+}
+
 titre('Constantes : lues dans le source, avec le sens qu\'on leur prete');
 verifier('la marge d\'indecision est en metres et non nulle', RPP_MARGE_VOIE_M > 0, true);
 verifier('la portee depasse la marge (sinon rien ne serait jamais tranche)',

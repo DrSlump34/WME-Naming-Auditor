@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.37.00
+// @version      2.38.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -16,6 +16,7 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @connect      geo.api.gouv.fr
+// @connect      update.greasyfork.org
 // @connect      api.wazefrance.com
 // @connect      raw.githubusercontent.com
 // @connect      docs.google.com
@@ -350,6 +351,73 @@
     : (f.cas[0] === 'C' || f.cas[0] === 'R') ? 'agglo' : 'hors';
 
   const log = (...a) => console.log('[' + SCRIPT_NAME + ']', ...a);
+
+  // ===========================================================================
+  // MISE A JOUR DISPONIBLE (GreasyFork)  -- recette reprise de WCT
+  //
+  // La pastille rouge de l'en-tete ne s'allume que sur une version PUBLIEE
+  // strictement superieure a celle qui tourne. Reseau coupe, reponse illisible,
+  // version locale inconnue : elle reste eteinte. Une pastille qui s'allume sans
+  // savoir enverrait l'editeur reinstaller ce qu'il a deja, et il cesserait de
+  // la croire.
+  //
+  // Le fichier interroge est celui que le gestionnaire de scripts lit lui-meme
+  // (le .meta.js) : quelques centaines d'octets, un seul appel par chargement de
+  // WME. ⚠️ Il exige `@connect update.greasyfork.org` — sans cette ligne
+  // Tampermonkey refuse l'appel et la pastille ne s'allume JAMAIS.
+  // ===========================================================================
+  const GF_PAGE_URL = 'https://greasyfork.org/fr/scripts/588554-wme-naming-auditor';
+  const GF_META_URL = 'https://update.greasyfork.org/scripts/588554/WME%20Naming%20Auditor.meta.js';
+  const _VER_RE = /^\d+(\.\d+)*$/;
+  let _majEnLigne = null;   // version publiee, renseignee SEULEMENT si plus recente
+
+  /**
+   * Compare deux versions SEGMENT PAR SEGMENT, en nombres.
+   * ⚠️ Une comparaison de chaines dirait que '2.9.00' est plus recent que
+   * '2.13.01' : vrai dans l'alphabet, faux en versions. Les segments absents
+   * valent 0, pour que '2.37' et '2.37.00' soient la meme version et non deux.
+   */
+  function _majCmp(a, b) {
+    const pa = String(a).split('.'), pb = String(b).split('.');
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const na = Number(pa[i]) || 0, nb = Number(pb[i]) || 0;
+      if (na !== nb) return na < nb ? -1 : 1;
+    }
+    return 0;
+  }
+
+  /** Pose ou retire la pastille. Sans overlay, il n'y a rien a peindre. */
+  function _majRender() {
+    const b = document.getElementById('agn-maj');
+    if (!b) return;
+    b.style.display = _majEnLigne ? 'flex' : 'none';
+    if (_majEnLigne) {
+      b.title = 'Mise à jour disponible : v' + _majEnLigne +
+        ' (tu utilises la v' + VERSION + ') — clique pour ouvrir GreasyFork';
+    }
+  }
+
+  function _majVerifier() {
+    // Version locale illisible (GM_info absent : VERSION vaut '?') : rien a comparer.
+    if (!_VER_RE.test(VERSION)) return;
+    if (typeof GM_xmlhttpRequest !== 'function') return;
+    GM_xmlhttpRequest({
+      method: 'GET', url: GF_META_URL, timeout: 10000,
+      onload: r => {
+        // ⚠️ onload est appele AUSSI sur un 404 : sans ce test, la page d'erreur
+        // de GreasyFork serait analysee comme un bloc de metadonnees.
+        if (r.status < 200 || r.status >= 300) return;
+        const m = (r.responseText || '').match(/^\/\/\s*@version\s+(\S+)/m);
+        if (!m || !_VER_RE.test(m[1])) return;
+        if (_majCmp(VERSION, m[1]) >= 0) return;
+        _majEnLigne = m[1];
+        _majRender();
+        log('mise a jour disponible sur GreasyFork : ' + m[1] + ' (installee : ' + VERSION + ')');
+      },
+      onerror: () => { },     // hors ligne : pas de pastille, et rien a dire a l'editeur
+      ontimeout: () => { },
+    });
+  }
 
   // ---------------------------------------------------------------------------
   // Regles metier (logigramme "Regle de nommage en France", Wazeopedia FR)
@@ -3374,7 +3442,7 @@
       b.onclick = () => {
         if (!x.g.centre) return;
         // Zoom 15 : on voit le bourg entier et ses entrees, de quoi tracer.
-        try { centrerSurZoneVisible(x.g.centre, 15); }
+        try { centrerSurZoneVisible(x.g.centre, 15, 'clic sur un secteur d\'entrées'); }
         catch (e) { try { sdk.Map.setMapCenter({ lonLat: x.g.centre, zoomLevel: 15 }); } catch (e2) { /* */ } }
       };
       bloc.appendChild(b);
@@ -4018,7 +4086,7 @@
     // plus aucun repere pour se placer lui-meme.
     const depart = departDuTrace();
     if (depart && !departDejaSousLesYeux(depart)) {
-      try { centrerSurZoneVisible(depart.centre, depart.zoom); }
+      try { centrerSurZoneVisible(depart.centre, depart.zoom, 'départ du tracé — ' + (depart.large ? 'commune entière' : depart.quoi)); }
       catch (e) { try { sdk.Map.setMapCenter({ lonLat: depart.centre, zoomLevel: depart.zoom }); }
                   catch (e2) { /* on trace quand meme */ } }
     }
@@ -5542,7 +5610,7 @@
         ? 'le point d\'accès donne sur « ' + rue + ' », c\'est-à-dire sur la voie de ' +
           'l\'adresse elle-même : rien ne justifie un POI'
         : 'le POI est le long de « ' + rue + ' » (' + Math.round(base.dist) + ' m), ' +
-          'la voie de son adresse : un numéro sur le segment dirait la même chose',
+          'la voie de son adresse : un numéro porté par le segment dirait la même chose',
         source);
     }
     // 3. L'acces donne sur une AUTRE voie : c'est exactement le cas legitime.
@@ -6533,16 +6601,24 @@
           rppPhoto: verdict.photo,
           // ⚠️⚠️ DEUX REPORTS DIFFERENTS SOUS LE MEME CAS.
           // Par defaut c'est une QUESTION, pas un defaut : en agglomeration le
-          // numero va sur le segment, sauf si l'entree donne sur une autre voie
-          // — les deux reponses sont bonnes, et ecrire « a passer sur le
-          // segment » ferait corriger a tort les POI qui ont raison (v1.86).
+          // numero est PORTE PAR le segment, sauf si l'entree donne sur une
+          // autre voie — les deux reponses sont bonnes, et l'affirmer ferait
+          // corriger a tort les POI qui ont raison (v1.86).
+          //
+          // ⚠️⚠️ LE VERBE COMPTE, ET IL A EGARE. On ecrivait « le numero doit
+          // PASSER SUR le segment » : en cartographie, « passer sur » se lit
+          // comme un DEPLACEMENT GEOMETRIQUE, donc « pose ce POI sur la
+          // chaussee » — l'inverse exact de la consigne, et une faute que des
+          // editeurs commettent en masse. Le numero de rue est un ATTRIBUT
+          // porte par le segment, pas un objet qu'on glisse dessus.
+          // ⇒ « ETRE PORTE PAR le segment » partout. Ne pas y revenir.
           // Mais quand une des nuances de la v2.19 a tranche, on l'AFFIRME avec
           // sa raison : la question ne se pose plus.
           ecarts: [{ champ: ecart ? 'POI résidentiel injustifié' : 'POI résidentiel en agglo',
                      avant: num ? 'n° ' + num + ' porté par un POI résidentiel' : 'POI résidentiel sans numéro',
                      apres: ecart
-                       ? 'le numéro doit passer sur le segment (à faire à la main)'
-                       : 'à trancher : numéro sur le segment, ou entrée sur une autre voie' }],
+                       ? 'le numéro doit être porté par le segment (à faire à la main)'
+                       : 'à trancher : numéro porté par le segment, ou entrée sur une autre voie' }],
           // ⚠️ Le sens POI → numero n'est pas automatise, et ce n'est pas une
           // limite du SDK (`addHouseNumber` et `deleteVenue` existent) : le
           // script ne sait dire ni sur QUEL segment ni a QUEL endroit poser le
@@ -6560,11 +6636,11 @@
                   'il ne voit pas la boite aux lettres.' ]
             : [ 'Si l\'entrée (la boite aux lettres) donne bien sur ' +
                   (rueNom ? '« ' + rueNom + ' »' : 'la rue de l\'adresse') +
-                  ' : le numéro doit passer sur le segment. Sélectionne la voie, ouvre ' +
+                  ' : le numéro doit être porté par le segment. Sélectionne la voie, ouvre ' +
                   '« Ajouter des numéros de rue », pose' + (num ? ' le n° ' + num : ' le numéro') +
                   ' du bon côté, vérifie qu\'il tombe devant l\'entrée, puis supprime ce POI.',
                 'Si l\'entrée donne sur une AUTRE voie que l\'adresse postale : laisse le POI en place. ' +
-                  'C\'est précisément ce qu\'il sert à dire, et un numéro sur segment ne saurait pas ' +
+                  'C\'est précisément ce qu\'il sert à dire, et un numéro porté par le segment ne saurait pas ' +
                   'l\'exprimer. Marque la ligne comme traitée (✓) pour ne pas la revoir.' ],
           // ⚠️ La photo ne disculpe pas, elle TEMPERE : quelqu'un est venu sur
           // place. On le dit, on ne le cache pas (arbitrage de l'auteur, 26/07).
@@ -8503,6 +8579,35 @@
   #agn-tete button{background:rgba(255,255,255,.18);border:none;color:#fff;cursor:pointer;
     width:22px;height:22px;border-radius:4px;font-size:13px;line-height:1}
   #agn-tete button:hover{background:rgba(255,255,255,.34)}
+  /* Pastille de mise a jour : meme geometrie que ses voisines (reduire, fermer),
+     fond rouge plein pour qu'elle se detache du bandeau bleu. Elle n'existe a
+     l'ecran que quand une version plus recente est publiee, donc elle n'a pas de
+     place a tenir le reste du temps : display:none, et non visibility.
+     Selecteur a deux id : les regles generales ci-dessus repeignent TOUS les
+     boutons de l'en-tete, et la pastille y perdrait son rouge, donc son sens. */
+  #agn-tete button#agn-maj{background:#e53935;align-items:center;justify-content:center;padding:0}
+  #agn-tete button#agn-maj:hover{background:#ef5350}
+  /* currentColor : l'icone suit la couleur du bouton. display:block sinon le SVG
+     est traite comme du texte et sa ligne de base le decale vers le bas. */
+  #agn-tete button#agn-maj svg{width:14px;height:14px;display:block;fill:currentColor}
+  /* ⭐⭐⭐ UN TOUR, PUIS UNE PAUSE — ET CE N'EST PAS UNE QUESTION DE GOUT.
+     Une rotation CONTINUE est le vocabulaire universel du « traitement en
+     cours » : elle dit a l'editeur d'ATTENDRE. Or la pastille dit l'inverse —
+     il y a quelque chose A FAIRE, et rien ne tourne en coulisse. L'intermittence
+     porte le bon sens : elle appelle l'oeil, puis se tait.
+     Accessoirement, la pastille peut rester des jours avant la mise a jour :
+     un mouvement perpetuel dans un coin de l'ecran finirait par harceler.
+     ⚠️ AUCUN BACKTICK DANS CE COMMENTAIRE : tout ce CSS vit dans un template
+     literal, un seul backtick le referme et casse le script entier.
+     La propriete animee est transform, composite par le GPU : le cout tient
+     dans le bruit, et il n'existe QUE quand une mise a jour est publiee. */
+  @keyframes agn-maj-tourne{0%{transform:rotate(0deg)}25%,100%{transform:rotate(360deg)}}
+  #agn-tete button#agn-maj svg{animation:agn-maj-tourne 4.8s ease-in-out infinite}
+  /* ⚠️ Un reglage systeme « animations reduites » n'est pas un gout : il vise
+     les troubles vestibulaires et la sensibilite au mouvement. On l'honore. */
+  @media (prefers-reduced-motion: reduce){
+    #agn-tete button#agn-maj svg{animation:none}
+  }
   /* min-height:0 est INDISPENSABLE : sans lui un élément flex refuse de
      descendre sous la hauteur de son contenu, donc il pousse la fenêtre au
      lieu de faire defiler la liste. */
@@ -9079,6 +9184,7 @@
         <div id="agn-main">
         <div id="agn-tete">
           <b>🏷️ Naming Auditor</b><span class="agn-v">v${VERSION}</span><span class="agn-sp"></span>
+          <button id="agn-maj" style="display:none"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6v3l4-4-4-4v3c-4.42 0-8 3.58-8 8 0 1.57.46 3.03 1.24 4.26L6.7 14.8c-.45-.83-.7-1.79-.7-2.8 0-3.31 2.69-6 6-6zm6.76 1.74L17.3 9.2c.44.84.7 1.79.7 2.8 0 3.31-2.69 6-6 6v-3l-4 4 4 4v-3c4.42 0 8-3.58 8-8 0-1.57-.46-3.03-1.24-4.26z"/></svg></button>
           <button id="agn-reduire" title="Réduire">–</button>
           <button id="agn-fermer" title="Fermer">✕</button>
         </div>
@@ -9306,7 +9412,7 @@
       // plus rien deplacer.
       if (communeActive && !carteDejaDans(communeActive.geom)) {
         const em = empriseDeGeom(communeActive.geom);
-        if (em) centrerSurZoneVisible(em.centre, zoomPour(2 * em.rx, 2 * em.ry, em.centre.lat));
+        if (em) centrerSurZoneVisible(em.centre, zoomPour(2 * em.rx, 2 * em.ry, em.centre.lat), 'choix de la commune ' + communeActive.nom);
       }
     };
 
@@ -9315,6 +9421,18 @@
     ui.filtreCommune.oninput = () => rafraichirCommunesDeLaVue();
 
     o.querySelector('#agn-fermer').onclick = fermerOverlay;
+    // Pastille de mise a jour. Le clic OUVRE la page GreasyFork, il n'installe
+    // rien : l'installation appartient au gestionnaire de scripts, et un script
+    // qui se remplace tout seul n'est pas ce qu'on veut faire croire.
+    // ⚠️ stopPropagation : l'en-tete est la poignee de deplacement de la
+    // fenetre, un clic qui y remonte partirait en glissement.
+    o.querySelector('#agn-maj').onclick = e => {
+      e.stopPropagation();
+      hote.open(GF_PAGE_URL, '_blank', 'noopener');
+    };
+    // Le sondage a pu repondre AVANT que l'en-tete existe : on repeint ici,
+    // sinon la pastille resterait eteinte alors que la mise a jour est la.
+    _majRender();
     /**
      * ⚠️⚠️ Reduire la fenetre ne doit JAMAIS ecraser sa hauteur de travail.
      * Bug vecu (auteur, 21/07 : « l'overlay est devenu tres petit apres
@@ -9989,7 +10107,7 @@
           deux situations inverses.</p>
         <table class="agn-aide-t">
           <tr><td><b>Numéro hors agglo</b></td><td>Proposé à la conversion en POI résidentiel.${siCorrecteur(' Le ⚡ crée le POI à la position du numéro, lui donne l\'adresse, <b>reprend son point d\'entrée</b>, puis retire le numéro — et si l\'une des étapes échoue, il revient en arrière plutôt que de laisser une adresse en double.')}</td></tr>
-          <tr><td><b>RPP en agglo</b></td><td>Souvent <b>légitime</b> : l'entrée donne sur une autre voie que l'adresse postale, ce qu'un numéro sur segment ne sait pas exprimer. Le script ne tranche donc pas… sauf quand il peut le prouver.</td></tr>
+          <tr><td><b>RPP en agglo</b></td><td>Souvent <b>légitime</b> : l'entrée donne sur une autre voie que l'adresse postale, ce qu'un numéro porté par le segment ne sait pas exprimer. Le script ne tranche donc pas… sauf quand il peut le prouver.</td></tr>
           <tr><td><b>… doublon</b></td><td>Le même numéro est déjà posé sur la même rue, tout près : le POI fait double emploi.</td></tr>
           <tr><td><b>… accès sur sa propre voie</b></td><td>Le point d'accès du POI donne sur la voie de son adresse : il n'exprime aucun décalage.</td></tr>
           <tr><td><b>… le long de sa rue</b></td><td>Faute de point d'accès, le POI longe la rue qu'il déclare — un numéro dirait la même chose.</td></tr>
@@ -10067,6 +10185,8 @@
           <tr><td><b>Deux infobulles superposées</b></td><td>D'autres scripts posent aussi leur bulle au survol de la carte, et les deux se recouvrent — le script <b>ne peut pas arbitrer chez le voisin</b>. Décoche <b>Infobulle au survol</b> dans <b>☰ → Surlignage sur la carte</b> : le reste de l'affichage (surlignage, couleurs) est conservé. Pour savoir quel script pose l'autre bulle : clic droit dessus → <b>Inspecter</b>, son identifiant nomme presque toujours le script.</td></tr>
           <tr><td><b>Analyse interrompue</b></td><td>Les constats qui supposent d'avoir tout vu (villes sans polygone, cartouches d'une voie entière) sont alors présentés comme <b>non fiables</b>, pas cachés.</td></tr>
           <tr><td><b>Rien n'est enregistré</b></td><td>Le compteur de la fenêtre rappelle combien de modifications attendent dans WME. <b>C'est toi qui enregistres.</b></td></tr>
+          <tr><td><b>Pastille rouge ⟳ dans l'en-tête</b></td><td>Une <b>version plus récente est publiée</b> sur GreasyFork : le clic ouvre sa page, et c'est ton gestionnaire de scripts qui installe. Elle reste éteinte tant que ta version est à jour — <b>et aussi si tu es hors ligne</b> : elle ne s'allume que sur une réponse claire, jamais par précaution.</td></tr>
+          <tr><td><b>La carte bouge quand je ne veux pas</b></td><td>Chaque déplacement de carte fait par le script écrit sa raison dans la <b>console du navigateur</b> (F12), sous la forme <span class="agn-aide-ex">cadrage [choix de la commune X] : zoom 17 → 15 ⚠️ ARRIÈRE</span>. Envoie cette ligne : elle nomme le geste responsable, ce qu'une capture ne peut pas faire.</td></tr>
         </table>` },
 
       { id: 'france', titre: '🇫🇷 Pourquoi la France uniquement', corps: `
@@ -10096,7 +10216,7 @@
         📖 <a href="https://www.waze.com/discuss/t/nommage-des-segments-des-rues-des-routes/375658"
               target="_blank" rel="noopener">Règles de nommage FR</a>
         &nbsp;·&nbsp;
-        🔗 <a href="https://greasyfork.org/fr/scripts/588554-wme-naming-auditor"
+        🔗 <a href="${GF_PAGE_URL}"
               target="_blank" rel="noopener">GreasyFork</a>
         &nbsp;·&nbsp;
         <a href="https://github.com/DrSlump34/WME-Naming-Auditor"
@@ -11027,7 +11147,7 @@
         // polygone finit a moitie derriere la fenetre. On calcule l'emprise et on
         // cadre sur la zone reellement visible (v2.12).
         const em = emprise(a.ring);
-        centrerSurZoneVisible(em.centre, zoomPour(2 * em.rx, 2 * em.ry, em.centre.lat));
+        centrerSurZoneVisible(em.centre, zoomPour(2 * em.rx, 2 * em.ry, em.centre.lat), 'bouton ◎ d\'un polygone');
       };
       // Le crayon devient le bouton d'ENREGISTREMENT pendant l'edition : c'est
       // le meme endroit, donc le geste de retour est la ou on l'a laisse.
@@ -11569,13 +11689,45 @@
    * ⇒ On ne bouge la carte que si l'editeur n'y est pas, ou s'il la regarde de
    * si loin que WME n'y a rien charge (< ZOOM_CHARGEMENT) — la, le cadrage lui
    * apporte quelque chose au lieu de le deranger.
+   *
+   * ⭐⭐⭐ LE CENTRE DE LA VUE NE SUFFIT PAS (v2.38). La premiere version ne
+   * regardait que lui, et elle laissait passer le cas le plus COURANT du travail
+   * en zone : celui qui suit une route le long d'une limite communale a son
+   * centre de vue DEHORS, alors que la commune occupe la moitie de son ecran.
+   * Il se faisait catapulter sur la commune entiere alors qu'il l'avait sous les
+   * yeux. La bonne question n'est pas « suis-je dedans ? » mais « cette commune
+   * est-elle DEJA SOUS MES YEUX ? » — c'est elle que la doctrine ci-dessus posait
+   * deja, et que le critere trahissait.
+   *
+   * ⚠️ Consequence assumee : pose dans une ENCLAVE cernee par la commune, la
+   * carte ne bouge plus non plus. C'est voulu — l'editeur voit la commune tout
+   * autour de lui, le cadrage ne lui apprendrait rien.
    */
+  // Part de la vue que la commune doit occuper pour etre « sous les yeux ».
+  // ⚠️ Un quart, pas la moitie : sur une limite communale on voit ~50 % de
+  // chaque cote, et un simple COIN de commune (bien en dessous) doit encore
+  // valoir un cadrage.
+  const VUE_PART_MIN = 0.24;
+  const VUE_GRILLE = 5;      // 5x5 = 25 sondes, assez fin pour un quart de vue
+
   function carteDejaDans(geom) {
     if (!geom) return false;
     try {
       if (sdk.Map.getZoomLevel() < ZOOM_CHARGEMENT) return false;
       const c = sdk.Map.getMapCenter();
-      return !!c && pointInGeom(c.lon, c.lat, geom);
+      if (c && pointInGeom(c.lon, c.lat, geom)) return true;
+      // Le centre est dehors : on regarde ce que la VUE contient vraiment.
+      const e = sdk.Map.getMapExtent();
+      if (!e || e.length !== 4) return false;
+      let dedans = 0;
+      for (let i = 0; i < VUE_GRILLE; i++) {
+        for (let j = 0; j < VUE_GRILLE; j++) {
+          const lon = e[0] + (i + 0.5) * (e[2] - e[0]) / VUE_GRILLE;
+          const lat = e[1] + (j + 0.5) * (e[3] - e[1]) / VUE_GRILLE;
+          if (pointInGeom(lon, lat, geom)) dedans++;
+        }
+      }
+      return dedans / (VUE_GRILLE * VUE_GRILLE) >= VUE_PART_MIN;
     } catch (e) { return false; }
   }
 
@@ -11686,8 +11838,60 @@
    * faire un aller-retour (zoomer, attendre le rendu, puis recentrer) qui se
    * verrait a l'ecran.
    */
-  function centrerSurZoneVisible(lonLat, zoomCible) {
+  /**
+   * ⭐⭐⭐ TOUT CADRAGE LAISSE UNE TRACE (v2.38).
+   *
+   * ⚠️⚠️ ORIGINE : Glenan56 signale depuis le 14/08 « juste encore un petit zoom
+   * arriere mais beaucoup moins mechant » — et on ne sait PAS lequel des
+   * cadrages le produit chez lui, parce qu'un deplacement de carte ne laissait
+   * aucune trace. Une cause qu'on ne peut pas MESURER chez celui qui la subit se
+   * cherche par devinettes, et les devinettes coutent une version chacune.
+   *
+   * Le motif et les deux zooms suffisent a trancher en une ligne de console :
+   * l'utilisateur refait le geste, lit la ligne, et on sait quel appelant
+   * accuser. C'est le seul verbe qui deplace la carte hors balayage, donc cette
+   * trace est EXHAUSTIVE pour les cadrages subis.
+   */
+  function centrerSurZoneVisible(lonLat, zoomCible, motif) {
     if (!lonLat) return;
+    /**
+     * ⭐⭐⭐ AUCUN CADRAGE NE DESCEND SOUS LE ZOOM DE CHARGEMENT (v2.38).
+     *
+     * La regle existait DEJA, mot pour mot, dans `cadrageDeReport` : « au-dela,
+     * WME ne descendrait plus rien : on remonte au zoom de chargement et on
+     * assume de ne pas tout voir d'un coup ». Elle ne s'appliquait qu'aux
+     * reports ; les cadrages de GEOMETRIE (choix de commune, bouton ◎ d'un
+     * polygone, repli du trace) l'ignoraient et pouvaient poser l'editeur au
+     * zoom 12 ou 13 — la ou la carte est VIDE. Le script contredisait sa propre
+     * doctrine : `carteDejaDans` refuse de croire qu'on voit quoi que ce soit
+     * sous ce zoom, et il y envoyait lui-meme.
+     *
+     * ⚠️⚠️ POURQUOI CA DESCENDAIT SI BAS — mesure en live, 26/08 : le zoom se
+     * calcule sur la zone VISIBLE, et nos propres fenetres en mangent
+     * l'essentiel. Canevas 1081 px, fenetre 400, volet 300 ⇒ 305 px utiles,
+     * 28 %. Au zoom 14 cela ne couvre plus que 2,1 km de terrain au lieu de
+     * 7,4 : pres de DEUX CRANS de zoom perdus. Et ce n'est pas un hasard sur le
+     * choix de commune — la liste des communes vit DANS le volet, qui est donc
+     * forcement ouvert a cet instant. Le cadrage le plus frequent etait calcule
+     * dans la configuration la plus defavorable qui soit.
+     *
+     * ⇒ Mieux vaut une PART de la cible a un zoom ou l'on travaille, que la
+     * cible entiere sur une carte que WME n'a pas remplie.
+     */
+    let zoomDemande = null;
+    if (zoomCible != null && zoomCible < ZOOM_CHARGEMENT) {
+      zoomDemande = zoomCible;
+      zoomCible = ZOOM_CHARGEMENT;
+    }
+    try {
+      const zAvant = sdk.Map.getZoomLevel();
+      log('cadrage' + (motif ? ' [' + motif + ']' : '') + ' : zoom ' + zAvant +
+        (zoomCible == null ? ' inchangé' : ' → ' + zoomCible) +
+        // ⚠️ La trace DIT le relevement. Taire l'ecart ferait mentir la ligne
+        // sur ce qui s'est reellement passe, et c'est elle qui sert a diagnostiquer.
+        (zoomDemande != null ? ' (' + zoomDemande + ' relevé : WME ne charge rien en dessous)' : '') +
+        (zoomCible != null && zoomCible < zAvant ? '  ⚠️ ARRIÈRE' : ''));
+    } catch (e) { /* la trace ne doit jamais empecher le cadrage */ }
     try {
       const z = zoneVisible();
       const ext = sdk.Map.getMapExtent();
@@ -11801,7 +12005,7 @@
     // ⚠️ Le zoom est passe a `centrerSurZoneVisible` plutot qu'applique apres :
     // le decalage depend de l'echelle d'ARRIVEE, et zoomer ensuite le rendrait
     // faux (l'objet reviendrait sous une fenetre).
-    centrerSurZoneVisible(plan.centre, (options.zoomClic || forcerZoom) ? plan.zoom : null);
+    centrerSurZoneVisible(plan.centre, (options.zoomClic || forcerZoom) ? plan.zoom : null, 'clic sur un report');
   }
 
   /**
@@ -12098,7 +12302,7 @@
             // qu'elles ont ÉCARTÉ : un compte qui baisse sans explication se
             // lit comme un audit qui ne voit plus rien.
             (s.adr.poiAggloEcart
-              ? ' · <b>' + s.adr.poiAggloEcart + '</b> <span title="Le numéro est déjà posé sur la voie, ou l\'entrée donne sur la voie de l\'adresse elle-même : le POI n\'exprime aucun décalage.">sans justification</span>'
+              ? ' · <b>' + s.adr.poiAggloEcart + '</b> <span title="Le numéro est déjà porté par la voie, ou l\'entrée donne sur la voie de l\'adresse elle-même : le POI n\'exprime aucun décalage.">sans justification</span>'
               : '') +
             (s.adr.poiAggloConforme
               ? ' · <span title="Leur point d\'accès donne sur une AUTRE voie que leur adresse : c\'est exactement ce qu\'un POI résidentiel sert à dire. Ils ne sont pas signalés.">' +
@@ -12379,6 +12583,11 @@
       dico.etat = 'inactif';
       majEtatDico();
     }
+
+    // Un seul sondage par chargement de WME, et APRES `buildOverlay` : la
+    // pastille n'a nulle part ou se poser tant que l'en-tete n'existe pas.
+    // Rien n'attend cette reponse — elle arrive quand elle arrive.
+    _majVerifier();
 
     log('v' + VERSION + ' pret — fenêtre flottante — ' +
       (communes.length ? communes.length + ' commune(s)' : 'aucun contour'));

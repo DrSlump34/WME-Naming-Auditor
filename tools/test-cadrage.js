@@ -73,9 +73,33 @@ const api = new Function([
  * simule, injecte cas par cas — y compris un SDK qui LEVE, parce qu'un cadrage
  * qui ne se fait pas par accident est pire que le cadrage de trop.
  */
+/**
+ * ⚠️⚠️⚠️ CE HARNAIS A MENTI EN PASSANT AU VERT (v2.38). `carteDejaDans` se
+ * termine par `catch (e) { return false; }` — un filet VOULU, pour qu'un SDK
+ * muet ne fige jamais la carte. Mais quand la fonction a gagne deux constantes
+ * que le harnais n'injectait pas, chaque appel levait un ReferenceError, le
+ * filet le convertissait en `false`... et les tests restaient tous verts : ils
+ * n'attendaient `false` que dans les cas de refus. La regle neuve n'etait pas
+ * testee du tout.
+ *
+ * ⭐⭐⭐ TOUTE CONSTANTE QUE LA FONCTION LIT DOIT ETRE INJECTEE ICI. Le garde-fou
+ * qui l'impose est le cas de bordure plus bas : il attend `true`, ce qu'aucune
+ * levee ne peut produire. Un test qui n'attend que des `false` ne peut pas
+ * distinguer un refus d'un plantage.
+ */
+function nombre(nom) {
+  const m = src.match(new RegExp('const ' + nom + ' = ([\\d.]+)'));
+  if (!m) throw new Error('constante introuvable : ' + nom);
+  return parseFloat(m[1]);
+}
+const VUE_PART_MIN = nombre('VUE_PART_MIN');
+const VUE_GRILLE = nombre('VUE_GRILLE');
+
 function fabriquerGarde(sdk) {
   return new Function('sdk', [
     'const ZOOM_CHARGEMENT = ' + ZOOM_CHARGEMENT + ';',
+    'const VUE_PART_MIN = ' + VUE_PART_MIN + ';',
+    'const VUE_GRILLE = ' + VUE_GRILLE + ';',
     extraire('pointInRing'), extraire('pointInRings'), extraire('pointInGeom'),
     extraire('carteDejaDans'),
     'return carteDejaDans;'
@@ -88,6 +112,8 @@ function fabriquerGarde(sdk) {
 function fabriquerGardeTrace(sdk, communeActive) {
   return new Function('sdk', 'communeActive', [
     'const ZOOM_CHARGEMENT = ' + ZOOM_CHARGEMENT + ';',
+    'const VUE_PART_MIN = ' + VUE_PART_MIN + ';',
+    'const VUE_GRILLE = ' + VUE_GRILLE + ';',
     extraire('pointInRing'), extraire('pointInRings'), extraire('pointInGeom'),
     extraire('carteDejaDans'), extraire('pointDejaEnVue'),
     extraire('departDejaSousLesYeux'),
@@ -299,12 +325,51 @@ console.log('— Cadrage avant selection —');
   verifie('un SDK qui leve fait cadrer, il ne fige pas la carte en silence',
     fabriquerGarde(sdkMuet)(commune) === false);
 
-  // Le trou d'un contour (enclave) n'est pas la commune : on y cadre.
+  // ═══════════════════════════════════════════════════════════════════════
+  // LE TRAVAIL EN BORDURE (v2.38)
+  //
+  // ⚠️⚠️ Le critere « le centre de la vue est dans le contour » laissait passer
+  // le cas le plus COURANT du travail en zone : suivre une route le long d'une
+  // limite communale. Le centre est alors DEHORS, la commune occupe la moitie
+  // de l'ecran, et choisir cette commune catapultait l'editeur sur elle
+  // entiere — le defaut meme que la garde devait supprimer.
+  //
+  // ⭐ CES DEUX CAS ATTENDENT `true`, ET C'EST LEUR ROLE : aucune levee, aucun
+  // plantage, aucune constante oubliee ne peut produire un `true`. Ce sont eux
+  // qui empechent le harnais de mentir en passant au vert.
+  // ═══════════════════════════════════════════════════════════════════════
+  // La commune s'arrete a lon 1.80. L'editeur est a 1.805 : son centre est
+  // dehors, mais la moitie gauche de sa vue est dans la commune.
+  verifie('en bordure : le centre est DEHORS, mais la commune remplit la moitie de la vue',
+    fabriquerGarde(sdkSimule(1.805, 43.53, 16, 0.02))(commune) === true,
+    'l\'editeur qui longe une limite communale est encore catapulte');
+  // Un simple COIN de commune ne suffit pas : la, le cadrage lui apprend ou elle est.
+  verifie('un coin de commune au bord de l\'ecran fait toujours cadrer',
+    fabriquerGarde(sdkSimule(1.84, 43.53, 16, 0.05))(commune) === false,
+    'on ne cadre plus alors que la commune n\'est qu\'un lisere a l\'ecran');
+  verifie('le seuil est une part de vue, entre 0 et 1', VUE_PART_MIN > 0 && VUE_PART_MIN < 0.5,
+    'VUE_PART_MIN = ' + VUE_PART_MIN);
+  verifie('la grille de sondage est assez fine pour mesurer ce seuil',
+    VUE_GRILLE * VUE_GRILLE * VUE_PART_MIN >= 4,
+    'moins de 4 sondes decident du seuil : la mesure serait un tirage');
+
+  // Le trou d'un contour (enclave). ⚠️ CE CAS A CHANGE DE REPONSE en v2.38, et
+  // c'est assume : pose dans une enclave, l'editeur voit la commune TOUT AUTOUR
+  // de lui. Le cadrage ne lui apprendrait rien — c'est la doctrine « cadrer ne
+  // se justifie que si ca MONTRE quelque chose qu'il n'a pas deja ».
   const avecEnclave = { type: 'Polygon', coordinates: [
     commune.coordinates[0],
     [[1.74, 43.52], [1.76, 43.52], [1.76, 43.54], [1.74, 43.54], [1.74, 43.52]]] };
-  verifie('une enclave au milieu du contour n\'est pas « dans la commune »',
-    fabriquerGarde(sdkSimule(1.75, 43.53, 16))(avecEnclave) === false);
+  verifie('dans une enclave CERNEE par la commune, la carte ne bouge plus',
+    fabriquerGarde(sdkSimule(1.75, 43.53, 16))(avecEnclave) === true,
+    'la commune occupe pourtant l\'essentiel de la vue');
+  // Mais une enclave assez GRANDE pour remplir la vue, elle, fait toujours cadrer :
+  // l'editeur n'y voit pas la commune.
+  const grandeEnclave = { type: 'Polygon', coordinates: [
+    commune.coordinates[0],
+    [[1.71, 43.505], [1.79, 43.505], [1.79, 43.555], [1.71, 43.555], [1.71, 43.505]]] };
+  verifie('dans une enclave qui remplit l\'ecran, on cadre encore',
+    fabriquerGarde(sdkSimule(1.75, 43.53, 16))(grandeEnclave) === false);
 }
 
 // ===========================================================================
@@ -399,6 +464,68 @@ console.log('— Cadrage avant selection —');
   verifie('le repli « commune entiere » est bien le dernier de departDuTrace',
     extraire('departDuTrace').indexOf('large: true') >
     extraire('departDuTrace').indexOf('mairie'));
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // LA TRACE DES CADRAGES (v2.38)
+  //
+  // ⚠️⚠️ Glenan56 signale un zoom arriere residuel depuis le 14/08 et on ne
+  // peut PAS savoir lequel des cadrages le produit chez lui : un deplacement
+  // de carte ne laissait aucune trace. Un cadrage muet se diagnostique par
+  // devinettes, et chaque devinette coute une version.
+  //
+  // ⭐ UN MOTIF SANS APPELANT NE SERT A RIEN : la trace ne vaut que si CHAQUE
+  // appel le renseigne. Un cadrage anonyme dans la console designerait tous
+  // les appelants a la fois, donc aucun.
+  // ═════════════════════════════════════════════════════════════════════════
+  verifie('tout cadrage laisse une trace dans la console',
+    /function centrerSurZoneVisible\(lonLat, zoomCible, motif\)/.test(src) &&
+    /log\('cadrage'/.test(src),
+    'centrerSurZoneVisible ne journalise pas, ou ne prend pas de motif');
+  verifie('la trace dit le zoom AVANT et le zoom demande',
+    /zoom ' \+ zAvant/.test(src) && /' → ' \+ zoomCible/.test(src),
+    'sans les deux zooms, la ligne ne dit pas s\'il y a eu recul');
+  verifie('la trace SIGNALE le zoom arriere',
+    /zoomCible < zAvant/.test(src),
+    'un recul de zoom se lit comme un cadrage ordinaire');
+  // ⚠️ Le journal ne doit JAMAIS empecher le cadrage : il vit dans son propre
+  // try, avant celui du calcul.
+  // ⚠️⚠️ CE VERROU A DEJA TENU SUR UNE DISTANCE EN CARACTERES, et il est tombe
+  // a la premiere ligne ajoutee dans le bloc — alors que le contrat protege
+  // etait INTACT. On lit donc la STRUCTURE : le premier `catch` qui suit la
+  // trace est bien celui qui l'absorbe.
+  {
+    const i = src.indexOf("log('cadrage'");
+    const j = src.indexOf('catch (e)', i);
+    verifie('la trace ne peut pas empecher le cadrage',
+      i > 0 && j > i && /la trace ne doit jamais empecher le cadrage/.test(src.slice(j, j + 120)),
+      'le premier catch qui suit la trace n\'est pas celui qui l\'absorbe');
+  }
+
+  // ── Le plancher de zoom (v2.38) ────────────────────────────────────────
+  // ⭐ La regle existait DEJA dans `cadrageDeReport` (« au-dela, WME ne
+  // descendrait plus rien ») mais ne valait que pour les reports : les cadrages
+  // de GEOMETRIE posaient l'editeur au zoom 12-13, sur une carte vide.
+  verifie('aucun cadrage ne descend sous le zoom de chargement',
+    /zoomCible != null && zoomCible < ZOOM_CHARGEMENT[\s\S]{0,140}zoomCible = ZOOM_CHARGEMENT;/.test(src),
+    'un cadrage peut encore poser l\'editeur la ou WME n\'a rien charge');
+  // ⚠️ Le relevement doit se faire AVANT la trace, sinon la ligne annonce un
+  // zoom qui ne sera pas applique — et c'est elle qui sert a diagnostiquer.
+  verifie('la trace annonce le zoom REELLEMENT applique',
+    src.indexOf('zoomCible = ZOOM_CHARGEMENT;') < src.indexOf("log('cadrage'"),
+    'la trace est calculee avant le relevement : elle annoncera le mauvais zoom');
+  verifie('la trace DIT quand elle a relevé le zoom',
+    /zoomDemande != null \?/.test(src),
+    'le relevement est silencieux : la ligne laisse croire que le zoom demande a ete applique');
+
+  // Chaque appel de la fonction, sauf sa definition, passe un motif.
+  {
+    const appels = (src.match(/centrerSurZoneVisible\((?!lonLat)[^\n]*/g) || []);
+    const muets = appels.filter(a => !/,\s*'|,\s*"|, *['"]|motif/.test(a) ||
+      (a.match(/,/g) || []).length < 2);
+    verifie('les ' + appels.length + ' cadrages sont tous nommes',
+      appels.length >= 5 && muets.length === 0,
+      muets.length + ' cadrage(s) sans motif : ' + muets.join(' | '));
+  }
 }
 
 console.log((ko ? '✗' : '✓') + ' ' + ok + ' verification(s), ' + ko + ' echec(s)');
