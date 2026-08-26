@@ -5,7 +5,7 @@
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
-// @icon         data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCIgdmlld0JveD0iMCAwIDY0IDY0Ij48cmVjdCB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHJ4PSIxMiIgZmlsbD0iIzFlODhlNSIvPjxwYXRoIGQ9Ik0zMSAxNEgyMGE2IDYgMCAwIDAtNiA2djExYTYgNiAwIDAgMCAxLjc2IDQuMjRsMTUgMTVhNiA2IDAgMCAwIDguNDggMGwxMS0xMWE2IDYgMCAwIDAgMC04LjQ4bC0xNS0xNUE2IDYgMCAwIDAgMzEgMTR6IiBmaWxsPSIjZmZmIi8+PGNpcmNsZSBjeD0iMjMiIGN5PSIyMyIgcj0iMy41IiBmaWxsPSIjMWU4OGU1Ii8+PC9zdmc+
+// @icon         https://raw.githubusercontent.com/DrSlump34/WME-Naming-Auditor/master/icon-128.png
 // @homepageURL  https://github.com/DrSlump34/WME-Naming-Auditor
 // @supportURL   https://github.com/DrSlump34/WME-Naming-Auditor/issues
 // @match        https://www.waze.com/editor*
