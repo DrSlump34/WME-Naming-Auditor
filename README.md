@@ -1,8 +1,12 @@
+<img src="icon-128.png" alt="" width="96" align="right">
+
 # WME Naming Auditor
 
 Userscript pour l'éditeur de cartes Waze (WME). Il audite le **nommage des segments** — nom principal et noms alternatifs — ainsi que l'**adressage** (numéros de rue, POI résidentiels, adresse des lieux), en s'appuyant sur les **contours communaux officiels** et sur un **polygone d'agglomération** tracé à la main, puis liste les écarts à la règle.
 
 > **Le script ne modifie ni n'enregistre jamais rien tout seul.** Il lit, compare et propose. Une correction proposée est déposée dans WME exactement comme une saisie manuelle : elle se relit, elle s'annule (Ctrl+Z), et **c'est l'éditeur qui enregistre**.
+
+![Le script au travail sur une commune : les écarts sont surlignés sur la carte et classés par famille dans la fenêtre.](capture.jpg)
 
 ## Le principe
 
@@ -25,7 +29,7 @@ Le script ne **crée** jamais un nom ni un numéro : il réorganise ce qui est d
 ## Mise en route
 
 1. Installer `WME-Naming-Auditor.user.js` dans Tampermonkey (accepter l'autorisation d'accès à `geo.api.gouv.fr`).
-2. Dans WME, ouvrir la fenêtre par le bouton 🏙️ de la barre d'icônes.
+2. Dans WME, ouvrir l'onglet 🏷️ du panneau latéral (**Scripts**), puis **Afficher la fenêtre**.
 3. Cocher un ou plusieurs départements et cliquer sur **Télécharger et charger** : les contours arrivent directement, sans passer par un fichier.
 4. Choisir une commune, tracer son agglomération, analyser.
 
@@ -54,6 +58,24 @@ Chaque contrôle s'active ou se désactive séparément, dans l'onglet du pannea
 
 Les segments dans une situation strictement identique sont regroupés en un seul report ; un clic les sélectionne tous.
 
+## À quoi ça ressemble
+
+Chaque report montre l'état actuel et l'état proposé, champ par champ. Le ⚡ applique la correction dans WME — sans l'enregistrer.
+
+![Un groupe d'écarts déplié : pour chaque voie, le nommage actuel et celui que la règle demande.](captures/02-detail-report.jpg)
+
+Sur les POI, le script **dit d'où vient sa proposition** : quelle voie, à quelle distance, et sur quel critère. Une proposition qu'on ne peut pas vérifier ne se corrige pas de confiance.
+
+![L'onglet POI : l'adresse proposée pour un lieu, et le raisonnement qui y mène.](captures/03-poi-explication.jpg)
+
+Tout part de deux géométries, à préparer une fois par commune : le contour officiel, et l'agglomération tracée à la main.
+
+![Le volet des données de référence : choix de la commune, puis tracé de l'agglomération.](captures/04-donnees-reference.jpg)
+
+## Mise à jour
+
+Une pastille rouge apparaît dans l'en-tête de la fenêtre quand une version plus récente est publiée sur GreasyFork ; le clic ouvre sa page. Elle reste éteinte si la version installée est à jour, **et aussi hors ligne** : elle ne s'allume que sur une réponse claire, jamais par précaution.
+
 ## Autres pays
 
 Le moteur ne connaît aucune règle nationale. Tout le franco-français est isolé dans un **référentiel** (`REFERENTIELS.FR`) qui décrit le vocabulaire des numéros de route, les types de voies sans adressage, les clés du fichier de contours, l'état cible du nommage et la liste des contrôles. Ajouter un pays revient à écrire un second référentiel, sans toucher au moteur ni à l'interface — celle-ci se construit à partir de ce qu'il déclare.
@@ -64,7 +86,7 @@ Le moteur ne connaît aucune règle nationale. Tout le franco-français est isol
 
 Le fichier reste sur le poste de l'éditeur.
 
-Le script joint cinq hôtes, et seulement ceux-là (déclarés en `@connect`) : `geo.api.gouv.fr` pour les contours, `api.wazefrance.com` comme source de contours alternative, `docs.google.com` et `googleusercontent.com` pour le dictionnaire de rédaction, `raw.githubusercontent.com` pour charger un fichier de partage par son adresse.
+Le script joint six hôtes, et seulement ceux-là (déclarés en `@connect`) : `geo.api.gouv.fr` pour les contours, `api.wazefrance.com` comme source de contours alternative, `docs.google.com` et `googleusercontent.com` pour le dictionnaire de rédaction, `raw.githubusercontent.com` pour charger un fichier de partage par son adresse, et `update.greasyfork.org` pour savoir si une version plus récente est publiée.
 
 Ce sont toutes des **lectures** : le script n'envoie aucun contenu. Les seuls paramètres transmis sont un **numéro de département** et, pour savoir lequel est sous les yeux, les **coordonnées de la vue** (latitude, longitude). **Rien de ce que vous éditez ne quitte le navigateur.**
 

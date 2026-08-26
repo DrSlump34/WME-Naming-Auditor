@@ -12256,8 +12256,8 @@
         ? bilanPoi()
         : vueCourante === 'segments'
         ? `<div class="agn-stat">
-        <b>${s.ecarts}</b> segment(s) en écart sur <b>${s.analyses}</b> analyses a ${esc(communeActive.nom)}${
-          s.lignes && s.lignes !== s.ecarts ? ', regroupes en <b>' + s.lignes + '</b> report(s)' : ''}.<br>
+        <b>${s.ecarts}</b> segment(s) en écart sur <b>${s.analyses}</b> analyses à ${esc(communeActive.nom)}${
+          s.lignes && s.lignes !== s.ecarts ? ', regroupés en <b>' + s.lignes + '</b> report(s)' : ''}.<br>
         ${z.agglo} en agglo · ${z.hors} hors agglo · ${z.cheval} à couper (agglo) · ${z.limCom} à couper (commune)${
           z.mitoyen ? ' · <span title="Voies qui épousent la limite entre deux communes : chacune en possède un côté. Elles portent déjà le nom de la commune, il n\'y a rien à couper.">' +
             z.mitoyen + ' mitoyenne(s) conformes</span>' : ''}${
@@ -12266,10 +12266,10 @@
           z.autoSansCoupe ? ' · <span title="Autoroutes à cheval sur une limite communale ou d\'agglomération : elles ne portent aucune ville, ni en principal ni en alternatif. Les couper ne changerait rien à leur nommage. Leur nom reste audité.">' +
             z.autoSansCoupe + ' autoroute(s) sans coupe</span>' : ''}${
           z.limitrophe ? ' · ' + z.limitrophe + ' débordent légèrement' : ''}${
-          z.cartouche ? ' · ' + z.cartouche + ' cartouche(s) a poser' : ''}${
-          z.special ? ' · ' + z.special + ' voie(s) a règle propre' : ''}${
+          z.cartouche ? ' · ' + z.cartouche + ' cartouche(s) à poser' : ''}${
+          z.special ? ' · ' + z.special + ' voie(s) à règle propre' : ''}${
           z.giratoire ? ' · ' + z.giratoire + ' giratoire(s)' : ''}.<br>
-        Ignores : ${s.skipped.horsCommune} hors commune, ${s.skipped.sansAdresse} sans adressage${
+        Ignorés : ${s.skipped.horsCommune} hors commune, ${s.skipped.sansAdresse} sans adressage${
           z.villeSansAdressage ? '<span title="Voies privées et parkings : leur nom n\'est pas audité (une absence de nom n\'y est pas une anomalie), mais hors agglomération le nom principal ne porte jamais de ville. Ceux-là sont donc signalés quand même.">' +
             ' (dont <b>' + z.villeSansAdressage + '</b> signalé(s) pour une ville en trop)</span>' : ''}, ${s.skipped.horsRegle} règles propres.
       </div>${bandeauVillesSansPolygone()}${bandeauCommunesVoisines()}${bandeauInterrompu()}${bandeauSource()}`
