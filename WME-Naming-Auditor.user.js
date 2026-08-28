@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.38.00
+// @version      2.38.01
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -4090,7 +4090,15 @@
       catch (e) { try { sdk.Map.setMapCenter({ lonLat: depart.centre, zoomLevel: depart.zoom }); }
                   catch (e2) { /* on trace quand meme */ } }
     }
-    bandeauTrace('✏️ <b>Trace le contour de ' + esc(depart ? depart.quoi : communeActive.nom) + '</b>' +
+    // ⚠️⚠️ NE JAMAIS NOMMER ICI « le contour de ‹commune› » NI « l'agglomération de
+    // ‹commune› » : le contour communal est affiché juste à côté, et l'éditeur en
+    // déduit qu'on lui demande de le redessiner. Le script en trace un tout seul,
+    // puis en réclame un second — l'inférence est logique, pas distraite.
+    // ⚠️ « Agglomération » est un mot du code de la route : évident pour qui baigne
+    // dedans, opaque pour qui découvre. Le bandeau dit donc CE QU'ON ENTOURE avant
+    // de dire comment le faire.
+    bandeauTrace('✏️ <b>Entoure la zone bâtie de ' + esc(depart ? depart.quoi : communeActive.nom) + '</b>' +
+      ' <span>· celle entre les panneaux d’entrée et de sortie d’agglo — <b>pas</b> la limite de commune</span>' +
       (depart && depart.entrees ? ' <span>· ' + depart.entrees + ' entrée(s) relevée(s) ici</span>' : '') +
       '<span> · clique les sommets, <b>double-clic pour fermer</b> · Échap pour renoncer</span>');
     if (!etaitReplie) basculerRepli(true);   // ferme aussi le volet (voir basculerRepli)
@@ -9281,11 +9289,12 @@
                    panneaux, on en tire un tracé, et le tracé manuel ferme la
                    marche — c'est le recours quand les deux premiers ne donnent
                    rien. -->
-              <div class="agn-sb-n" id="agn-voies">Relève les panneaux, tires-en un tracé,
-                ou dessine à la main.</div>
+              <div class="agn-sb-n" id="agn-voies">Délimite la <b>zone bâtie</b> — entre les panneaux
+                d’entrée et de sortie d’agglo, pas la limite de commune. Relève les panneaux,
+                tires-en un tracé, ou dessine à la main.</div>
               <button class="agn-btn" id="agn-panneaux" disabled title="Récupère les panneaux EB10 / EB20 (entrée et sortie d'agglomération) et les confronte aux polygones traces.">🪧 Panneaux d'agglomération</button>
               <button class="agn-btn" id="agn-pretrace" disabled title="Fabrique un polygone par groupe d'entrées d'agglomération. Tracé grossier, à ajuster aux poignées.">✏️ Proposer un tracé</button>
-              <button class="agn-btn" id="agn-tracer" disabled title="Dessine à la main, sur la carte, le polygone de l'agglomération (double-clic pour fermer le tracé)">＋ Tracer l'agglomération</button>
+              <button class="agn-btn" id="agn-tracer" disabled title="Entoure à la main, sur la carte, la zone bâtie — celle entre les panneaux d'entrée et de sortie d'agglomération, PAS la limite de commune (double-clic pour fermer le tracé)">＋ Tracer l'agglomération</button>
               <div id="agn-prog-panneaux"></div>
               <div id="agn-bilan-panneaux" class="agn-sb-n"></div>
               <div id="agn-agglos"></div>
@@ -9768,10 +9777,15 @@
     'agglo-proposer': { n: 2, cible: '#agn-pretrace', dansVolet: true,
       texte: 'Tire un tracé de ces panneaux.',
       suite: 'Un polygone par agglomération — bourg et hameaux séparément.' },
+    // ⚠️ Même piège que le bandeau de tracé : « l'agglomération de ‹commune› » se lit
+    // comme « la commune ». On nomme CE QU'ON ENTOURE, et on l'oppose explicitement à
+    // la limite communale — laquelle est à l'écran, en tirets bleus.
     'agglo-tracer': { n: 2, cible: '#agn-tracer', dansVolet: true,
-      texte: () => 'Trace l\'agglomération de ' + nomSuivi() + ' à la main.',
-      suite: 'Les panneaux ne suffisent pas ici. Double-clic pour fermer le tracé — ' +
-             'ou coche « sans agglomération » si la commune n\'en a pas.' },
+      texte: () => 'Entoure la zone bâtie de ' + nomSuivi() + ' à la main.',
+      suite: 'C\'est la zone entre les panneaux d\'entrée et de sortie d\'agglo — pas la ' +
+             'limite de commune (celle en tirets bleus). Les panneaux ne suffisent pas ici. ' +
+             'Double-clic pour fermer le tracé — ou coche « sans agglomération » si la ' +
+             'commune n\'en a pas.' },
     // ⚠️⚠️ LA CARTE ET LE SCRIPT NE REGARDENT PAS LA MEME COMMUNE. Cas vecu le
     // 27/07 : le script gardait Saint-Laurent-des-Arbres (zonee, restee dans la
     // vue a 3,7 km) pendant que l'editeur cadrait Saint-Genies-de-Comolas
@@ -11007,8 +11021,14 @@
     //    aucun segment et ou le pays est donc illisible.
     const horsFrance = pays.etat === 'hors';
     // ⚠️ Le tracé à la main reste TOUJOURS ouvert : c'est le recours quand la
-    // source de panneaux est muette, et elle l'est souvent (2 communes sur 5
-    // mesurées ne rendent aucun panneau).
+    // source de panneaux est muette, et elle l'est souvent.
+    // ⚠️⚠️ « SOUVENT » NE VEUT RIEN DIRE AU NIVEAU NATIONAL — mesuré le 28/08/2026
+    // (tools/couverture-eb10.js, 1 commune sur 8, découpage adaptatif, aucune mesure
+    // tronquée) : **98 % des communes servies en Ille-et-Vilaine (41/42), 28 % dans
+    // l'Hérault (12/43)**. Les deux départements sont pourtant desservis par la source ;
+    // c'est la densité de relevé qui varie du simple au triple. Le chemin à conseiller
+    // dépend donc de l'endroit où l'éditeur travaille, et lui seul ne peut pas le
+    // deviner — d'où le guidage ci-dessous, qui le lui dit commune par commune.
     ui.btnTracer.disabled = !communeActive || horsFrance;
     // Les deux boutons qui dependent des panneaux disent POURQUOI ils sont
     // fermes : un bouton grise sans raison se lit comme une panne.
