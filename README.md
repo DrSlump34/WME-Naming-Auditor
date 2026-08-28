@@ -20,7 +20,9 @@ Le script ne peut pas voir les panneaux. Il déduit donc la zone de deux géomé
 1. le **contour communal** (fichier GeoJSON chargé par l'éditeur) délimite le périmètre d'analyse et fournit le nom de commune ;
 2. le **polygone d'agglomération**, tracé à la main à l'intérieur, sépare l'agglomération du reste.
 
-> 🎬 **[Voir en vidéo : la zone bâtie, et les villages rattachés](https://github.com/DrSlump34/WME-Naming-Auditor/blob/master/captures/zone-batie-villages-rattaches.mp4)** — une minute, sur l'exemple de Gruissan. C'est le point sur lequel on se trompe le plus souvent : le polygone à tracer n'est pas la limite de la commune, et une commune peut en compter plusieurs.
+> 🎬 **[Voir en vidéo : la zone bâtie, et les villages rattachés](https://drive.google.com/file/d/1f1zLZQvBatKcZv9dQ6dCtRN-VDXAiq6_/view)** — une minute, sur l'exemple de Gruissan. C'est le point sur lequel on se trompe le plus souvent : le polygone à tracer n'est pas la limite de la commune, et une commune peut en compter plusieurs.
+>
+> Le fichier est aussi versionné ici : [`captures/zone-batie-villages-rattaches.mp4`](captures/zone-batie-villages-rattaches.mp4). ⚠️ GitHub ne lit pas les vidéos de l'arborescence — ce chemin sert d'archive, pas de lecture en ligne.
 
 Un segment à cheval est tranché par un **seuil de longueur réglable** (80 % par défaut). Entre les deux, aucune correction n'est proposée : le segment est signalé comme **à couper**, puisque le bon nommage dépend de l'endroit de la coupure.
 

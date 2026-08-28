@@ -9890,7 +9890,7 @@
   function sectionsAide() {
     return [
       { id: 'demarrage', titre: '🚀 Démarrage rapide', ouvert: true, corps: `
-        <p class="agn-aide-video">🎬 <b><a href="https://github.com/DrSlump34/WME-Naming-Auditor/blob/master/captures/zone-batie-villages-rattaches.mp4" target="_blank" rel="noopener">Voir en vidéo : la zone bâtie, et les villages rattachés</a></b> — 1 minute, sur l'exemple de Gruissan. C'est le point sur lequel on se trompe le plus souvent.</p>
+        <p class="agn-aide-video">🎬 <b><a href="https://drive.google.com/file/d/1f1zLZQvBatKcZv9dQ6dCtRN-VDXAiq6_/view" target="_blank" rel="noopener">Voir en vidéo : la zone bâtie, et les villages rattachés</a></b> — 1 minute, sur l'exemple de Gruissan. C'est le point sur lequel on se trompe le plus souvent.</p>
         <ol>
           <li><b>Charge les contours</b> de ton département : bouton <b>☰</b> puis
             <b>Contours communaux</b> → <b>Télécharger et charger</b>. Une fois pour toutes.</li>
@@ -9928,7 +9928,7 @@
       { id: 'agglo', titre: '✏️ Délimiter l\'agglomération', corps: `
         <p>C'est <b>la</b> donnée que le script ne peut pas deviner : où commence et où finit
           l'agglomération, au sens des panneaux. Trois façons de la poser.</p>
-        <p class="agn-aide-video">🎬 <b><a href="https://github.com/DrSlump34/WME-Naming-Auditor/blob/master/captures/zone-batie-villages-rattaches.mp4" target="_blank" rel="noopener">Voir
+        <p class="agn-aide-video">🎬 <b><a href="https://drive.google.com/file/d/1f1zLZQvBatKcZv9dQ6dCtRN-VDXAiq6_/view" target="_blank" rel="noopener">Voir
           en vidéo</a></b> — ce qu'on trace, pourquoi il peut y en avoir plusieurs, et à quoi sert
           « village rattaché ». Exemple : Gruissan et ses trois zones bâties.</p>
         <table class="agn-aide-t">
