@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.38.01
+// @version      2.38.02
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -8832,6 +8832,11 @@
   .agn-aide-t td:first-child{width:132px;color:var(--agn-gris, #546e7a);white-space:normal}
   .agn-aide-note{background:#fff8e1;border-left:3px solid var(--agn-orange, #e65100);
     padding:5px 8px;margin:6px 0;border-radius:0 3px 3px 0}
+  /* Renvoi vers la video : meme forme que la note, en bleu — c'est une aide, pas un
+     avertissement, et les deux ne doivent pas se confondre au coup d'oeil. */
+  .agn-aide-video{background:#e3f2fd;border-left:3px solid var(--agn-bleu, #1e88e5);
+    padding:5px 8px;margin:6px 0;border-radius:0 3px 3px 0}
+  .agn-aide-video a{color:var(--agn-bleu-fonce, #1565c0);text-decoration:underline}
   .agn-aide-pied{margin-top:10px;padding-top:8px;border-top:1px solid #e0e0e0;
     font-size:11px;color:var(--agn-gris, #546e7a);text-align:center}
   .agn-aide-pied a{color:var(--agn-bleu, #1e88e5)}
@@ -9885,6 +9890,7 @@
   function sectionsAide() {
     return [
       { id: 'demarrage', titre: '🚀 Démarrage rapide', ouvert: true, corps: `
+        <p class="agn-aide-video">🎬 <b><a href="https://drive.google.com/file/d/1f1zLZQvBatKcZv9dQ6dCtRN-VDXAiq6_/view" target="_blank" rel="noopener">Voir en vidéo : la zone bâtie, et les villages rattachés</a></b> — 1 minute, sur l'exemple de Gruissan. C'est le point sur lequel on se trompe le plus souvent.</p>
         <ol>
           <li><b>Charge les contours</b> de ton département : bouton <b>☰</b> puis
             <b>Contours communaux</b> → <b>Télécharger et charger</b>. Une fois pour toutes.</li>
@@ -9922,6 +9928,9 @@
       { id: 'agglo', titre: '✏️ Délimiter l\'agglomération', corps: `
         <p>C'est <b>la</b> donnée que le script ne peut pas deviner : où commence et où finit
           l'agglomération, au sens des panneaux. Trois façons de la poser.</p>
+        <p class="agn-aide-video">🎬 <b><a href="https://drive.google.com/file/d/1f1zLZQvBatKcZv9dQ6dCtRN-VDXAiq6_/view" target="_blank" rel="noopener">Voir
+          en vidéo</a></b> — ce qu'on trace, pourquoi il peut y en avoir plusieurs, et à quoi sert
+          « village rattaché ». Exemple : Gruissan et ses trois zones bâties.</p>
         <table class="agn-aide-t">
           <tr><td><b>🪧 Panneaux d'agglomération</b></td><td><b>À essayer en premier.</b> Relève les panneaux <b>EB10</b> (entrée) et <b>EB20</b> (sortie) de la commune, d'après le jeu officiel de signalisation. Ils s'affichent sur la carte.</td></tr>
           <tr><td><b>✏️ Proposer un tracé</b></td><td>Transforme ces panneaux en polygones — <b>un par agglomération</b> : le bourg et chaque hameau séparément. Le script te les présente <b>un par un</b> : <b>Créer ce polygone</b>, <b>Passer celui-ci</b>, <b>Tout arrêter</b>.</td></tr>
@@ -9935,9 +9944,12 @@
           en face déclenche une alerte : il manque presque toujours un polygone, et sans lui le script
           réclamerait le <b>retrait</b> de cette ville — une correction à l'envers.</div>
         <p><b>Quand le pré-tracé ne propose rien — ou pas grand-chose.</b> Le relevé de panneaux
-          est <b>très inégal selon les communes</b> : mesuré sur cinq communes, deux n'ont
-          <b>aucun</b> panneau dans la source et une n'en a que cinq pour 3 200 ha. Le script
-          annonce alors le nombre relevé plutôt que de bricoler une forme.</p>
+          est <b>très inégal, et l'écart se joue au niveau du département</b> : mesuré le 28/08/2026
+          sur un échantillon d'une commune sur huit, <b>98 %</b> des communes d'Ille-et-Vilaine ont
+          au moins un panneau relevé (41 sur 42), contre <b>28 %</b> dans l'Hérault (12 sur 43) —
+          alors que les deux départements sont desservis par la source. Là où elle est fournie, le
+          pré-tracé est le chemin le plus court ; ailleurs, le tracé à la main reste la norme. Le
+          script annonce le nombre relevé plutôt que de bricoler une forme.</p>
         <table class="agn-aide-t">
           <tr><td><b>« s'aligne le long d'une voie »</b></td><td>Les panneaux forment une ligne, pas une surface (moins de ${LARGEUR_MIN_AGGLO_M} m de large) : c'est une route. Rien n'est tracé — sinon le polygone couvrirait la voie et pas le village.</td></tr>
           <tr><td><b>« couvre N % de la commune »</b></td><td>Le polygone proposé est probablement <b>plusieurs agglomérations soudées</b> : les entrées se sont enchaînées de proche en proche. Vérifie, et passe-le pour les tracer séparément.</td></tr>

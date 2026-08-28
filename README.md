@@ -20,6 +20,8 @@ Le script ne peut pas voir les panneaux. Il déduit donc la zone de deux géomé
 1. le **contour communal** (fichier GeoJSON chargé par l'éditeur) délimite le périmètre d'analyse et fournit le nom de commune ;
 2. le **polygone d'agglomération**, tracé à la main à l'intérieur, sépare l'agglomération du reste.
 
+> 🎬 **[Voir en vidéo : la zone bâtie, et les villages rattachés](https://drive.google.com/file/d/1f1zLZQvBatKcZv9dQ6dCtRN-VDXAiq6_/view)** — une minute, sur l'exemple de Gruissan. C'est le point sur lequel on se trompe le plus souvent : le polygone à tracer n'est pas la limite de la commune, et une commune peut en compter plusieurs.
+
 Un segment à cheval est tranché par un **seuil de longueur réglable** (80 % par défaut). Entre les deux, aucune correction n'est proposée : le segment est signalé comme **à couper**, puisque le bon nommage dépend de l'endroit de la coupure.
 
 Trois exceptions, où il n'y a rien à couper : la voie **mitoyenne** qui épouse la limite communale, le segment qui ne porte **ni nom ni ville** (les deux moitiés seraient identiques), et l'**autoroute**, qui ne porte aucune ville quelle que soit la zone. Le bilan les compte à part plutôt que de les taire.
