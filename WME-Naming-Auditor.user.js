@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.38.02
+// @version      2.39.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -652,6 +652,31 @@
    * national est absent. »
    */
   const RE_BRET_DOUBLE_NUMERO = /^[AEND]\s?\d+[a-zA-Z]?\s*[-–—]\s*[AEND]\s?\d+[a-zA-Z]?\s*:/;
+
+  /**
+   * Forme ATTENDUE du nom d'une bretelle : « <numéro ou Sortie N>: <destination> »,
+   * ou « > <destination> » quand aucun numéro ne s'applique.
+   *
+   * ⚠️⚠️ LES TROIS CONTROLES DE BRETELLE EXISTANTS SONT NEGATIFS : ils interdisent
+   * une direction qui est une route, deux numéros collés, un deux-points mal espacé.
+   * Aucun n'EXIGE la forme — « Av. de la Gare » ou « Bretelle de sortie » passaient
+   * donc sans rien déclencher : ils ne contiennent aucune des fautes cherchées.
+   * Celui-ci ferme cet angle mort, et lui seul répond à la question « ce nom
+   * a-t-il la forme du guide ? ».
+   *
+   * ⚠️ L'ESPACEMENT N'EST PAS SON SUJET : `\s*:` accepte « Sortie 18 : Valensole »,
+   * dont l'espace fautif est déjà signalé par RE_DIRECTION. Le resserrer ici
+   * ferait sortir DEUX écarts pour une seule faute, sur la même ligne.
+   * ⚠️ La destination n'est pas vérifiée : le guide interdit d'improviser, et
+   * WNA ne voit pas le panneau. On exige une forme, pas un contenu.
+   */
+  const RE_BRET_FORME = new RegExp(
+    '^(?:' +
+      '>\\s\\S' +                                   // « > Orsay »
+      '|(?:[AENDM]\\s?\\d+[a-zA-Z]?' +              // « A6a: … », « D6113: … »
+        '|Sortie\\s?\\d+[a-zA-Z]?)' +               // « Sortie 18: … »
+      '\\s*:\\s*\\S' +
+    ')', 'i');
 
   /**
    * Voie communale ecrite en toutes lettres. Guide : « Il faut mettre le nom
@@ -4629,6 +4654,21 @@
             sansProposition: true });
         }
       }
+      // --- La bretelle NOMMEE suit-elle la forme du guide ? -------------------
+      // ⚠️ Contrôle distinct de `formatBretelle`, et DECOCHE par défaut : sur une
+      // commune déjà traitée, il peut remonter d'un coup toutes les bretelles au
+      // nom libre. On ne fait pas surgir ça sans que l'éditeur l'ait demandé.
+      // ⚠️⚠️ SANS PROPOSITION, et ce n'est pas un demi-travail : le script ne
+      // connaît ni le numéro de la bretelle ni sa destination — ils sont sur le
+      // panneau, qu'il ne voit pas. Proposer une réécriture reviendrait à
+      // l'inventer. Il dit la forme attendue, l'éditeur écrit le nom.
+      // ⚠️ Une bretelle SANS nom est parfaitement valide : rien n'est dit sur elle.
+      if (bretelle && c.bretelleForme && !RE_BRET_FORME.test(nom)) {
+        ecarts.push({ champ: 'bretelle : nom hors format' + ou, avant: nom,
+          apres: 'forme attendue : « A6a: Paris », « Sortie 18: Valensole » — ' +
+                 'ou « > Orsay » quand aucun numéro ne s\'applique',
+          sansProposition: true });
+      }
       // --- Voie communale ecrite en toutes lettres ---------------------------
       // ⭐ On PROPOSE le nom court quand le prefixe est connu ; sinon on signale
       // sans proposer, plutot que d'inventer une abreviation.
@@ -4838,6 +4878,12 @@
         // le panneau (voir la section BRETELLES ET VOIES COMMUNALES).
         { cle: 'formatBretelle', portee: 'forme',
           libelle: 'Bretelles : format du nom (numéro, direction)' },
+        // ⚠️ DECOCHE par defaut (`defaut: false`) : contrairement aux trois controles
+        // ci-dessus qui n'attrapent qu'une faute precise, celui-ci juge la forme
+        // ENTIERE et peut donc remonter toutes les bretelles au nom libre d'un coup.
+        // On mesure sur du terrain reel avant d'envisager de le cocher d'office.
+        { cle: 'bretelleForme', portee: 'forme', defaut: false,
+          libelle: 'Bretelles : le nom suit-il « A6a: Paris » ou « > Orsay » ?' },
         { cle: 'voieCommunale', portee: 'forme',
           libelle: 'Voies communales : forme abrégée (C6, pas « Voie Communale n°6 »)' },
         // ⭐ Le dictionnaire communautaire FR (voir la section DICTIONNAIRE plus
