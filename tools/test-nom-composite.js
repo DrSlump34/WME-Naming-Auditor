@@ -91,7 +91,8 @@ const PREAMBULE = [relire('RE_ROUTE'), relire('RE_ABREV'), relire('RE_ABREV_SANS
                    // ⚠️ v2.40 : le vocabulaire routier vit dans le referentiel.
                    'const REF = { reRoute: RE_ROUTE, reAbrev: RE_ABREV,' +
                    '  reAbrevSansPoint: RE_ABREV_SANS_POINT, reSaint: RE_SAINT,' +
-                   '  reNomComposite: RE_NOM_COMPOSITE, reSuffixeRocade: RE_SUFFIXE_ROCADE };',
+                   '  reNomComposite: RE_NOM_COMPOSITE, reSuffixeRocade: RE_SUFFIXE_ROCADE,' +
+                   '  reFonction: RE_FONCTION, reDirection: RE_DIRECTION };',
                    // ⚠️ Le format des rocades est EXEMPTE du controle : voir
                    // la section « rocade » du userscript et test-guide-fr.js.
                    extraire('formatRocade')].join('\n');

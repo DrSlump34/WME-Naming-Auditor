@@ -77,7 +77,9 @@ function monter(controles) {
     // v2.37 : adresse d'autoroute (aires, echangeurs, jonctions, peages).
     relire('RE_AUTOROUTE'), relire('POI_CATEGORIES_AUTOROUTE'),
     // ⚠️ v2.40 : le vocabulaire routier vit dans le referentiel, plus en global.
-    'const REF = { reRoute: RE_ROUTE, reAutoroute: RE_AUTOROUTE };',
+    'const REF = { reRoute: RE_ROUTE, reAutoroute: RE_AUTOROUTE,' +
+    '  poiCategoriesNaturelles: POI_CATEGORIES_NATURELLES,' +
+    '  poiCategoriesAutoroute: POI_CATEGORIES_AUTOROUTE };',
     extraire('numeroLePlusProche'), extraire('proposerAdressePoi'),
     extraire('auditerPoi'),
     'return { auditerPoi, positionPoi, poiDansCommune, proposerAdressePoi };'

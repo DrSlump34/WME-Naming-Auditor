@@ -66,6 +66,9 @@ function relire(nom) {
 
 const api = new Function([
   extraireIife('DICO_FONCTIONS'),
+  // ⚠️ v2.40 : le dictionnaire des fonctions appartient au referentiel du
+  //    pays — le moteur le lit par REF, plus par la globale.
+  'const REF = { dicoFonctions: DICO_FONCTIONS };',
   relire('nettoyerNom'),
   extraire('analyserDictionnaire'), extraire('appliquerDictionnaire'),
   extraire('nomEnCapitales'), extraire('ecartDeRedaction'),

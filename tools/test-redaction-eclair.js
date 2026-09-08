@@ -69,9 +69,13 @@ const api = new Function([
   // ⚠️ v2.40 : le vocabulaire routier vit dans le referentiel, plus en global.
   'const REF = { reAbrev: RE_ABREV, reAbrevSansPoint: RE_ABREV_SANS_POINT,' +
   '  reSaint: RE_SAINT, reNomComposite: RE_NOM_COMPOSITE,' +
-  '  reSuffixeRocade: RE_SUFFIXE_ROCADE };',
+  '  reSuffixeRocade: RE_SUFFIXE_ROCADE, reFonction: RE_FONCTION,' +
+  '  reDirection: RE_DIRECTION };',
   extraire('formatRocade'),
   extraireIife('DICO_FONCTIONS'),
+  // ⚠️ APRES l'IIFE : le dictionnaire n'existe pas avant, et une clef posee
+  //    trop tot leverait une erreur de zone morte temporelle.
+  'REF.dicoFonctions = DICO_FONCTIONS;',
   extraire('initialeIsolee'), extraire('analyserDictionnaire'),
   extraire('appliquerDictionnaire'), extraire('nomEnCapitales'),
   extraire('ecartDeRedaction'),

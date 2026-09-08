@@ -596,7 +596,7 @@
    */
   function rocadeDe(nam) {
     const entrees = nam ? [nam.primary, ...(nam.alts || [])].filter(Boolean) : [];
-    if (entrees.some(e => e && e.signType === SIGNTYPE_ROCADE_FR)) {
+    if (entrees.some(e => e && e.signType === REF.signTypeRocade)) {
       return { rocade: true, certain: true, motif: 'cartouche Rocade' };
     }
     const noms = entrees.map(e => (e && e.name) || '').join(' ');
@@ -838,7 +838,7 @@
       if (corr[0] === '"') {
         remplacement = corr.slice(1, corr.length - 1);
       } else if (corr.slice(0, 8) === 'function') {
-        remplacement = DICO_FONCTIONS[corr];
+        remplacement = REF.dicoFonctions[corr];
         if (!remplacement) { ignorees++; return; }   // cellule-code non reconnue : on passe
       } else { return; }
       let re;
@@ -4628,7 +4628,7 @@
         ecarts.push({ champ: 'majuscule' + ou, avant: nom,
           apres: nom.charAt(0).toUpperCase() + nom.slice(1) });
       }
-      if (c.fonctionDirection && RE_FONCTION.test(nom)) {
+      if (c.fonctionDirection && REF.reFonction.test(nom)) {
         ecarts.push({ champ: 'fonction dans le nom' + ou, avant: nom,
           apres: 'le nom ne doit pas decrire la fonction du segment' });
       }
@@ -4638,17 +4638,17 @@
       // nom entier : sinon « > Orsay : Paris » passerait en bloc alors que son
       // « : » espace reste fautif. Le reste de la regle continue de s'appliquer.
       const aTester = bretelle ? nom.replace(/^>\s/, '') : nom;
-      const directionInterdite = RE_DIRECTION.test(aTester);
+      const directionInterdite = REF.reDirection.test(aTester);
       // --- Formats propres aux bretelles (guide FR) --------------------------
       if (bretelle && c.formatBretelle) {
-        const m = nom.match(RE_BRET_DIRECTION_ROUTE);
+        const m = nom.match(REF.reBretDirectionRoute);
         if (m) {
           ecarts.push({ champ: 'bretelle : direction = numéro de route' + ou, avant: nom,
             apres: 'la direction doit être une VILLE — « ' + m[1] +
                    ' » est une route, les noms d\'autoroutes s\'ignorent',
             sansProposition: true });
         }
-        if (RE_BRET_DOUBLE_NUMERO.test(nom)) {
+        if (REF.reBretDoubleNumero.test(nom)) {
           ecarts.push({ champ: 'bretelle : deux numéros de route' + ou, avant: nom,
             apres: 'un seul numéro — l\'européen (Exxx) uniquement si le national est absent',
             sansProposition: true });
@@ -4673,9 +4673,9 @@
       // ⭐ On PROPOSE le nom court quand le prefixe est connu ; sinon on signale
       // sans proposer, plutot que d'inventer une abreviation.
       if (c.voieCommunale) {
-        const v = nom.match(RE_VOIE_LONGUE);
+        const v = nom.match(REF.reVoieLongue);
         if (v) {
-          const p = PREFIXE_VOIE[v[1].toLowerCase().replace(/\s+/g, ' ')];
+          const p = REF.prefixeVoie[v[1].toLowerCase().replace(/\s+/g, ' ')];
           ecarts.push(p
             ? { champ: 'voie communale en toutes lettres' + ou, avant: nom, apres: p + v[2] }
             : { champ: 'voie communale en toutes lettres' + ou, avant: nom,
@@ -4848,6 +4848,22 @@
       reSaint: RE_SAINT,
       reRocade: RE_ROCADE,
       reSuffixeRocade: RE_SUFFIXE_ROCADE,
+      // Formes propres au pays : ce qu'un nom ne doit pas contenir, comment
+      // s'ecrit une bretelle, et le vocabulaire des voies.
+      reFonction: RE_FONCTION,
+      reDirection: RE_DIRECTION,
+      reVoieLongue: RE_VOIE_LONGUE,
+      reBretDirectionRoute: RE_BRET_DIRECTION_ROUTE,
+      reBretDoubleNumero: RE_BRET_DOUBLE_NUMERO,
+      prefixeVoie: PREFIXE_VOIE,
+      dicoFonctions: DICO_FONCTIONS,
+      // ⚠️ Releve dans WME pour le pays 73 : les identifiants de cartouche ne
+      //    sont PAS universels, un autre pays a les siens.
+      signTypeRocade: SIGNTYPE_ROCADE_FR,
+      // Categories de POI. Les identifiants WME sont universels, mais la REGLE
+      // qui les traite a part est nationale (Discuss FR 70053 / 71786).
+      poiCategoriesNaturelles: POI_CATEGORIES_NATURELLES,
+      poiCategoriesAutoroute: POI_CATEGORIES_AUTOROUTE,
 
       // Decoupage administratif de reference et cles admises dans le GeoJSON.
       libelleDecoupage: 'communes INSEE',
@@ -6058,7 +6074,7 @@
       if (v.isResidential || v.residential) continue;         // les RPP ont leur propre onglet
       const cats = v.categories || [];
       // ⚠️ Elements du paysage : aucune adresse a reclamer (voir POI_CATEGORIES_NATURELLES).
-      if (cats.some(x => POI_CATEGORIES_NATURELLES.has(x))) { stats.poiNaturels++; continue; }
+      if (cats.some(x => REF.poiCategoriesNaturelles.has(x))) { stats.poiNaturels++; continue; }
       // ⚠️⚠️ LE BATI SANS NOM N'EST PAS UNE ADRESSE (precision de l'auteur, 26/07) :
       // « c'est courant, c'est pour visualiser sur l'ecran de l'application le
       // bati, et on traite les commerces a l'interieur avec des vrais POI, point
@@ -6102,7 +6118,7 @@
       //    revoir (doctrine de `rueDuPoi`) — seule l'autoroute est une adresse
       //    LEGITIME pour un lieu.
       const rueAutoroute = !!nomRue && REF.reAutoroute.test(nomRue);
-      const estCatAutoroute = cats.some(x => POI_CATEGORIES_AUTOROUTE.has(x));
+      const estCatAutoroute = cats.some(x => REF.poiCategoriesAutoroute.has(x));
       const adresseAutoroute = rueAutoroute || estCatAutoroute;
       if (adresseAutoroute) stats.poiAutoroute++;
       const rueDejaBonne = !!nomRue && (!REF.reRoute.test(nomRue) || rueAutoroute);

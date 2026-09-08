@@ -57,7 +57,11 @@ const api = new Function([
   // ⚠️ v2.40 : le vocabulaire routier vit dans le referentiel, plus en global.
   'const REF = { reAbrev: RE_ABREV, reAbrevSansPoint: RE_ABREV_SANS_POINT,' +
   '  reSaint: RE_SAINT, reNomComposite: RE_NOM_COMPOSITE, reRocade: RE_ROCADE,' +
-  '  reSuffixeRocade: RE_SUFFIXE_ROCADE };',
+  '  reSuffixeRocade: RE_SUFFIXE_ROCADE, reFonction: RE_FONCTION,' +
+  '  reDirection: RE_DIRECTION, reVoieLongue: RE_VOIE_LONGUE,' +
+  '  reBretDirectionRoute: RE_BRET_DIRECTION_ROUTE,' +
+  '  reBretDoubleNumero: RE_BRET_DOUBLE_NUMERO, prefixeVoie: PREFIXE_VOIE,' +
+  '  signTypeRocade: SIGNTYPE_ROCADE_FR };',
   extraire('initialeIsolee'), extraire('formatRocade'), extraire('rocadeDe'),
   'const dico = { regles: [] };',
   'function ecartDeRedaction() { return null; }',
