@@ -17,12 +17,37 @@
 | ⏳ `fari` | nom du champ **relevé** (voir ci-dessous) ; reste à voir comment le **SDK** l'expose |
 | ⏳ Ordinaux `1ª` / `1º` | trop ambigu pour être automatisé — question à Silvio |
 | ⏳ i18n | 714 chaînes, pas commencé |
-| ⏳ Essai réel | le référentiel n'a **jamais tourné sur la carte** |
+| ✅ **Essai réel CONCLUANT** | 08/09 à Bergamo — voir ci-dessous |
 
 ⛔ **NE PAS PUBLIER** : la description de l'en-tête dit encore « FRANCE UNIQUEMENT », et
 c'est volontaire tant que les questions restent ouvertes et que rien n'a été essayé en vrai.
 
 **900 vérifications sur 29 fichiers, 0 échec.**
+
+### ✅ Essai réel du 08/09 — Bergamo, v2.40.00 dans Tampermonkey
+
+Verdict de l'auteur, carte sur Bergamo : **« Tout est en français, mais il considère les
+règles italiennes. »**
+
+⭐ **C'est exactement le comportement visé, et il valide la distinction posée le matin** :
+la LANGUE suit l'éditeur (son WME est en français), le RÉFÉRENTIEL suit le territoire
+(la carte est en Italie). Deux axes indépendants — un Français qui audite l'Italie
+applique les règles italiennes énoncées en français.
+
+🔴 **Trois défauts que 933 vérifications vertes n'avaient pas vus.** Aucun harnais ne
+pouvait les attraper : ils montent tous le moteur avec **un référentiel figé**. C'est la
+*traversée de frontière* qui manquait, et elle ne s'observe qu'en vrai.
+
+1. Les options des contrôles d'un nouveau pays n'étaient **jamais initialisées** ⇒
+   `undefined`, donc *falsy*, donc **aucun contrôle italien ne s'exécutait** — pendant
+   que les cases affichées décrivaient un autre pays.
+2. La bascule n'était **jamais déclenchée** : `choisirReferentiel` ne partait que de
+   `scan()`, qui exige une commune, qui exige des contours. Sans contours ISTAT, aucune
+   analyse ⇒ aucune bascule, indéfiniment.
+3. Il a fallu **deux** correctifs : rendre la bascule rejouable ne servait à rien tant
+   qu'elle n'était pas déclenchée. Le premier essai a montré le second défaut.
+
+⏳ **Reste à vérifier** : le retour en France (bascule inverse, pas de régression).
 
 ### ⚡ Relevé du 08/09 — l'attribut « obbligo accensione dei fari »
 
