@@ -93,8 +93,13 @@ verifier('10. une langue inconnue ne casse pas', monterTr('xx')(uneCle), uneCle)
 titre('⭐ Les libellés de contrôles ITALIENS sont tous traduits');
 // Le referentiel IT est le premier que verra un editeur italien : ses libelles
 // ne doivent pas rester en francais.
+// ⚠️ On cible le TABLEAU `controles`, pas tous les `libelle:` du bloc IT :
+//    `sourceContours` en porte un aussi, qui n'est pas un libellé de contrôle.
+//    Ratisser large faisait échouer le test sur du code parfaitement juste.
 const blocIT = src.slice(src.indexOf('    IT: {'));
-const libellesIT = [...blocIT.matchAll(/libelle:\s*\n?\s*'((?:[^'\\]|\\.)*)'/g)]
+const blocCtrlIT = blocIT.slice(blocIT.indexOf('controles: ['),
+                                blocIT.indexOf('verifierForme:'));
+const libellesIT = [...blocCtrlIT.matchAll(/libelle:\s*\n?\s*'((?:[^'\\]|\\.)*)'/g)]
   .map(m => m[1].replace(/\\'/g, "'"));
 verifier('11. le référentiel italien déclare des libellés', libellesIT.length > 0, true);
 const nonTraduits = libellesIT.filter(l => !TEXTES.it[l]);

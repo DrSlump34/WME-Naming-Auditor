@@ -508,6 +508,40 @@ verifier('90. ⭐ `name` aussi', clesNomIT.includes('name'), true);
 ['016001', '112001', '101001', '016024'].forEach((c, i) =>
   verifier((91 + i) + '. « ' + c +' » (code ISTAT réel) est accepté', codeIT.test(c), true));
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 10. LE CHARGEUR DE CONTOURS ITALIEN
+// ═══════════════════════════════════════════════════════════════════════════
+titre('Le téléchargeur lit le référentiel, plus une source en dur');
+const urlIT = new Function(
+  blocIT.slice(blocIT.indexOf('url: code =>'), blocIT.indexOf('aide:'))
+    .replace(/^url:/, 'const f =').replace(/,\s*$/, '') + '\nreturn f;')();
+
+verifier('95. ⭐ Bergamo (16) donne bien le fichier P_16',
+  urlIT('16').endsWith('/limits_P_16_municipalities.geojson'), true);
+verifier('96. ⚠️ le code n\'est PAS paddé (limits_P_016 rend 404)',
+  urlIT('16').includes('_P_016_'), false);
+verifier('97. l\'hôte est bien celui mesuré',
+  urlIT('16').startsWith('https://raw.githubusercontent.com/openpolis/geojson-italy/'), true);
+
+titre('⚠️ La liste des provinces — couverture mesurée le 08/09');
+const blocProv = src.slice(src.indexOf('const PROVINCES_IT = ['),
+                           src.indexOf('// Les 101 departements'));
+const provs = [...blocProv.matchAll(/\{"code":"(\d+)","nom":"((?:[^"\\]|\\.)*)"\}/g)]
+  .map(m => ({ code: m[1], nom: m[2] }));
+verifier('98. ⭐ 110 provinces — autant que de fichiers servis', provs.length, 110);
+// Les 9 fichiers vides du dépôt sont des provinces ABOLIES (réforme sarde de
+// 2016) : aucune ne doit figurer dans la liste, sinon le chargement rendrait
+// un GeometryCollection vide de 49 octets sans que rien ne l'explique.
+const ABOLIES = ['90', '91', '92', '95', '104', '105', '106', '107', '111'];
+verifier('99. ⭐⭐ aucune province ABOLIE n\'est proposée',
+  provs.filter(p => ABOLIES.includes(p.code)).map(p => p.code), []);
+verifier('100. Bergamo est là, avec son acronyme',
+  (provs.find(p => p.code === '16') || {}).nom, 'Bergamo (BG)');
+verifier('101. ⚠️ aucun code n\'a de zéro de tête',
+  provs.filter(p => p.code.length > 1 && p.code[0] === '0'), []);
+verifier('102. les codes sont uniques',
+  new Set(provs.map(p => p.code)).size, provs.length);
+
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(60));
 console.log('%d verifications OK, %d ECHEC(S)', ok, ko);

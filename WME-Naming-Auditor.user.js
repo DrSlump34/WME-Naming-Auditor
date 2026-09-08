@@ -2226,6 +2226,59 @@
     return { panneaux: [...vus.values()], cellules, tronque };
   }
 
+  // Les 110 provinces italiennes, pour le meme selecteur.
+  //
+  // ⚡ RELEVEE DANS LA SOURCE elle-meme le 08/09 (limits_IT_provinces.geojson),
+  // jamais recopiee d'ailleurs : le code est `prov_istat_code_num`, celui-la
+  // meme qui nomme les fichiers.
+  // ⚠️ SANS zero de tete — `limits_P_16` sert Bergamo, `limits_P_016` rend 404.
+  // ⚠️ L'acronyme (BG, TO, MI...) est colle au nom : c'est par lui qu'un
+  //    editeur italien cherchera sa province, pas par son numero ISTAT.
+  const PROVINCES_IT = [
+{"code":"1","nom":"Torino (TO)"},{"code":"2","nom":"Vercelli (VC)"},{"code":"3","nom":"Novara (NO)"},
+{"code":"4","nom":"Cuneo (CN)"},{"code":"5","nom":"Asti (AT)"},{"code":"6","nom":"Alessandria (AL)"},
+{"code":"7","nom":"Valle d'Aosta/Vallée d'Aoste (AO)"},{"code":"8","nom":"Imperia (IM)"},
+{"code":"9","nom":"Savona (SV)"},{"code":"10","nom":"Genova (GE)"},{"code":"11","nom":"La Spezia (SP)"},
+{"code":"12","nom":"Varese (VA)"},{"code":"13","nom":"Como (CO)"},{"code":"14","nom":"Sondrio (SO)"},
+{"code":"15","nom":"Milano (MI)"},{"code":"16","nom":"Bergamo (BG)"},{"code":"17","nom":"Brescia (BS)"},
+{"code":"18","nom":"Pavia (PV)"},{"code":"19","nom":"Cremona (CR)"},{"code":"20","nom":"Mantova (MN)"},
+{"code":"21","nom":"Bolzano/Bozen (BZ)"},{"code":"22","nom":"Trento (TN)"},
+{"code":"23","nom":"Verona (VR)"},{"code":"24","nom":"Vicenza (VI)"},{"code":"25","nom":"Belluno (BL)"},
+{"code":"26","nom":"Treviso (TV)"},{"code":"27","nom":"Venezia (VE)"},{"code":"28","nom":"Padova (PD)"},
+{"code":"29","nom":"Rovigo (RO)"},{"code":"30","nom":"Udine (UD)"},{"code":"31","nom":"Gorizia (GO)"},
+{"code":"32","nom":"Trieste (TS)"},{"code":"33","nom":"Piacenza (PC)"},{"code":"34","nom":"Parma (PR)"},
+{"code":"35","nom":"Reggio nell'Emilia (RE)"},{"code":"36","nom":"Modena (MO)"},
+{"code":"37","nom":"Bologna (BO)"},{"code":"38","nom":"Ferrara (FE)"},{"code":"39","nom":"Ravenna (RA)"},
+{"code":"40","nom":"Forlì-Cesena (FC)"},{"code":"41","nom":"Pesaro e Urbino (PU)"},
+{"code":"42","nom":"Ancona (AN)"},{"code":"43","nom":"Macerata (MC)"},
+{"code":"44","nom":"Ascoli Piceno (AP)"},{"code":"45","nom":"Massa-Carrara (MS)"},
+{"code":"46","nom":"Lucca (LU)"},{"code":"47","nom":"Pistoia (PT)"},{"code":"48","nom":"Firenze (FI)"},
+{"code":"49","nom":"Livorno (LI)"},{"code":"50","nom":"Pisa (PI)"},{"code":"51","nom":"Arezzo (AR)"},
+{"code":"52","nom":"Siena (SI)"},{"code":"53","nom":"Grosseto (GR)"},{"code":"54","nom":"Perugia (PG)"},
+{"code":"55","nom":"Terni (TR)"},{"code":"56","nom":"Viterbo (VT)"},{"code":"57","nom":"Rieti (RI)"},
+{"code":"58","nom":"Roma (RM)"},{"code":"59","nom":"Latina (LT)"},{"code":"60","nom":"Frosinone (FR)"},
+{"code":"61","nom":"Caserta (CE)"},{"code":"62","nom":"Benevento (BN)"},{"code":"63","nom":"Napoli (NA)"},
+{"code":"64","nom":"Avellino (AV)"},{"code":"65","nom":"Salerno (SA)"},{"code":"66","nom":"L'Aquila (AQ)"},
+{"code":"67","nom":"Teramo (TE)"},{"code":"68","nom":"Pescara (PE)"},{"code":"69","nom":"Chieti (CH)"},
+{"code":"70","nom":"Campobasso (CB)"},{"code":"71","nom":"Foggia (FG)"},{"code":"72","nom":"Bari (BA)"},
+{"code":"73","nom":"Taranto (TA)"},{"code":"74","nom":"Brindisi (BR)"},{"code":"75","nom":"Lecce (LE)"},
+{"code":"76","nom":"Potenza (PZ)"},{"code":"77","nom":"Matera (MT)"},{"code":"78","nom":"Cosenza (CS)"},
+{"code":"79","nom":"Catanzaro (CZ)"},{"code":"80","nom":"Reggio Calabria (RC)"},
+{"code":"81","nom":"Trapani (TP)"},{"code":"82","nom":"Palermo (PA)"},{"code":"83","nom":"Messina (ME)"},
+{"code":"84","nom":"Agrigento (AG)"},{"code":"85","nom":"Caltanissetta (CL)"},
+{"code":"86","nom":"Enna (EN)"},{"code":"87","nom":"Catania (CT)"},{"code":"88","nom":"Ragusa (RG)"},
+{"code":"89","nom":"Siracusa (SR)"},{"code":"93","nom":"Pordenone (PN)"},{"code":"94","nom":"Isernia (IS)"},
+{"code":"96","nom":"Biella (BI)"},{"code":"97","nom":"Lecco (LC)"},{"code":"98","nom":"Lodi (LO)"},
+{"code":"99","nom":"Rimini (RN)"},{"code":"100","nom":"Prato (PO)"},{"code":"101","nom":"Crotone (KR)"},
+{"code":"102","nom":"Vibo Valentia (VV)"},{"code":"103","nom":"Verbano-Cusio-Ossola (VB)"},
+{"code":"108","nom":"Monza e della Brianza (MB)"},{"code":"109","nom":"Fermo (FM)"},
+{"code":"110","nom":"Barletta-Andria-Trani (BT)"},{"code":"112","nom":"Sassari (SS)"},
+{"code":"113","nom":"Gallura Nord-Est Sardegna (OT)"},{"code":"114","nom":"Nuoro (NU)"},
+{"code":"115","nom":"Oristano (OR)"},{"code":"116","nom":"Ogliastra (OG)"},
+{"code":"117","nom":"Medio Campidano (VS)"},{"code":"118","nom":"Cagliari (CA)"},
+{"code":"119","nom":"Sulcis Iglesiente (CI)"}
+  ];
+
   // Les 101 departements, pour le selecteur integre a la fenetre.
   const DEPARTEMENTS = [
 {"code":"01","nom":"Ain"},{"code":"02","nom":"Aisne"},{"code":"03","nom":"Allier"},{"code":"04","nom":"Alpes-de-Haute-Provence"},
@@ -2275,7 +2328,7 @@
       const d = liste[i];
       if (prog) { prog.verifier(); prog.fixer(i).sous('departement ' + d); await prog.respirer(true); }
       try {
-        const fc = JSON.parse(await telecharger(SOURCES.gouv.url(d), prog));
+        const fc = JSON.parse(await telecharger(REF.sourceContours.url(d), prog));
         const lot = (fc.features || []).filter(f => f && f.geometry);
         if (!lot.length) throw new Error('aucun contour renvoye');
         features.push(...lot);
@@ -2287,7 +2340,7 @@
     }
     if (!features.length) throw new Error('rien de recupere' + (echecs.length ? ' — ' + echecs[0] : ''));
     if (prog) { prog.etape('Mise en base des contours', 0).sous(features.length + ' communes'); await prog.respirer(true); }
-    const nomSource = 'geo.api.gouv.fr — dep. ' + liste.join(', ');
+    const nomSource = REF.sourceContours.nomSource(liste);
     const res = chargerFeatureCollection({ type: 'FeatureCollection', features }, nomSource);
     await idbSet('communes', communes); await idbSet('meta', metaContours);
     rafraichirCommunesDeLaVue(); renderContours();
@@ -4927,6 +4980,13 @@
         'Rotatorie: senza nome (città secondo la zona)',
       'Feux obligatoires hors centro abitato':
         'Obbligo accensione dei fari fuori dal centro abitato',
+      // ── Chargement des contours ─────────────────────────────────────────
+      'Télécharger (openpolis / ISTAT)': 'Scarica (openpolis / ISTAT)',
+      'province': 'provincia',
+      'provinces': 'province',
+      'Filtrer une province…': 'Filtra una provincia…',
+      'Province ISTAT (Bergamo = 16, Milano = 15…). ~270 Ko par province.':
+        'Provincia ISTAT (Bergamo = 16, Milano = 15…). ~270 KB per provincia.',
       'Sigles écrites avec un espace (« SS 12 » au lieu de « SS12 »)':
         'Sigle scritte con uno spazio (« SS 12 » invece di « SS12 »)',
       'Dates en chiffres romains (« Via IV Novembre »)':
@@ -5285,6 +5345,21 @@
       poiCategoriesNaturelles: POI_CATEGORIES_NATURELLES,
       poiCategoriesAutoroute: POI_CATEGORIES_AUTOROUTE,
 
+      // ── D'ou viennent les contours ─────────────────────────────────────────
+      // ⚠️ La source appartient au PAYS, comme le reste : le telechargeur ne
+      //    sait plus quel pays il sert, il lit ce que le referentiel declare.
+      sourceContours: {
+        libelle: 'Télécharger (geo.api.gouv.fr)',
+        uniteLabel: 'département',
+        unitesLabel: 'départements',
+        placeholder: 'Filtrer un département…',
+        unites: () => DEPARTEMENTS,
+        url: code => 'https://geo.api.gouv.fr/departements/' + encodeURIComponent(code) +
+          '/communes?fields=nom,code,contour,mairie&format=geojson&geometry=contour',
+        aide: 'Numéro de département (01 à 95, 2A, 2B, 971…). ~3 Mo et ~10 s par département.',
+        nomSource: liste => 'geo.api.gouv.fr — dep. ' + liste.join(', ')
+      },
+
       // Decoupage administratif de reference et cles admises dans le GeoJSON.
       libelleDecoupage: 'communes INSEE',
       clesNom: CLES_NOM,
@@ -5469,6 +5544,31 @@
       // ⚠️ ISTAT publie les 7 899 comuni en FICHIER, pas en service
       //    interrogeable : c'est le chemin « charger un GeoJSON » qui sert,
       //    celui-la meme qu'utilise `Recuperer-Communes.html`.
+      // ── D'ou viennent les contours ─────────────────────────────────────────
+      // ⚡ SOURCE MESUREE le 08/09 (voir ANALYSE-ITALIE.md § 3 bis) :
+      //    openpolis/geojson-italy, CC-BY-4.0 — permissive et NON VIRALE, le
+      //    critere qui avait fait ecarter les contours d'api.wazefrance.com
+      //    (derives d'OpenStreetMap, ODbL). Depot pousse le 17/08/2026.
+      // ⚠️ Mediane 271 Ko par province, contre ~3 Mo par departement francais :
+      //    l'attente annoncee dans l'aide n'est PAS la meme, ne pas la recopier.
+      // ✅ COUVERTURE VERIFIEE : 110 provinces actuelles, 110 fichiers servis,
+      //    aucune province sans fichier. Les 9 fichiers vides du depot
+      //    (90, 91, 92, 95, 104-107, 111) sont des provinces ABOLIES — la
+      //    Sardaigne a reorganise les siennes en 2016 — et ne figurent donc pas
+      //    dans PROVINCES_IT. Aucun repli sur le fichier region n'est
+      //    necessaire : je l'avais cru, la mesure a dit le contraire.
+      sourceContours: {
+        libelle: 'Télécharger (openpolis / ISTAT)',
+        uniteLabel: 'province',
+        unitesLabel: 'provinces',
+        placeholder: 'Filtrer une province…',
+        unites: () => PROVINCES_IT,
+        url: code => 'https://raw.githubusercontent.com/openpolis/geojson-italy/master' +
+          '/geojson/limits_P_' + encodeURIComponent(code) + '_municipalities.geojson',
+        aide: 'Province ISTAT (Bergamo = 16, Milano = 15…). ~270 Ko par province.',
+        nomSource: liste => 'openpolis/geojson-italy — prov. ' + liste.join(', ')
+      },
+
       libelleDecoupage: 'comuni ISTAT',
       // ⚡ MESURE DU 08/09 sur la source reelle (openpolis/geojson-italy, voir
       //    ANALYSE-ITALIE.md § 3) : les proprietes servies sont `name` et
@@ -11663,12 +11763,28 @@
     const grille = o.querySelector('#agn-deps');
     const compte = o.querySelector('#agn-dep-n');
     const go = o.querySelector('#agn-dep-go');
+    // ⚠️ Les textes de cette section nommaient le DÉPARTEMENT en dur. En Italie
+    //    ils auraient annoncé « Filtrer un département… » et « ~3 Mo chacun »
+    //    devant une liste de provinces à 270 Ko — faux sur les deux tableaux.
+    //    Ils viennent maintenant du référentiel, comme la liste elle-même.
+    {
+      const sc = REF.sourceContours;
+      const opt = o.querySelector('#agn-source option[value="gouv"]');
+      if (opt) opt.textContent = tr(sc.libelle);
+      const filtre = o.querySelector('#agn-dep-filtre');
+      if (filtre) {
+        filtre.placeholder = tr(sc.placeholder);
+        filtre.title = 'Filtre la liste par numéro ou par nom de ' + tr(sc.uniteLabel);
+      }
+      go.title = 'Télécharge les contours des ' + tr(sc.unitesLabel) +
+        ' cochées et les AJOUTE à ta base, sans effacer les autres. ' + tr(sc.aide);
+    }
     const choisis = new Set();
     const majCompte = () => {
       compte.textContent = choisis.size ? choisis.size + ' coche(s)' : '0';
       go.disabled = choisis.size === 0;
     };
-    DEPARTEMENTS.forEach(d => {
+    REF.sourceContours.unites().forEach(d => {
       const l = el('<label class="agn-dep" data-cle="' + esc(normSansAccent(d.code + ' ' + d.nom)) +
         '"><input type="checkbox"><code>' + esc(d.code) + '</code><span>' + esc(d.nom) + '</span></label>');
       l.querySelector('input').onchange = e => {
