@@ -4875,6 +4875,91 @@
   // zone batie reste donc un polygone a tracer, exactement comme en France.
   // ===========================================================================
 
+  // ===========================================================================
+  // LANGUE DE L'INTERFACE (v2.40)
+  //
+  // ⭐⭐ LE TEXTE FRANCAIS EST LA CLE. Il n'y a pas 1 032 identifiants a
+  // inventer, et surtout : quand une traduction manque, c'est le FRANCAIS qui
+  // s'affiche — jamais une cle technique nue. La degradation reste lisible, et
+  // la migration se fait chaine par chaine sans jamais casser l'existant.
+  // Corollaire a connaitre : changer un texte francais casse sa traduction. Le
+  // harnais le dit (`tools/test-i18n.js` liste les cles orphelines) plutot que
+  // de laisser la phrase repasser en francais en silence.
+  //
+  // ⚠️⚠️ LA LANGUE N'EST PAS LE PAYS, ET LES CONFONDRE SERAIT UN CONTRESENS.
+  // Le REFERENTIEL dit quelles regles appliquer (celles du territoire regarde) ;
+  // la LANGUE dit dans quels mots les enoncer (celle de l'editeur). Un Francais
+  // qui audite l'Italie applique les regles italiennes en francais ; un Italien
+  // qui aide en France applique les regles francaises en italien. Deux axes
+  // independants.
+  //
+  // ⚡ `I18n.locale` N'EST PAS DEVINE : le script le lit deja pour relever les
+  // categories de POI, et cette lecture tourne en live depuis le 26/07.
+  // ⚠️ La fonction s'appelle `tr` et non `t` : `t` est deja pris par une
+  // variable locale dans le releve des categories, et l'ombrer serait un piege
+  // silencieux.
+  // ===========================================================================
+
+  const TEXTES = {
+    // ⚠️ Le vocabulaire est celui du wiki italien, pas une traduction mot a
+    //    mot du francais : « Luoghi » (et non « POI »), « Rampe », « Scudetti »,
+    //    « numeri civici ». Un editeur doit retrouver les mots de SA doc.
+    // ⏳ A faire relire par Silvio avant publication.
+    it: {
+      // ── Libelles des controles ──────────────────────────────────────────
+      'Nommage dentro / fuori il centro abitato (cœur)':
+        'Denominazione dentro / fuori il centro abitato (nucleo)',
+      'Cartouches des SS / SR / SP':
+        'Scudetti delle SS / SR / SP',
+      'Bretelles : jamais de ville (« SEMPRE senza città »)':
+        'Rampe: mai la città (« SEMPRE senza città »)',
+      'Voies ferrées, pistes, ferries : jamais de ville':
+        'Ferrovie, piste, traghetti: mai la città',
+      'Abréviations interdites (V.le, C.so, P.zza…)':
+        'Abbreviazioni vietate (V.le, C.so, P.zza…)',
+      'Lettres pointées interdites (« Via G. Garibaldi »)':
+        'Lettere puntate vietate (« Via G. Garibaldi »)',
+      'Nom commençant par une minuscule':
+        'Nome che inizia con una lettera minuscola',
+      'Sigles écrites avec un espace (« SS 12 » au lieu de « SS12 »)':
+        'Sigle scritte con uno spazio (« SS 12 » invece di « SS12 »)',
+      'Dates en chiffres romains (« Via IV Novembre »)':
+        'Date in numeri romani (« Via IV Novembre »)',
+      'Bretelles : format du nom (« > Verona », « SS42 > Mantova »)':
+        'Rampe: formato del nome (« > Verona », « SS42 > Mantova »)',
+      'Bretelles : le nom suit-il « > Verona » ou « Uscita 17: Jesi Centro » ?':
+        'Rampe: il nome segue « > Verona » o « Uscita 17: Jesi Centro »?',
+      'POI : adresse incomplète (rue ou commune manquante)':
+        'Luoghi: indirizzo incompleto (via o comune mancante)',
+      'POI : commune différente du contour ISTAT (à vérifier)':
+        'Luoghi: comune diverso dal confine ISTAT (da verificare)',
+      'POI : numéro de rue manquant':
+        'Luoghi: numero civico mancante'
+    }
+  };
+
+  let LANGUE = 'fr';
+
+  function detecterLangue() {
+    try {
+      const I = hote.I18n || window.I18n;
+      const brut = (I && I.locale) ||
+                   ((hote.navigator || navigator) || {}).language || 'fr';
+      const court = String(brut).slice(0, 2).toLowerCase();
+      // ⚠️ On ne retient une langue que si on a REELLEMENT de quoi la parler :
+      //    une locale inconnue doit retomber sur le francais, pas afficher un
+      //    dictionnaire vide.
+      LANGUE = TEXTES[court] ? court : 'fr';
+    } catch (e) { LANGUE = 'fr'; }
+    return LANGUE;
+  }
+
+  /** Le texte dans la langue de l'editeur — le francais s'il n'y a rien. */
+  function tr(fr) {
+    const d = TEXTES[LANGUE];
+    return (d && d[fr]) || fr;
+  }
+
   const IT_CODES = new Set(['IT']);
   const IT_NOMS = new Set(['italie', 'italia', 'italy'].map(n => normSansAccent(n)));
 
@@ -11135,8 +11220,12 @@
     // La liste des controles vient du REFERENTIEL du pays, pas d'une liste en
     // dur : un autre pays affichera automatiquement les siens.
     const zoneCtrl = q('#agn-r-controles');
+    // ⭐ Un SEUL `tr()` traduit tous les libellés de contrôles, des deux pays.
+    //   Ils sont traduits ICI, au rendu, et non dans le descripteur : celui-ci
+    //   est construit au chargement, avant que la langue de WME soit lue — les
+    //   libellés y seraient figés en français.
     REF.controles.forEach(({ cle, libelle }) => {
-      const l = el(`<label class="agn-sb-c"><input type="checkbox"> ${esc(libelle)}</label>`);
+      const l = el(`<label class="agn-sb-c"><input type="checkbox"> ${esc(tr(libelle))}</label>`);
       const inp = l.querySelector('input');
       inp.checked = !!options.controles[cle];
       inp.onchange = () => {
@@ -13088,6 +13177,12 @@
     sdk = hote.getWmeSdk({ scriptId: SCRIPT_ID, scriptName: SCRIPT_NAME });
     // /!\ Ne PAS appeler sdk.Events.waitForWmeReady() : la methode existe mais
     // son appel leve une TypeError et fait echouer tout le demarrage.
+
+    // ⚠️⚠️ AVANT TOUTE CONSTRUCTION D'INTERFACE. `buildOverlay` et
+    // `buildReglages` figent les libellés qu'ils affichent : lire la langue
+    // après eux la rendrait sans effet, et le mécanisme aurait « marché »
+    // sans que rien ne change à l'écran. Compiler n'est pas démarrer.
+    detecterLangue();
 
     await chargerPrefs();   // polygones + sans-agglo + traites (WMEPrefs, repli local)
     buildOverlay();
