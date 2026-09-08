@@ -4316,9 +4316,18 @@
     if (!agglo || !agglo.rattache) return { ville: nomCommune, doute: null };
     const villeSeg = nam.primary.cityName ||
                      (nam.alts.find(a => a.cityName) || {}).cityName || '';
-    // la ville du segment peut deja etre au format « Village (Commune) »
-    const village = (villeSeg.match(/^\s*(.+?)\s*\(/) || [null, villeSeg])[1].trim();
-    if (village) return { ville: village + ' (' + nomCommune + ')', doute: null };
+    // ⚠️⚠️ LE FORMAT DU VILLAGE RATTACHE EST NATIONAL (v2.40).
+    // La France ecrit « Village (Commune) », l'Italie « frazione, comune »
+    // — et son wiki precise meme « dopo la virgola c'e uno spazio ».
+    // Ecrit en dur, ce format produisait deux fautes en Italie : la cible
+    // proposee portait des parentheses la ou la regle veut une virgule, et
+    // surtout la RELECTURE se trompait — cherchant une parenthese dans
+    // « Miramare, Rimini », elle n'en trouvait pas, prenait le libelle ENTIER
+    // pour le nom du village, et composait « Miramare, Rimini (Scanzorosciate) ».
+    // Une valeur deja juste devenait donc un ecart, et sa « correction »
+    // l'abimait.
+    const village = (villeSeg.match(REF.reVillageDansVille) || [null, villeSeg])[1].trim();
+    if (village) return { ville: REF.formatVillage(village, nomCommune), doute: null };
     return { ville: nomCommune, doute: 'village rattaché : aucune ville sur le segment, ' +
              'impossible d\'en déduire le nom du village' };
   }
@@ -5118,6 +5127,9 @@
       reBretForme: RE_BRET_FORME,
       exempleBretelle: '« A6a: Paris », « Sortie 18: Valensole » — ' +
                        'ou « > Orsay » quand aucun numéro ne s\'applique',
+      // Village rattaché : « Village (Commune) ».
+      reVillageDansVille: /^\s*(.+?)\s*\(/,
+      formatVillage: (village, commune) => village + ' (' + commune + ')',
       // La France n'a pas de faute d'ecriture au-dela des controles nommes.
       formesInterdites: [],
       // ⚠️ Releve dans WME pour le pays 73 : les identifiants de cartouche ne
@@ -5272,6 +5284,10 @@
       reBretForme: RE_BRET_FORME_IT,
       exempleBretelle: '« > Verona », « SS42 > Mantova », « A4 Verona Sud », ' +
                        '« Uscita Fano » ou « Uscita 17: Jesi Centro »',
+      // ⚠️ Frazione : « nomefrazione, nomecomune » — virgule SUIVIE D'UN
+      //    ESPACE, le wiki (376277) le précise noir sur blanc.
+      reVillageDansVille: /^\s*(.+?)\s*,/,
+      formatVillage: (village, commune) => village + ', ' + commune,
 
       // ── Les fautes d'ecriture propres a l'italien ──────────────────────────
       formesInterdites: [

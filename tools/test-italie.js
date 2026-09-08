@@ -64,7 +64,13 @@ function monter(suffixe) {
     relire(n('RE_ROUTE')), relire(n('RE_COMMUNALE')), relire(n('RE_AUTOROUTE')),
     relire(n('RE_NOM_COMPOSITE')),
     'const REF = { reRoute: ' + n('RE_ROUTE') + ', reCommunale: ' + n('RE_COMMUNALE') +
-    ', reAutoroute: ' + n('RE_AUTOROUTE') + ', reNomComposite: ' + n('RE_NOM_COMPOSITE') + ' };',
+    ', reAutoroute: ' + n('RE_AUTOROUTE') + ', reNomComposite: ' + n('RE_NOM_COMPOSITE') +
+    // ⚠️ Le format du village rattaché est national : parenthèses en France,
+    //    virgule + espace en Italie (« nomefrazione, nomecomune »).
+    (suffixe === '_IT'
+      ? ', reVillageDansVille: /^\\s*(.+?)\\s*,/, formatVillage: (v, c) => v + ", " + c'
+      : ', reVillageDansVille: /^\\s*(.+?)\\s*\\(/, formatVillage: (v, c) => v + " (" + c + ")"') +
+    ' };',
     relire('isRoute'), relire('isCommunale'), relire('fmt'), relire('key'),
     'const options = { altEnTrop: false };',
     extraire('villeAgglo'), extraire('expectedNaming'),
@@ -207,6 +213,38 @@ titre('🔴 Le nom composite est LÉGITIME en Italie (et interdit en France)');
   const rFr2 = FR.expectedNaming(nam(['D980 - Route de Bagnols', 'X']), ZONE, 'X');
   verifier('34. … et la règle FR reste juste chez elle',
     rFr2.primary.name, 'Route de Bagnols');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 4 bis. LA FRAZIONE — « nomefrazione, nomecomune » (376277)
+// ═══════════════════════════════════════════════════════════════════════════
+titre('🔴 Le village rattaché : virgule en Italie, parenthèses en France');
+const RATTACHE = { rattache: true, ville: null };
+{
+  // Wiki 376277 : « Il nome della frazione deve essere indicato nella forma :
+  // nomefrazione, nomecomune. » Et 376292 ajoute : « dopo la virgola c'è uno
+  // spazio ». L'exemple du wiki est « Miramare, Rimini ».
+  const r = IT.expectedNaming(nam(['Viale Regina Margherita', 'Miramare, Rimini']),
+                              RATTACHE, 'Rimini');
+  verifier('57. ⭐ la frazione s\'écrit « Miramare, Rimini »',
+    r.primary.cityName, 'Miramare, Rimini');
+}
+{
+  // ⚠️⚠️ LE DEFAUT EVITE : le format était écrit en dur au format français.
+  // La RELECTURE cherchait une parenthèse dans « Miramare, Rimini », n'en
+  // trouvait pas, prenait le libellé ENTIER pour le nom du village et
+  // composait « Miramare, Rimini (Rimini) ». Une valeur DÉJÀ JUSTE devenait un
+  // écart, et sa « correction » l'abîmait.
+  const r = IT.expectedNaming(nam(['Viale Regina Margherita', 'Miramare, Rimini']),
+                              RATTACHE, 'Rimini');
+  verifier('58. ⭐⭐ et surtout PAS « Miramare, Rimini (Rimini) »',
+    r.primary.cityName.indexOf('(') === -1, true);
+}
+{
+  const r = FR.expectedNaming(nam(['Rue du Moulin', 'Le Bosquet (Gruissan)']),
+                              RATTACHE, 'Gruissan');
+  verifier('59. … et la France garde ses parenthèses',
+    r.primary.cityName, 'Le Bosquet (Gruissan)');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -42,7 +42,12 @@ function verifier(titre, obtenu, attendu) {
 }
 
 const api = new Function(
-  relire('fmt') + '\n' + extraire('verifierGiratoire') + '\n' + extraire('villeAgglo') +
+  relire('fmt') + '\n' +
+  // ⚠️ v2.40 : le format du village rattaché appartient au référentiel —
+  //    « Village (Commune) » en France, « frazione, comune » en Italie.
+  'const REF = { reVillageDansVille: /^\\s*(.+?)\\s*\\(/,' +
+  '  formatVillage: (v, c) => v + " (" + c + ")" };\n' +
+  extraire('verifierGiratoire') + '\n' + extraire('villeAgglo') +
   '\nreturn { verifierGiratoire, villeAgglo };')();
 
 /** Construit un `nam` minimal. */
