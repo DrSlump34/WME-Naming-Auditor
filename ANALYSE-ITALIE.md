@@ -13,7 +13,8 @@
 | ✅ Fautes d'écriture IT | sigles sans espace, dates en chiffres romains |
 | ✅ Format des *frazioni* | `nomefrazione, nomecomune` |
 | ✅ Codes ISTAT à 6 chiffres | le partage communautaire fonctionne |
-| ⏳ 7 questions à Silvio | message prêt, 3 prioritaires (§ 6) |
+| ✅ **Chargement des contours** | source openpolis, 110 provinces, **chargement AUTOMATIQUE sans réseau** |
+| ⏳ 6 questions à Silvio | *rotatorie* tranché ; message prêt sur les places |
 | ⏳ `fari` | nom du champ **relevé** (voir ci-dessous) ; reste à voir comment le **SDK** l'expose |
 | ⏳ Ordinaux `1ª` / `1º` | trop ambigu pour être automatisé — question à Silvio |
 | ⏳ i18n | 714 chaînes, pas commencé |
@@ -47,7 +48,31 @@ pouvait les attraper : ils montent tous le moteur avec **un référentiel figé*
 3. Il a fallu **deux** correctifs : rendre la bascule rejouable ne servait à rien tant
    qu'elle n'était pas déclenchée. Le premier essai a montré le second défaut.
 
-⏳ **Reste à vérifier** : le retour en France (bascule inverse, pas de régression).
+### La chaîne complète, éprouvée en vrai (Bergamo puis Rome)
+
+`contours chargés → commune trouvée → référentiel italien → règles italiennes, en français`
+
+**Six défauts que les 900+ vérifications vertes n'avaient pas vus.** Aucun harnais ne pouvait
+les attraper : ils montent le moteur avec un référentiel figé et **ne construisent jamais
+l'interface réelle**. C'est exactement le trou que les essais comblent.
+
+| # | Défaut | Ce qu'il produisait |
+|---|---|---|
+| 1 | Options du nouveau pays jamais initialisées | **aucun** contrôle italien ne s'exécutait |
+| 2 | Bascule jamais **déclenchée** (partait de `scan()`) | référentiel français devant une carte italienne |
+| 3 | Section Contours non repeinte | 101 départements français en Italie ⇒ **rien à charger** |
+| 4 | Nœud **déplacé** cherché par sélecteur | libellés figés alors que la grille, elle, se mettait à jour |
+| 5 | 🔴 **Le cercle** : pays déduit du référentiel actif | boucle fermée dès que des contours étaient chargés |
+| 6 | 🔴 `o` au lieu de `q` dans `buildReglages` | `ReferenceError` ⇒ **tout le panneau amputé, en silence** |
+
+⭐ Les leçons qui dépassent le portage :
+- une **exception dans un constructeur d'interface** ne casse pas la ligne fautive, elle casse
+  tout ce qui suit — et l'écran montre une fonctionnalité disparue, pas une erreur ;
+- un **nœud déplacé** se garde par sa référence, jamais par son chemin ;
+- une règle trouvée pour **un** cas doit être posée **partout** où elle s'applique (défaut n° 3
+  était le n° 1 non généralisé) ;
+- **corriger n'est pas vérifier** : il a fallu deux correctifs successifs pour la bascule, le
+  premier ayant seulement rendu rejouable ce qui n'était pas déclenché.
 
 ### ⚡ Relevé du 08/09 — l'attribut « obbligo accensione dei fari »
 
