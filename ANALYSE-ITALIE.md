@@ -15,15 +15,16 @@
 | ✅ Codes ISTAT à 6 chiffres | le partage communautaire fonctionne |
 | ✅ **Chargement des contours** | source openpolis, 110 provinces, **chargement AUTOMATIQUE sans réseau** |
 | ⏳ 6 questions à Silvio | *rotatorie* tranché ; message prêt sur les places |
-| ⏳ `fari` | nom du champ **relevé** (voir ci-dessous) ; reste à voir comment le **SDK** l'expose |
+| ✅ **`fari`** | `flagAttributes.headlights`, relevé en live et codé |
+| ✅ Panneaux EB10/EB20 | **désactivés en Italie** : aucune source, le chemin entier disparaît |
 | ⏳ Ordinaux `1ª` / `1º` | trop ambigu pour être automatisé — question à Silvio |
-| ⏳ i18n | 714 chaînes, pas commencé |
+| ⏳ i18n | **21 clés** sur ~1 032 chaînes ; mécanique posée et éprouvée |
 | ✅ **Essai réel CONCLUANT** | 08/09 à Bergamo — voir ci-dessous |
 
 ⛔ **NE PAS PUBLIER** : la description de l'en-tête dit encore « FRANCE UNIQUEMENT », et
 c'est volontaire tant que les questions restent ouvertes et que rien n'a été essayé en vrai.
 
-**900 vérifications sur 29 fichiers, 0 échec.**
+**995 vérifications sur 30 fichiers, 0 échec.**
 
 ### ✅ Essai réel du 08/09 — Bergamo, v2.40.00 dans Tampermonkey
 
@@ -52,7 +53,7 @@ pouvait les attraper : ils montent tous le moteur avec **un référentiel figé*
 
 `contours chargés → commune trouvée → référentiel italien → règles italiennes, en français`
 
-**Six défauts que les 900+ vérifications vertes n'avaient pas vus.** Aucun harnais ne pouvait
+**Neuf défauts que les 900+ vérifications vertes n'avaient pas vus.** Aucun harnais ne pouvait
 les attraper : ils montent le moteur avec un référentiel figé et **ne construisent jamais
 l'interface réelle**. C'est exactement le trou que les essais comblent.
 
@@ -96,10 +97,12 @@ I18n.translations.fr.edit.segment.fields.headlights         → « Allumez vos f
 | `tunnel` | Tunnel |
 | `unpaved` | Non bitumée |
 
-⏳ **Ce qui manque encore** : comment le **SDK** (et non `W.model`) expose ce drapeau — WNA lit
-`sdk.DataModel.Segments`, jamais le modèle brut. Il faut un segment réellement chargé pour le
-voir, et l'onglet piloté reste `visibilityState: "hidden"` : WME n'y charge aucune donnée.
-⚠️ **Ne pas coder le contrôle avant** : le nom du champ ne dit pas comment on le lit.
+✅ **RÉSOLU le 08/09, et le relevé a évité un désastre.** Le SDK expose
+`segment.flagAttributes`, un objet de booléens. `headlights` n'existe **ni** comme attribut
+direct de l'objet SDK, **ni** dans le modèle brut (où les drapeaux vivent dans un masque
+`flags`). Écrire `seg.headlights` — le nom pourtant exact — aurait rendu `undefined` sur
+**chaque** segment : « feux manquants » sur toute la commune, avec l'aplomb d'un contrôle qui
+marche. ⇒ **Le nom d'un champ ne dit pas comment on le lit.**
 
 ### Les défauts trouvés *en portant* — aucun n'aurait fait de bruit
 
