@@ -4636,6 +4636,26 @@
         ecarts.push({ champ: 'majuscule' + ou, avant: nom,
           apres: nom.charAt(0).toUpperCase() + nom.slice(1) });
       }
+
+      // ── FORMES INTERDITES DECLAREES PAR LE PAYS (v2.40) ────────────────────
+      //
+      // ⭐ Le moteur ne connait AUCUNE de ces regles : il applique ce que le
+      // referentiel declare. Un pays ajoute une faute d'ecriture sans qu'une
+      // ligne d'ici ne bouge — c'est le meme parti que `controles`.
+      //
+      // Chaque entree : { cle, re, message, corriger? }. `corriger` est
+      // FACULTATIF et ne se fournit que si la reecriture est MECANIQUE : sans
+      // lui, le report explique la faute sans proposer de nom, exactement
+      // comme le fait `bretelleForme` faute de connaitre le panneau.
+      (REF.formesInterdites || []).forEach(f => {
+        if (!c[f.cle] || !f.re.test(nom)) return;
+        // Le dictionnaire passe avant, comme pour les trois controles ci-dessus.
+        if (dicoLeCorrige(s => f.re.test(s))) return;
+        const propreCorrection = f.corriger ? f.corriger(nom) : null;
+        ecarts.push(propreCorrection && propreCorrection !== nom
+          ? { champ: f.cle + ou, avant: nom, apres: propreCorrection }
+          : { champ: f.cle + ou, avant: nom, apres: f.message, sansProposition: true });
+      });
       if (c.fonctionDirection && REF.reFonction.test(nom)) {
         ecarts.push({ champ: 'fonction dans le nom' + ou, avant: nom,
           apres: 'le nom ne doit pas decrire la fonction du segment' });
@@ -4671,10 +4691,9 @@
       // panneau, qu'il ne voit pas. Proposer une réécriture reviendrait à
       // l'inventer. Il dit la forme attendue, l'éditeur écrit le nom.
       // ⚠️ Une bretelle SANS nom est parfaitement valide : rien n'est dit sur elle.
-      if (bretelle && c.bretelleForme && !RE_BRET_FORME.test(nom)) {
+      if (bretelle && c.bretelleForme && !REF.reBretForme.test(nom)) {
         ecarts.push({ champ: 'bretelle : nom hors format' + ou, avant: nom,
-          apres: 'forme attendue : « A6a: Paris », « Sortie 18: Valensole » — ' +
-                 'ou « > Orsay » quand aucun numéro ne s\'applique',
+          apres: 'forme attendue : ' + REF.exempleBretelle,
           sansProposition: true });
       }
       // --- Voie communale ecrite en toutes lettres ---------------------------
@@ -4969,6 +4988,81 @@
    *  `redactionDico` n'est donc pas propose en Italie. */
   const DICO_FONCTIONS_IT = {};
 
+  /** Forme attendue d'une bretelle italienne (376292 + 376306). */
+  const RE_BRET_FORME_IT = new RegExp(
+    '^(?:' +
+      '>\\s*\\S' +                                   // > Verona, > A4, A21
+      '|(?:SPexSS|SGC|NSA|GRA|SS|SR|SP|SC|RA|A)\\s?\\d+[a-zA-Z0-9]*\\s*(?:>\\s*)?\\S' +
+                                                     // SS42 > Mantova, A4 Verona Sud
+      '|Uscita\\s+\\d+\\s*:\\s*\\S' +                // Uscita 17: Jesi Centro
+      '|Uscita\\s+\\S' +                             // Uscita Fano
+      '|Raccordo\\s+\\S' +                           // Raccordo A21
+      '|Variante\\s+\\S' +
+    ')');
+
+  // ── Les fautes d'ECRITURE italiennes ───────────────────────────────────────
+
+  /** Sigle ecrite avec un espace : « in maiuscolo e SENZA SPAZI » (376292). */
+  const RE_SIGLE_ESPACE_IT = /^(SPexSS|SGC|NSA|GRA|SS|SR|SP|SC|RA|A)\s+(\d.*)$/;
+
+  /**
+   * Date ecrite en chiffres romains : « Via IV Novembre » doit s'ecrire
+   * « Via 4 Novembre » (376292).
+   *
+   * ⚠️⚠️ DEUX PIEGES, et ils feraient tous deux des DEGATS :
+   *
+   * 1. Les chiffres romains des PAPES ET DES ROIS restent en romain — « Viale
+   *    Papa Giovanni XXIII », « Via Vittorio Emanuele II ». Seule l'apostrophe
+   *    qu'on leur ajoutait est abrogee. On ne convertit donc QUE ce qui est
+   *    suivi d'un NOM DE MOIS : c'est ce qui fait une date.
+   *
+   * 2. La classe [IVXLCDM] avale des mots italiens ordinaires : « Via DI
+   *    Maggio » (un patronyme) deviendrait « Via 501 Maggio ». Un jour de mois
+   *    va de 1 a 31, donc seuls I, V et X sont possibles — D et M sortent, et
+   *    « DI » ne matche plus. La plage est verifiee EN PLUS, en clair.
+   */
+  const MOIS_IT = 'gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|' +
+                  'settembre|ottobre|novembre|dicembre';
+  const RE_DATE_ROMAINE_IT =
+    new RegExp('\\b([IVX]{1,6})\\s+(' + MOIS_IT + ')\\b', 'i');
+
+  /** Rend la valeur d'un chiffre romain, ou `null` s'il est mal forme. */
+  function romainVersArabe(r) {
+    const V = { I: 1, V: 5, X: 10 };
+    const s = String(r || '').toUpperCase();
+    if (!/^[IVX]+$/.test(s)) return null;
+    let total = 0;
+    for (let i = 0; i < s.length; i++) {
+      const v = V[s[i]], suiv = V[s[i + 1]];
+      total += (suiv && suiv > v) ? -v : v;
+    }
+    // ⚠️ Un aller-retour : « IIII » vaut 4 mais ne s'ecrit pas ainsi. On refuse
+    //    ce qu'on ne saurait pas reecrire a l'identique, plutot que de
+    //    « corriger » une forme qu'on a mal lue.
+    return arabeVersRomain(total) === s ? total : null;
+  }
+  function arabeVersRomain(n) {
+    if (!(n >= 1 && n <= 39)) return null;
+    const T = [[10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']];
+    let out = '', reste = n;
+    T.forEach(([v, s]) => { while (reste >= v) { out += s; reste -= v; } });
+    return out;
+  }
+
+  /**
+   * Le test complet d'une date romaine : le motif, PUIS la plage 1-31.
+   * On expose un objet a methode `test` plutot qu'une expression : le moteur
+   * appelle `f.re.test(nom)` sans savoir ce qu'il y a derriere.
+   */
+  const DATE_ROMAINE_IT = {
+    test: nom => {
+      const m = String(nom || '').match(RE_DATE_ROMAINE_IT);
+      if (!m) return false;
+      const n = romainVersArabe(m[1]);
+      return n != null && n >= 1 && n <= 31;
+    }
+  };
+
   // ---------------------------------------------------------------------------
   // Descripteur du referentiel francais : c'est le SEUL point de contact entre
   // le pays et le moteur. Un autre pays fournit le meme objet.
@@ -5021,6 +5115,11 @@
       reBretDoubleNumero: RE_BRET_DOUBLE_NUMERO,
       prefixeVoie: PREFIXE_VOIE,
       dicoFonctions: DICO_FONCTIONS,
+      reBretForme: RE_BRET_FORME,
+      exempleBretelle: '« A6a: Paris », « Sortie 18: Valensole » — ' +
+                       'ou « > Orsay » quand aucun numéro ne s\'applique',
+      // La France n'a pas de faute d'ecriture au-dela des controles nommes.
+      formesInterdites: [],
       // ⚠️ Releve dans WME pour le pays 73 : les identifiants de cartouche ne
       //    sont PAS universels, un autre pays a les siens.
       signTypeRocade: SIGNTYPE_ROCADE_FR,
@@ -5170,6 +5269,31 @@
       reBretDoubleNumero: RE_BRET_DOUBLE_NUMERO_IT,
       prefixeVoie: PREFIXE_VOIE_IT,
       dicoFonctions: DICO_FONCTIONS_IT,
+      reBretForme: RE_BRET_FORME_IT,
+      exempleBretelle: '« > Verona », « SS42 > Mantova », « A4 Verona Sud », ' +
+                       '« Uscita Fano » ou « Uscita 17: Jesi Centro »',
+
+      // ── Les fautes d'ecriture propres a l'italien ──────────────────────────
+      formesInterdites: [
+        {
+          cle: 'sigleEspace',
+          re: RE_SIGLE_ESPACE_IT,
+          message: 'les sigles s\'écrivent sans espace (« SS12 », pas « SS 12 »)',
+          // Reecriture MECANIQUE : on retire l'espace, rien d'autre.
+          corriger: nom => nom.replace(RE_SIGLE_ESPACE_IT, '$1$2')
+        },
+        {
+          cle: 'dateRomaine',
+          re: DATE_ROMAINE_IT,
+          message: 'les dates s\'écrivent en chiffres arabes (« Via 4 Novembre »)',
+          // ⚠️ Le mois est REPRIS TEL QUEL : sa casse appartient au nom, ce
+          //    contrôle ne juge que le nombre.
+          corriger: nom => nom.replace(RE_DATE_ROMAINE_IT, (tout, r, mois) => {
+            const n = romainVersArabe(r);
+            return (n != null && n >= 1 && n <= 31) ? n + ' ' + mois : tout;
+          })
+        }
+      ],
       // ⏳ Identifiant du cartouche « rocade » italien : NON RELEVE. Il se lit
       //    dans WME (`W.model.signTypes`) une fois la carte sur l'Italie, comme
       //    l'a ete le 3035 francais. `null` est sur : `rocadeDe` ne conclut
@@ -5231,6 +5355,12 @@
           libelle: 'Lettres pointées interdites (« Via G. Garibaldi »)' },
         { cle: 'majuscule', portee: 'forme',
           libelle: 'Nom commençant par une minuscule' },
+        { cle: 'sigleEspace', portee: 'forme',
+          libelle: 'Sigles écrites avec un espace (« SS 12 » au lieu de « SS12 »)' },
+        // ⚠️ Ne touche QUE les dates : les papes et les rois gardent leurs
+        //    chiffres romains (« Papa Giovanni XXIII »).
+        { cle: 'dateRomaine', portee: 'forme',
+          libelle: 'Dates en chiffres romains (« Via IV Novembre »)' },
         { cle: 'formatBretelle', portee: 'forme',
           libelle: 'Bretelles : format du nom (« > Verona », « SS42 > Mantova »)' },
         { cle: 'bretelleForme', portee: 'forme', defaut: false,

@@ -40,6 +40,22 @@ function relire(nom) {
   if (!m) throw new Error('constante introuvable : ' + nom);
   return 'const ' + nom + ' = ' + m[1] + ';';
 }
+/**
+ * Relit une constante dont la valeur est un OBJET.
+ * ⚠️ `relire` coupe au premier `;` : sur un objet qui contient du code (comme
+ * `DATE_ROMAINE_IT`, dont la methode `test` en compte plusieurs), il rend un
+ * fragment tronque et le montage explose. On equilibre donc les accolades.
+ */
+function relireObjet(nom) {
+  const i = src.indexOf('const ' + nom + ' = {');
+  if (i < 0) throw new Error('objet introuvable : ' + nom);
+  let prof = 0, j = src.indexOf('{', i);
+  for (; j < src.length; j++) {
+    if (src[j] === '{') prof++;
+    else if (src[j] === '}') { prof--; if (!prof) break; }
+  }
+  return src.slice(i, j + 1) + ';';
+}
 
 /** Monte le moteur avec le vocabulaire d'UN pays. */
 function monter(suffixe) {
@@ -192,6 +208,99 @@ titre('🔴 Le nom composite est LÉGITIME en Italie (et interdit en France)');
   verifier('34. … et la règle FR reste juste chez elle',
     rFr2.primary.name, 'Route de Bagnols');
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 5. LES FAUTES D'ECRITURE ITALIENNES (`formesInterdites`)
+// ═══════════════════════════════════════════════════════════════════════════
+function monterForme() {
+  return new Function([
+    // Le vocabulaire italien, extrait.
+    ['RE_ABREV_IT', 'RE_ABREV_SANS_POINT_IT', 'RE_SAINT_IT', 'RE_FONCTION_IT',
+     'RE_DIRECTION_IT', 'RE_NOM_COMPOSITE_IT', 'RE_VOIE_LONGUE_IT',
+     'RE_BRET_DIRECTION_ROUTE_IT', 'RE_BRET_DOUBLE_NUMERO_IT', 'RE_BRET_FORME_IT',
+     // ⚠️ MOIS_IT avant RE_DATE_ROMAINE_IT : la seconde le lit a la construction.
+     'RE_SIGLE_ESPACE_IT', 'MOIS_IT', 'RE_DATE_ROMAINE_IT', 'PREFIXE_VOIE_IT',
+     'RE_SUFFIXE_ROCADE_IT'].map(relire).join('\n'),
+    extraire('romainVersArabe'), extraire('arabeVersRomain'),
+    relireObjet('DATE_ROMAINE_IT'),
+    extraire('initialeIsolee'), extraire('formatRocade'),
+    'const dico = { regles: [] };',
+    'function ecartDeRedaction() { return null; }',
+    // Le descripteur reduit a ce que `verifierForme` lit.
+    'const REF = { reAbrev: RE_ABREV_IT, reAbrevSansPoint: RE_ABREV_SANS_POINT_IT,',
+    '  reSaint: RE_SAINT_IT, reFonction: RE_FONCTION_IT, reDirection: RE_DIRECTION_IT,',
+    '  reNomComposite: RE_NOM_COMPOSITE_IT, reVoieLongue: RE_VOIE_LONGUE_IT,',
+    '  reBretDirectionRoute: RE_BRET_DIRECTION_ROUTE_IT,',
+    '  reBretDoubleNumero: RE_BRET_DOUBLE_NUMERO_IT, reBretForme: RE_BRET_FORME_IT,',
+    '  prefixeVoie: PREFIXE_VOIE_IT, reSuffixeRocade: RE_SUFFIXE_ROCADE_IT,',
+    '  exempleBretelle: "(exemple)",',
+    '  formesInterdites: [',
+    '    { cle: "sigleEspace", re: RE_SIGLE_ESPACE_IT,',
+    '      message: "sans espace",',
+    '      corriger: n => n.replace(RE_SIGLE_ESPACE_IT, "$1$2") },',
+    '    { cle: "dateRomaine", re: DATE_ROMAINE_IT,',
+    '      message: "chiffres arabes",',
+    '      corriger: n => n.replace(RE_DATE_ROMAINE_IT, (t, r, mois) => {',
+    '        const v = romainVersArabe(r);',
+    '        return (v != null && v >= 1 && v <= 31) ? v + " " + mois : t; }) }',
+    '  ] };',
+    'const options = { controles: { abreviations: true, contractions: true,',
+    '  majuscule: true, sigleEspace: true, dateRomaine: true } };',
+    extraire('verifierForme'),
+    'return verifierForme;'
+  ].join('\n'))();
+}
+const forme = monterForme();
+/** Les ecarts de forme d'un nom, en « champ : proposition ». */
+const ecartsDe = n => forme(nam([n, 'Roma']), {})
+  .map(x => x.champ + ' : ' + x.apres);
+
+titre('Sigles sans espace (376292 : « in maiuscolo e senza spazi »)');
+verifier('35. « SS 12 » est signalé ET corrigé',
+  ecartsDe('SS 12'), ['sigleEspace : SS12']);
+verifier('36. « SP 20bis » de même',
+  ecartsDe('SP 20bis'), ['sigleEspace : SP20bis']);
+verifier('37. « SS12 » bien écrit ⇒ rien', ecartsDe('SS12'), []);
+
+titre('Dates en chiffres romains (« Via IV Novembre » ⇒ « Via 4 Novembre »)');
+verifier('38. l\'exemple même du wiki',
+  ecartsDe('Via IV Novembre'), ['dateRomaine : Via 4 Novembre']);
+verifier('39. « Via XXV Aprile » ⇒ 25',
+  ecartsDe('Via XXV Aprile'), ['dateRomaine : Via 25 Aprile']);
+verifier('40. « Via XX Settembre » ⇒ 20',
+  ecartsDe('Via XX Settembre'), ['dateRomaine : Via 20 Settembre']);
+verifier('41. déjà en arabe ⇒ rien', ecartsDe('Via 4 Novembre'), []);
+verifier('42. l\'exception « Via 1º Maggio » ⇒ rien', ecartsDe('Via 1º Maggio'), []);
+
+titre('🔴 LES DEUX PIÈGES — ce qui ne doit SURTOUT pas être touché');
+// Le wiki garde les chiffres romains des papes et des rois : seule
+// l'apostrophe qu'on leur ajoutait est abrogée.
+verifier('43. ⭐ « Viale Papa Giovanni XXIII » reste INTACT (pape, pas une date)',
+  ecartsDe('Viale Papa Giovanni XXIII'), []);
+verifier('44. ⭐ « Via Vittorio Emanuele II » reste INTACT (roi)',
+  ecartsDe('Via Vittorio Emanuele II'), []);
+// D et I sont des chiffres romains : une classe [IVXLCDM] naïve aurait lu
+// « DI » comme 501 et proposé « Via 501 Maggio ». Un jour de mois tient dans
+// I, V et X — d'où la classe restreinte, plus la plage vérifiée en clair.
+verifier('45. ⭐⭐ « Via Di Maggio » (un patronyme) reste INTACT',
+  ecartsDe('Via Di Maggio'), []);
+verifier('46. ⭐ « Via Ivo Maggio » de même', ecartsDe('Via Ivo Maggio'), []);
+
+titre('Les lettres pointées (376292 : « le lettere puntate non vanno scritte »)');
+verifier('47. « Via G. Garibaldi » est signalé',
+  ecartsDe('Via G. Garibaldi').length > 0, true);
+verifier('48. ⭐ « Via Giuseppe Garibaldi » ⇒ rien',
+  ecartsDe('Via Giuseppe Garibaldi'), []);
+verifier('49. ⭐ « Via Cav. Rossi » ⇒ rien : « Cav. » est ADMISE par le TTS (376274)',
+  ecartsDe('Via Cav. Rossi'), []);
+
+titre('La conversion romaine, éprouvée seule');
+const rva = new Function(extraire('arabeVersRomain') + '\n' +
+                         extraire('romainVersArabe') + '\nreturn romainVersArabe;')();
+[['IV', 4], ['XXV', 25], ['XX', 20], ['I', 1], ['XXXI', 31], ['IX', 9]
+].forEach(([r, n], i) => verifier((50 + i) + '. « ' + r + ' » = ' + n, rva(r), n));
+verifier('56. ⚠️ « IIII » est refusé : mal formé, on ne réécrit pas ce qu\'on lit mal',
+  rva('IIII'), null);
 
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(60));
