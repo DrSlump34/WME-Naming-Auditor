@@ -1404,8 +1404,17 @@
    * `{ ok, ajoutPoly, ajoutSans }` ou `{ ok:false, raison }` (jamais d'exception,
    * et rien n'est ecrit en cas de rejet — meme discipline que WMEPrefs).
    */
-  /** Un code INSEE : 5 caracteres, chiffres, ou 2A/2B pour la Corse. */
-  const codeInseeValide = c => typeof c === 'string' && /^(\d{5}|2[AB]\d{3})$/.test(c);
+  /**
+   * Le code d'une commune est-il valide POUR LE PAYS COURANT ?
+   *
+   * ⚠️⚠️ LE FORMAT EST NATIONAL (v2.40). Il valait `/^(\d{5}|2[AB]\d{3})$/` —
+   * cinq caracteres, plus 2A/2B pour la Corse. Or un code ISTAT en compte SIX
+   * (« 016024 » = Bergamo). Tout polygone d'agglomeration italien partage
+   * aurait donc ete REJETE — et en silence, puisque « rien n'est ecrit en cas
+   * de rejet » : le partage communautaire n'aurait tout simplement pas
+   * fonctionne en Italie, sans que rien ne l'explique.
+   */
+  const codeCommuneValide = c => typeof c === 'string' && REF.reCodeCommune.test(c);
 
   /**
    * Un polygone d'agglomeration importe est-il exploitable ?
@@ -1440,7 +1449,7 @@
     const p = info.payload || {};
     let ajoutPoly = 0, ajoutSans = 0, rejetes = 0;
     for (const [insee, liste] of Object.entries(p.agglos || {})) {
-      if (!codeInseeValide(insee) || !Array.isArray(liste) || !liste.length) { rejetes++; continue; }
+      if (!codeCommuneValide(insee) || !Array.isArray(liste) || !liste.length) { rejetes++; continue; }
       // On ne garde que les polygones exploitables, et on n'accepte la commune
       // que s'il en reste au moins un : mieux vaut aucune donnee qu'un zonage
       // partiel, qui ferait passer pour « hors agglo » ce qui est en agglo.
@@ -1459,7 +1468,7 @@
       }
     }
     for (const insee of Object.keys(p.sansAgglo || {})) {
-      if (!codeInseeValide(insee)) { rejetes++; continue; }
+      if (!codeCommuneValide(insee)) { rejetes++; continue; }
       // ⚠️ Depuis la 2.26.04 une case DECOCHEE se stocke `false` au lieu d'etre
       // supprimee (pour la fusion multi-onglets). Un fichier de partage peut donc
       // en contenir : l'importer comme une declaration inverserait le choix de
@@ -5130,6 +5139,8 @@
       // Village rattaché : « Village (Commune) ».
       reVillageDansVille: /^\s*(.+?)\s*\(/,
       formatVillage: (village, commune) => village + ' (' + commune + ')',
+      // Code INSEE : 5 caractères, plus 2A/2B pour la Corse.
+      reCodeCommune: /^(\d{5}|2[AB]\d{3})$/,
       // La France n'a pas de faute d'ecriture au-dela des controles nommes.
       formesInterdites: [],
       // ⚠️ Releve dans WME pour le pays 73 : les identifiants de cartouche ne
@@ -5288,6 +5299,10 @@
       //    ESPACE, le wiki (376277) le précise noir sur blanc.
       reVillageDansVille: /^\s*(.+?)\s*,/,
       formatVillage: (village, commune) => village + ', ' + commune,
+      // ⚠️ Code ISTAT : SIX chiffres, zéros de tête compris (« 016024 » =
+      //    Bergamo). Le format français en attendait cinq — tout polygone
+      //    italien partagé aurait été rejeté, et en silence.
+      reCodeCommune: /^\d{6}$/,
 
       // ── Les fautes d'ecriture propres a l'italien ──────────────────────────
       formesInterdites: [
@@ -5492,11 +5507,15 @@
    *      MAJORITAIRE : en zone frontaliere, un segment isole ne fait pas foi.
    */
   function detecterPays() {
-    // 1. Preuve geometrique : nos propres contours INSEE, sous le centre.
+    // 1. Preuve geometrique : nos propres contours, sous le centre.
+    // ⚠️⚠️ LE PAYS SE LIT DANS LE REFERENTIEL ACTIF (v2.40) — c'est le SECOND
+    // endroit ou « France » etait ecrit en dur, et je n'avais corrige que
+    // l'autre. Meme defaut, deux occurrences : les contours charges sont ceux
+    // du referentiel courant, c'est donc lui qui dit de quel pays ils sont.
     try {
       const ctr = sdk.Map.getMapCenter();
       if (ctr && communes.length && communeDuPoint(ctr.lon, ctr.lat)) {
-        return { nom: 'France', code: 'FR' };
+        return { nom: REF.nom, code: REF.code };
       }
     } catch (e) { /* on essaie la suite */ }
     // 1 bis. ⚠️⚠️ UNE COMMUNE INSEE CHOISIE EST FRANCAISE, POINT — arbitrage de

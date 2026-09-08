@@ -159,6 +159,16 @@ verifier('28. … et la France reste la France quand c\'est elle qui sert',
   monter({ centre: EN_MER, extent: VUE_LARGE, communes: [GRUISSAN], active: GRUISSAN,
            ref: { nom: 'France', code: 'FR' } })(),
   { nom: 'France', code: 'FR' });
+// ⚠️⚠️ LA PREUVE GEOMETRIQUE AUSSI. « France » était écrit en dur à DEUX
+// endroits de detecterPays — la commune sélectionnée (ci-dessus) ET le contour
+// sous le centre de la vue (ici). Corriger le premier sans le second laissait
+// un éditeur italien, sans commune sélectionnée mais avec ses contours
+// chargés, recevoir « France » — donc les règles françaises.
+verifier('28 bis. ⭐ contour sous le centre + référentiel IT ⇒ Italie',
+  monter({ centre: { lon: 9.67, lat: 45.69 }, extent: [9.5, 45.6, 10.0, 45.8],
+           communes: [COMUNE_IT], active: null,
+           ref: { nom: 'Italie', code: 'IT' } })(),
+  { nom: 'Italie', code: 'IT' });
 
 // ═══════════════════════════════════════════════════════════════════════════
 // LA DECISION : ce territoire est-il SERVI ?

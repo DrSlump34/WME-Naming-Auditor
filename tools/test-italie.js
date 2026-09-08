@@ -340,6 +340,37 @@ const rva = new Function(extraire('arabeVersRomain') + '\n' +
 verifier('56. ⚠️ « IIII » est refusé : mal formé, on ne réécrit pas ce qu\'on lit mal',
   rva('IIII'), null);
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 6. LE CODE DE COMMUNE — 5 chiffres en France, 6 en Italie
+// ═══════════════════════════════════════════════════════════════════════════
+titre('🔴 Le format du code de commune (partage communautaire)');
+// Le contrôle valait /^(\d{5}|2[AB]\d{3})$/ pour tout le monde. Un code ISTAT
+// en compte SIX. Tout polygone italien partagé aurait été rejeté — et en
+// silence, la fonction ne consignant rien en cas de rejet.
+// ⚠️ Les expressions sont RELUES dans le descripteur, pas réécrites ici :
+//    un test qui recopierait la règle ne prouverait rien.
+const blocFR = src.slice(src.indexOf('    FR: {'), src.indexOf('    IT: {'));
+const blocIT = src.slice(src.indexOf('    IT: {'));
+const reDe = bloc => {
+  const m = bloc.match(/reCodeCommune:\s*(\/[^\n,]+\/)/);
+  if (!m) throw new Error('reCodeCommune introuvable');
+  return eval(m[1]);
+};
+const codeFR = reDe(blocFR), codeIT = reDe(blocIT);
+
+verifier('60. ⭐ « 016024 » (Bergamo, ISTAT) est accepté en Italie',
+  codeIT.test('016024'), true);
+verifier('61. ⚠️ … et REFUSÉ par le format français — le défaut évité',
+  codeFR.test('016024'), false);
+verifier('62. « 11170 » (Gruissan, INSEE) est accepté en France',
+  codeFR.test('11170'), true);
+verifier('63. « 2A004 » (Corse) est accepté en France',
+  codeFR.test('2A004'), true);
+verifier('64. ⚠️ un code à 5 chiffres n\'est PAS un code ISTAT',
+  codeIT.test('11170'), false);
+verifier('65. les zéros de tête sont conservés (« 001272 » = Alessandria)',
+  codeIT.test('001272'), true);
+
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(60));
 console.log('%d verifications OK, %d ECHEC(S)', ok, ko);
