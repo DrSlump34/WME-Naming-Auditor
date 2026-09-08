@@ -77,8 +77,13 @@ function monter(etat) {
     extraire('communeDuPoint'), extraire('detecterPays'),
     'return detecterPays;'
   ].join('\n');
-  return new Function('sdk', 'communes', 'communeActive', 'bboxIntersecte_unused', code)
-    .call(null, sdk, etat.communes || [], etat.active || null);
+  // ⚠️ `REF` (le referentiel actif) est desormais une dependance de
+  //    `detecterPays` : sur commune active, c'est LUI qui dit le pays, au lieu
+  //    du « France » qui y etait ecrit en dur. Par defaut la France, comme le
+  //    script au demarrage.
+  return new Function('sdk', 'communes', 'communeActive', 'REF', code)
+    .call(null, sdk, etat.communes || [], etat.active || null,
+          etat.ref || { nom: 'France', code: 'FR' });
 }
 
 // Gruissan, tel qu'il est en base : un contour cotier. La mer est a l'EST.
@@ -137,6 +142,64 @@ verifier('10. ⚠️ un segment hors de la vue ne compte pas (rémanence après 
   monter({ centre: EN_MER, extent: [3.00, 43.00, 3.20, 43.20], communes: [], active: null,
            segments: [SEG_ES] })(),        // Barcelone, hors emprise
   null);
+
+titre('⚠️ LA COMMUNE ACTIVE SUIT LE REFERENTIEL, plus « France » en dur');
+// Le defaut corrige en v2.40 : ce retour valait { France, FR } quoi qu il
+// arrive. Des qu un second pays existe, un editeur italien ayant charge ses
+// contours et selectionne une commune recevait « France » — donc les regles
+// FRANCAISES appliquees en Italie, sans le moindre signalement.
+const COMUNE_IT = { code: '016024', nom: 'Bergamo',
+  geom: carre(9.63, 45.67, 9.72, 45.72), bbox: [9.63, 45.67, 9.72, 45.72] };
+verifier('27. commune italienne + référentiel IT ⇒ Italie (et NON France)',
+  monter({ centre: { lon: 9.90, lat: 45.70 }, extent: [9.5, 45.6, 10.0, 45.8],
+           communes: [COMUNE_IT], active: COMUNE_IT,
+           ref: { nom: 'Italie', code: 'IT' } })(),
+  { nom: 'Italie', code: 'IT' });
+verifier('28. … et la France reste la France quand c\'est elle qui sert',
+  monter({ centre: EN_MER, extent: VUE_LARGE, communes: [GRUISSAN], active: GRUISSAN,
+           ref: { nom: 'France', code: 'FR' } })(),
+  { nom: 'France', code: 'FR' });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LA DECISION : ce territoire est-il SERVI ?
+//
+// ⚠️⚠️ CETTE SECTION MANQUAIT, et son absence rendait le fichier MENTEUR.
+// Les 10 verifications ci-dessus n'eprouvent que `detecterPays` — « quel pays
+// est sous les yeux ». Aucune ne touchait la fonction qui DECIDE si ce pays
+// est servi, alors que le titre du fichier annonce « hors de France, rien ne
+// doit passer ».
+//
+// ⚡ MESURE DU 08/09 : en forcant `estTerritoireFrancais` a rendre `true` en
+// toutes circonstances, les 10 verifications restaient VERTES — « Barcelone,
+// le blocage joue » compris. Le verrou n'etait pas eprouve, il etait suppose.
+// C'est le meme schema que le harnais de `test-cadrage` (26/08).
+// ═══════════════════════════════════════════════════════════════════════════
+function monterDecision() {
+  const code = [
+    relire('normSansAccent'),
+    relire('FR_CODES'), relire('FR_NOMS'),
+    extraire('estTerritoireFrancais'),
+    'return estTerritoireFrancais;'
+  ].join('\n');
+  return new Function(code)();
+}
+const servi = monterDecision();
+
+titre('LA DECISION — les territoires francais sont acceptes');
+[['France', 'le nom nu'], ['FR', 'le code'], ['france', 'la casse'],
+ ['Guadeloupe', 'l\'outre-mer par le nom'], ['GP', 'l\'outre-mer par le code'],
+ ['La Reunion', 'sans accent'], ['Nouvelle-Caledonie', 'le Pacifique'],
+ ['Corse', 'l\'ile']
+].forEach(([v, quoi], i) =>
+  verifier((11 + i) + '. ' + quoi + ' : « ' + v +' » ⇒ servi', servi(v), true));
+
+titre('LA DECISION — tout le reste est refuse');
+[['Spain', 'le voisin du sud'], ['ES', 'son code'],
+ ['Italy', '⚠️ l\'Italie n\'est PAS encore servie'], ['IT', 'son code'],
+ ['Belgique', 'le voisin du nord'], ['Suisse', 'francophone, mais pas la France'],
+ ['', 'la chaine vide'], [null, 'l\'absence de reponse']
+].forEach(([v, quoi], i) =>
+  verifier((19 + i) + '. ' + quoi + ' : « ' + v + ' » ⇒ REFUSE', servi(v), false));
 
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(60));

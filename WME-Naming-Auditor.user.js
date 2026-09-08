@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.39.00
+// @version      2.40.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -4814,8 +4814,18 @@
     FR: {
       code: 'FR',
       nom: 'France',
-      // Reconnu sur le nom ou l'abreviation du pays renvoyes par WME.
-      correspond: pays => /^(FR|France)$/i.test(String(pays || '').trim()),
+      // ⚠️⚠️ UNE SEULE AUTORITE (v2.40) : `correspond` EST le garde-fou.
+      //
+      // Jusqu'ici deux mecanismes repondaient a « ce pays est-il le notre ? » et
+      // ils ne disaient PAS la meme chose : ce `correspond` valait /^(FR|France)$/
+      // — donc FAUX en Guadeloupe — tandis que `estTerritoireFrancais` (le
+      // garde-fou) acceptait les 13 codes et les 20 noms de l'outre-mer. En
+      // Guadeloupe le garde-fou ouvrait, `choisirReferentiel` ne trouvait rien,
+      // et le script marchait uniquement parce que REF vaut la France PAR DEFAUT.
+      // Un accident, pas une regle — et ajouter un second pays le figeait.
+      // ⇒ Les deux sont fondus. `estTerritoireFrancais` est declaree en
+      //   `function` (donc hoistee) : la referencer ici est sur.
+      correspond: estTerritoireFrancais,
 
       // Decoupage administratif de reference et cles admises dans le GeoJSON.
       libelleDecoupage: 'communes INSEE',
@@ -4939,6 +4949,21 @@
     return REF;
   }
 
+  /**
+   * Le referentiel qui sert ce territoire, ou `null` s'il n'y en a aucun.
+   *
+   * ⚠️ On essaie le NOM **et** le CODE : WME nomme les pays selon la langue du
+   * profil de l'editeur, et le code, lui, est du FIPS 10-4 — jamais de l'ISO
+   * (voir [[waze-codes-pays-fips]]). Aucun des deux n'est fiable seul.
+   */
+  function referentielPour(nom, code) {
+    return Object.values(REFERENTIELS)
+      .find(r => r.correspond(nom) || r.correspond(code)) || null;
+  }
+
+  /** La liste des pays servis, pour le dire a l'editeur plutot que la coder. */
+  const paysServis = () => Object.values(REFERENTIELS).map(r => r.nom);
+
   // ===========================================================================
   // GARDE-FOU TERRITORIAL — le script ne travaille qu'en France (v2.03)
   //
@@ -5027,7 +5052,16 @@
     // INSEE est choisie, tout ce que le script ecrira concernera cette commune —
     // francaise par construction. Le blocage garde tout son sens quand aucune ne
     // l'est (c'est alors la vue qui decide, preuves 1 et 2).
-    if (communeActive) return { nom: 'France', code: 'FR' };
+    //
+    // ⚠️⚠️ LE PAYS SE LIT DANS LE REFERENTIEL ACTIF, IL N'EST PLUS ECRIT ICI
+    // (v2.40). Ce retour valait « France » en dur. Des qu'un second pays
+    // existe, un editeur italien ayant charge ses contours ISTAT et selectionne
+    // une commune recevait « France » — donc le referentiel FRANCAIS, donc des
+    // regles francaises appliquees en Italie. Le garde-fou aurait ouvert grand
+    // la porte a ce qu'il existe pour empecher, et sans rien signaler.
+    // Le referentiel actif est ce qui a servi a charger ces contours : c'est
+    // lui qui dit de quel pays cette commune releve.
+    if (communeActive) return { nom: REF.nom, code: REF.code };
     // 2. Pays majoritaire des segments REELLEMENT dans la vue.
     try {
       let ext; try { ext = sdk.Map.getMapExtent(); } catch (e) { ext = null; }
@@ -5064,16 +5098,19 @@
    * remettrait exactement le repli permissif qu'on vient de retirer. L'etat est
    * reevalue a chaque deplacement de carte, donc la levee est automatique.
    */
-  let pays = { etat: 'inconnu', nom: null, code: null };
+  let pays = { etat: 'inconnu', nom: null, code: null, ref: null };
 
   function evaluerPays() {
     const p = detecterPays();
     const avant = pays.etat;
-    if (!p) pays = { etat: 'inconnu', nom: null, code: null };
-    else pays = {
-      etat: (estTerritoireFrancais(p.nom) || estTerritoireFrancais(p.code)) ? 'fr' : 'hors',
-      nom: p.nom, code: p.code
-    };
+    if (!p) pays = { etat: 'inconnu', nom: null, code: null, ref: null };
+    else {
+      // ⭐ Le garde-fou ne demande plus « est-ce la France ? » mais « un
+      //   referentiel sert-il ce territoire ? ». Ajouter un pays l'ouvre donc
+      //   sans qu'une seule ligne de garde-fou soit touchee.
+      const ref = referentielPour(p.nom, p.code);
+      pays = { etat: ref ? 'servi' : 'hors', nom: p.nom, code: p.code, ref };
+    }
     if (pays.etat !== avant) {
       log('territoire : ' + pays.etat + (pays.nom ? ' (' + pays.nom + ')' : ''));
       // Le blocage change ce que l'editeur peut faire : les boutons et le
@@ -5083,23 +5120,28 @@
     return pays;
   }
 
-  const enFrance = () => pays.etat === 'fr';
+  /** Le territoire sous les yeux est-il servi par un referentiel ? */
+  const paysServi = () => pays.etat === 'servi';
 
   /** Ce qu'on affiche a l'editeur quand l'outil se ferme. */
   function messagePays() {
     if (pays.etat === 'hors') {
-      return '<b>Hors de France : outil désactivé.</b><br>' +
-        'Les règles de nommage de ce script sont françaises' +
-        (pays.nom ? ' et la carte est sur <b>' + esc(pays.nom) + '</b>' : '') +
-        '. Les appliquer ailleurs abîmerait la carte.<br>' +
-        'La France métropolitaine, la Corse et l\'outre-mer sont acceptés.';
+      // ⚠️ La liste des pays servis se LIT dans les referentiels, elle ne
+      //    s'ecrit pas ici : un pays ajoute apparaitrait sinon partout sauf
+      //    dans le message qui dit lesquels sont acceptes.
+      return '<b>Territoire non pris en charge : outil désactivé.</b><br>' +
+        'Ce script applique des règles de nommage propres à chaque pays' +
+        (pays.nom ? ', et la carte est sur <b>' + esc(pays.nom) + '</b>' : '') +
+        '. Appliquer ailleurs les règles d\'un autre pays abîmerait la carte.<br>' +
+        'Pays pris en charge : <b>' + esc(paysServis().join(', ')) + '</b> ' +
+        '(pour la France : métropole, Corse et outre-mer).';
     }
     // ⚠️ Message ACTIONNABLE : la cause est presque toujours un zoom trop
     // faible (WME ne charge aucun segment avant le zoom 14, cf.
     // [[wme-sdk-pieges]]), pas un vrai probleme de territoire.
     return '<b>Territoire indéterminé : analyse en attente.</b><br>' +
       'Zoome à 14 ou plus sur la commune : WME ne charge aucune donnée en dessous, ' +
-      'et le script a besoin de lire le pays avant d\'appliquer des règles françaises.';
+      'et le script a besoin de lire le pays avant d\'appliquer ses règles.';
   }
 
   // ---------------------------------------------------------------------------
@@ -6926,7 +6968,7 @@
     // ⚠️⚠️ Garde-fou territorial AVANT tout le reste (v2.03) : les regles sont
     // francaises. On reevalue ici plutot que de se fier a l'etat memorise — la
     // carte a pu bouger depuis le dernier controle.
-    if (evaluerPays().etat !== 'fr') {
+    if (evaluerPays().etat !== 'servi') {
       ui.stats.innerHTML = '<div class="agn-stat agn-alerte">' + messagePays() + '</div>';
       ui.results.innerHTML = ''; return;
     }
@@ -8380,11 +8422,11 @@
     // la carte : les autres ne grisent que des boutons. Un report affiche en
     // France reste cliquable apres un saut a l'etranger — on revalide donc ici,
     // au moment d'ecrire, et pas seulement au moment d'afficher.
-    if (evaluerPays().etat !== 'fr') {
+    if (evaluerPays().etat !== 'servi') {
       return { ok: false, motif: pays.etat === 'hors'
-        ? 'hors de France (' + (pays.nom || pays.code || 'territoire inconnu') +
-          ') : ce script n\'applique que les règles françaises'
-        : 'territoire indéterminé : impossible de garantir que la carte est en France' };
+        ? 'territoire non pris en charge (' + (pays.nom || pays.code || 'inconnu') +
+          ') : aucun référentiel de nommage ne le sert'
+        : 'territoire indéterminé : impossible de savoir quelles règles appliquer' };
     }
     const plan = planDeCorrection(f);
     if (!plan) return { ok: false, motif: 'rien d\'automatisable' };
@@ -9737,7 +9779,7 @@
   function etapeCourante() {
     if (!options.guidage) return null;
     // Le garde-fou territorial parle deja, et plus fort : on ne le double pas.
-    if (pays.etat !== 'fr') return null;
+    if (pays.etat !== 'servi') return null;
     if (!communes.length) return 'contours';
     if (!communeActive) return 'commune';
     // ⚠️ Une edition ouverte passe AVANT tout : tant qu'elle n'est pas fermee,
@@ -11155,7 +11197,7 @@
     // le tracé n'est ni enregistré ni annulé, il n'existe pas vraiment. Analyser
     // dessus donnerait des écarts calculés sur un polygone fantôme, et refermer
     // le volet ferait perdre le seul bouton qui permet d'en sortir.
-    ui.btnScan.disabled = (!liste.length && !declaree) || !enFrance() || !!edition;
+    ui.btnScan.disabled = (!liste.length && !declaree) || !paysServi() || !!edition;
     if (edition) ui.btnScan.title = 'Termine d\'abord l\'édition du tracé en cours ' +
       '(💾 pour enregistrer, Échap pour annuler).';
     const btnFin = ui.volet && ui.volet.querySelector('#agn-volet-ok');
@@ -11558,7 +11600,7 @@
    */
   function majBoutonsZone() {
     const boutons = [[ui.btnSelVille, 'ville'], [ui.btnSelHors, 'horsVille']];
-    const enFr = (() => { try { return enFrance(); } catch (e) { return true; } })();
+    const enFr = (() => { try { return paysServi(); } catch (e) { return true; } })();
     const dispo = !!communeActive && enFr && !edition;
     boutons.forEach(([b, zone]) => {
       if (!b) return;

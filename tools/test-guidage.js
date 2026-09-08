@@ -50,7 +50,9 @@ function titre(t) { lignes.push('\n' + t); }
  */
 function etape(etat) {
   const e = Object.assign({
-    guidage: true, paysEtat: 'fr', communes: [{}], communeActive: null,
+    // ⚠️ 'servi' depuis la v2.40 : le garde-fou ne demande plus « est-ce la
+    //    France ? » mais « un referentiel sert-il ce territoire ? ».
+    guidage: true, paysEtat: 'servi', communes: [{}], communeActive: null,
     edition: null, agglos: {}, sansAgglo: {}, panneaux: [],
     bilanPreTrace: null, sondage: null, lastScan: null,
     // v2.23 : les secteurs d'entrees non couverts retiennent le parcours — une
