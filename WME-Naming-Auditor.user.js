@@ -5739,7 +5739,14 @@
       // controles italiens jamais initialisees — donc `undefined`, donc AUCUN
       // controle italien execute. Mesure en live a Bergamo le 08/09.
       initOptionsControles();
+      // ⚠️ TOUTE l'interface qui depend du pays se repeint ici — pas seulement
+      //    les cases a cocher. Oublier la section CONTOURS laissait un editeur
+      //    italien devant une liste de departements francais, donc sans aucun
+      //    moyen de charger ses communes (mesure a Bergamo, 08/09).
       try { peindreControles(); } catch (e) { /* panneau pas encore construit */ }
+      try {
+        if (ui && ui.peindreSourceContours) ui.peindreSourceContours();
+      } catch (e) { /* panneau pas encore construit */ }
     }
     return REF;
   }
@@ -11763,11 +11770,23 @@
     const grille = o.querySelector('#agn-deps');
     const compte = o.querySelector('#agn-dep-n');
     const go = o.querySelector('#agn-dep-go');
-    // ⚠️ Les textes de cette section nommaient le DÉPARTEMENT en dur. En Italie
-    //    ils auraient annoncé « Filtrer un département… » et « ~3 Mo chacun »
-    //    devant une liste de provinces à 270 Ko — faux sur les deux tableaux.
-    //    Ils viennent maintenant du référentiel, comme la liste elle-même.
-    {
+    const choisis = new Set();
+    const majCompte = () => {
+      compte.textContent = choisis.size ? choisis.size + ' coche(s)' : '0';
+      go.disabled = choisis.size === 0;
+    };
+    // ⚠️⚠️ LA SECTION CONTOURS SUIT LE PAYS, ELLE AUSSI (v2.40).
+    //
+    // Mesure en live a Bergamo : le referentiel italien etait bien actif — les
+    // controles affiches etaient les siens — et cette section proposait
+    // toujours « Telecharger (geo.api.gouv.fr) » et les 101 DEPARTEMENTS
+    // FRANCAIS. Un editeur italien n'avait donc aucun moyen de charger ses
+    // communes : la seule porte d'entree du travail lui restait fermee.
+    //
+    // 🔴 J'avais corrige ce meme defaut pour les cases a cocher SANS le
+    //    generaliser ici. La regle valait pour toute l'interface, je ne l'avais
+    //    posee qu'a un endroit.
+    ui.peindreSourceContours = () => {
       const sc = REF.sourceContours;
       const opt = o.querySelector('#agn-source option[value="gouv"]');
       if (opt) opt.textContent = tr(sc.libelle);
@@ -11775,25 +11794,27 @@
       if (filtre) {
         filtre.placeholder = tr(sc.placeholder);
         filtre.title = 'Filtre la liste par numéro ou par nom de ' + tr(sc.uniteLabel);
+        filtre.value = '';
       }
       go.title = 'Télécharge les contours des ' + tr(sc.unitesLabel) +
         ' cochées et les AJOUTE à ta base, sans effacer les autres. ' + tr(sc.aide);
-    }
-    const choisis = new Set();
-    const majCompte = () => {
-      compte.textContent = choisis.size ? choisis.size + ' coche(s)' : '0';
-      go.disabled = choisis.size === 0;
+      // ⚠️ On VIDE la selection : des codes de departements francais n'ont
+      //    aucun sens face a une liste de provinces italiennes, et les laisser
+      //    lancerait un telechargement de fichiers inexistants.
+      choisis.clear();
+      grille.innerHTML = '';
+      sc.unites().forEach(d => {
+        const l = el('<label class="agn-dep" data-cle="' + esc(normSansAccent(d.code + ' ' + d.nom)) +
+          '"><input type="checkbox"><code>' + esc(d.code) + '</code><span>' + esc(d.nom) + '</span></label>');
+        l.querySelector('input').onchange = e => {
+          if (e.target.checked) choisis.add(d.code); else choisis.delete(d.code);
+          majCompte();
+        };
+        grille.appendChild(l);
+      });
+      majCompte();
     };
-    REF.sourceContours.unites().forEach(d => {
-      const l = el('<label class="agn-dep" data-cle="' + esc(normSansAccent(d.code + ' ' + d.nom)) +
-        '"><input type="checkbox"><code>' + esc(d.code) + '</code><span>' + esc(d.nom) + '</span></label>');
-      l.querySelector('input').onchange = e => {
-        if (e.target.checked) choisis.add(d.code); else choisis.delete(d.code);
-        majCompte();
-      };
-      grille.appendChild(l);
-    });
-    majCompte();
+    ui.peindreSourceContours();
     o.querySelector('#agn-dep-filtre').oninput = e => {
       const q = normSansAccent(e.target.value.trim());
       grille.querySelectorAll('.agn-dep').forEach(l => {

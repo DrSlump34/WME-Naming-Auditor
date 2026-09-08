@@ -460,6 +460,13 @@ verifier('83. ⭐ il initialise les options du nouveau référentiel',
   /initOptionsControles\(\)/.test(corpsChoisir), true);
 verifier('84. ⭐ et il repeint la liste des cases',
   /peindreControles\(\)/.test(corpsChoisir), true);
+// 🔴 Défaut mesuré à Bergamo : le référentiel italien était actif, ses
+// contrôles affichés — et la section CONTOURS proposait toujours les 101
+// départements français. Un éditeur italien n'avait donc AUCUN moyen de
+// charger ses communes : la seule porte d'entrée du travail restait fermée.
+// J'avais corrigé les cases à cocher sans généraliser à toute l'interface.
+verifier('84 bis. ⭐⭐ … et la section CONTOURS, qui dépend du pays elle aussi',
+  /peindreSourceContours\(\)/.test(corpsChoisir), true);
 
 titre('🔴 Le référentiel suit le PAYS, pas l\'analyse');
 // Mesuré à Bergamo : 1 479 segments italiens sous les yeux, WME rendant
