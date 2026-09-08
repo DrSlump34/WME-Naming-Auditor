@@ -467,8 +467,12 @@ titre('🔴 Le référentiel suit le PAYS, pas l\'analyse');
 // n'était appelé que depuis `scan()` — or `scan()` exige une commune, et une
 // commune vient des CONTOURS. Sans contours ISTAT, aucune commune, donc jamais
 // d'analyse, donc jamais de bascule. Le pays, lui, est connu bien avant.
+// ⚠️ Ancre choisie NON AMBIGUË : « const paysServi » est un préfixe de
+//    « const paysServis », déclaré 140 lignes PLUS HAUT — la tranche partait
+//    alors à l'envers et rendait une chaîne vide, donc deux tests rouges sur
+//    du code parfaitement juste. Chercher un motif rare ET certain.
 const corpsEval = src.slice(src.indexOf('function evaluerPays'),
-                            src.indexOf('const paysServi'));
+                            src.indexOf('const paysServi = () =>'));
 verifier('85. ⭐⭐ `evaluerPays` bascule le référentiel dès que le pays est connu',
   /choisirReferentiel\(/.test(corpsEval), true);
 verifier('86. ⚠️ … et seulement quand un référentiel sert ce pays',
