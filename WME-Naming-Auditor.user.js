@@ -11786,16 +11786,31 @@
     // 🔴 J'avais corrige ce meme defaut pour les cases a cocher SANS le
     //    generaliser ici. La regle valait pour toute l'interface, je ne l'avais
     //    posee qu'a un endroit.
+    // ⚠️⚠️ REFERENCES CAPTUREES, PAS DE RECHERCHE A CHAQUE APPEL.
+    // `rangerChargementContours()` DEPLACE cette section de l'overlay vers le
+    // panneau lateral au demarrage. Une reference prise maintenant suit le
+    // noeud ; un `o.querySelector(...)` refait plus tard ne le trouve PLUS,
+    // puisqu'il n'est plus dans `o`. Mesure a Bergamo : la grille se repeignait
+    // (elle etait capturee) pendant que l'intitule de la source et le
+    // placeholder restaient francais (ils etaient recherches). Le meme code,
+    // deux comportements, selon qu'on garde la reference ou le chemin.
+    const optSource = o.querySelector('#agn-source option[value="gouv"]');
+    const filtreUnites = o.querySelector('#agn-dep-filtre');
+    const optWazefrance = o.querySelector('#agn-source option[value="wazefrance"]');
     ui.peindreSourceContours = () => {
       const sc = REF.sourceContours;
-      const opt = o.querySelector('#agn-source option[value="gouv"]');
-      if (opt) opt.textContent = tr(sc.libelle);
-      const filtre = o.querySelector('#agn-dep-filtre');
+      if (optSource) optSource.textContent = tr(sc.libelle);
+      const filtre = filtreUnites;
       if (filtre) {
         filtre.placeholder = tr(sc.placeholder);
         filtre.title = 'Filtre la liste par numéro ou par nom de ' + tr(sc.uniteLabel);
         filtre.value = '';
       }
+      // ⚠️ `api.wazefrance.com` est une source FRANCAISE (panneaux d'entree
+      //    d'agglomeration du ministere de l'Interieur). La proposer ailleurs
+      //    n'a aucun sens : on la retire de la liste hors de France plutot que
+      //    de laisser l'editeur decouvrir qu'elle ne rend rien.
+      if (optWazefrance) optWazefrance.hidden = (REF.code !== 'FR');
       go.title = 'Télécharge les contours des ' + tr(sc.unitesLabel) +
         ' cochées et les AJOUTE à ta base, sans effacer les autres. ' + tr(sc.aide);
       // ⚠️ On VIDE la selection : des codes de departements francais n'ont

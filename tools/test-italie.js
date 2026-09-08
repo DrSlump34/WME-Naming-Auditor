@@ -468,6 +468,29 @@ verifier('84. ⭐ et il repeint la liste des cases',
 verifier('84 bis. ⭐⭐ … et la section CONTOURS, qui dépend du pays elle aussi',
   /peindreSourceContours\(\)/.test(corpsChoisir), true);
 
+titre('🔴 La section contours est DÉPLACÉE : garder les références, pas les chemins');
+// `rangerChargementContours()` sort le corps de la section de l'overlay pour
+// l'accrocher au panneau latéral. Une référence prise avant le déplacement
+// suit le nœud ; un `o.querySelector(...)` refait après ne le trouve plus.
+// Mesuré à Bergamo : la grille se repeignait (capturée) pendant que l'intitulé
+// de la source et le placeholder restaient français (recherchés). Le projet
+// connaît déjà ce piège — la panne du 27/07 « il ne charge rien » venait du
+// même déplacement.
+// ⚠️⚠️ LA FIN SE CHERCHE À PARTIR DU DÉBUT. `ui.peindreSourceContours();`
+//    apparaît AUSSI dans `choisirReferentiel`, bien plus haut : sans l'offset,
+//    la tranche partait à l'envers et rendait une chaîne VIDE — sur laquelle
+//    « aucun o.querySelector » passait au vert sans rien éprouver. Deuxième
+//    ancre ambiguë de la journée, même mécanisme que paysServi/paysServis.
+const debPeindre = src.indexOf('ui.peindreSourceContours = () =>');
+const corpsPeindre = src.slice(debPeindre,
+                               src.indexOf('ui.peindreSourceContours();', debPeindre));
+verifier('84 ter a. la tranche examinée n\'est pas vide (sinon tout passe)',
+  corpsPeindre.length > 200 && corpsPeindre.includes('optWazefrance'), true);
+verifier('84 ter. ⭐⭐ elle ne cherche AUCUN nœud par sélecteur à chaud',
+  /o\.querySelector/.test(corpsPeindre), false);
+verifier('84 quater. ⚠️ la source française est masquée hors de France',
+  /optWazefrance\.hidden\s*=\s*\(REF\.code !== 'FR'\)/.test(corpsPeindre), true);
+
 titre('🔴 Le référentiel suit le PAYS, pas l\'analyse');
 // Mesuré à Bergamo : 1 479 segments italiens sous les yeux, WME rendant
 // « Italy », et « Cartouches des Dxxx » toujours affiché. `choisirReferentiel`
