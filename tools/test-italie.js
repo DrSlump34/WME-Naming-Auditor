@@ -640,6 +640,26 @@ verifier('116. ⚠️ jamais plus de 5 provinces désignées par une vue de trav
 verifier('117. ⚠️ une vue hors d\'Italie n\'en désigne AUCUNE',
   depsDeLaVueIT([2.30, 48.83, 2.40, 48.88]).length, 0);
 
+titre('🔴 De quelle PROVINCE relève une commune ? (les 3 premiers chiffres)');
+// Défaut du 08/09 : `depDuCode` prenait les DEUX premiers caractères — la règle
+// INSEE. Sur « 016024 » (Bergamo) elle rendait « 01 », une province qui
+// n'existe pas. Tout ce qui compare des unités s'en trouvait faussé, et la
+// purge retirait la commune en cours — reposant « la carte a quitté X » juste
+// après que l'éditeur ait choisi sa commune.
+const uniteIT = new Function('s',
+  'return (' + blocIT.match(/uniteDuCode:\s*(s => [^\n]+?),\n/)[1] + ')(s);');
+verifier('118. ⭐⭐ « 016024 » (Bergamo) relève de la province 16', uniteIT('016024'), '16');
+verifier('119. ⭐ « 058091 » (Roma) relève de la province 58', uniteIT('058091'), '58');
+verifier('120. « 112001 » (Sassari) relève de la province 112', uniteIT('112001'), '112');
+verifier('121. ⚠️ … et surtout PAS « 01 » — le défaut mesuré',
+  uniteIT('016024') === '01', false);
+// Le code rendu doit correspondre à une province de la liste, sinon rien ne
+// se compare : c'est cette égalité qui fait marcher chargement et purge.
+verifier('122. ⭐⭐ le code rendu existe dans PROVINCES_IT',
+  provs.some(p => p.code === uniteIT('016024')), true);
+verifier('123. … pour Rome aussi',
+  provs.some(p => p.code === uniteIT('058091')), true);
+
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(60));
 console.log('%d verifications OK, %d ECHEC(S)', ok, ko);

@@ -1576,8 +1576,26 @@
    * Departement d'un code INSEE. ⚠️ Trois cas, pas un : outre-mer sur 3
    * chiffres (97x, 98x), Corse sur 2A/2B, metropole sur 2 chiffres.
    */
+  /**
+   * L'unite de chargement dont releve une commune — departement en France,
+   * province en Italie.
+   *
+   * ⚠️⚠️ DECOUPAGE NATIONAL (v2.40), et il ne l'etait pas. Cette fonction
+   * prenait les DEUX premiers caracteres du code, ce qui est la regle INSEE.
+   * Sur un code ISTAT — six chiffres dont les TROIS premiers font la province —
+   * « 016024 » (Bergamo) rendait « 01 », une province qui n'existe pas.
+   * Tout ce qui compare des unites s'en trouvait fausse : `depsCharges()`
+   * mentait, le chargement automatique ne se voyait jamais fait, et la purge
+   * croyait la commune en cours logee dans une unite inconnue — elle la
+   * retirait, reposant « la carte a quitte X » juste apres que l'editeur ait
+   * choisi sa commune. C'est le symptome rapporte le 08/09.
+   * ⚠️ Le code province s'ecrit SANS zero de tete (« 16 »), comme dans
+   *    PROVINCES_IT et dans le nom des fichiers : on normalise par `Number`.
+   */
   const depDuCode = c => {
     const s = String(c || '');
+    const decoupe = REF && REF.uniteDuCode;
+    if (typeof decoupe === 'function') return decoupe(s);
     return /^9[78]/.test(s) ? s.slice(0, 3) : s.slice(0, 2).toUpperCase();
   };
 
@@ -5465,6 +5483,8 @@
       },
 
       // Decoupage administratif de reference et cles admises dans le GeoJSON.
+      // Le departement : deux caracteres, trois en outre-mer (971...).
+      uniteDuCode: s => /^9[78]/.test(s) ? s.slice(0, 3) : s.slice(0, 2).toUpperCase(),
       libelleDecoupage: 'communes INSEE',
       clesNom: CLES_NOM,
       clesCode: CLES_CODE,
@@ -5700,6 +5720,9 @@
           p => p.b && lon >= p.b[0] && lon <= p.b[2] && lat >= p.b[1] && lat <= p.b[3])
       },
 
+      // ⚠️ La province tient dans les TROIS premiers chiffres du code ISTAT,
+      //    et s'ecrit sans zero de tete : « 016024 » (Bergamo) => « 16 ».
+      uniteDuCode: s => String(Number(String(s).slice(0, 3)) || ''),
       libelleDecoupage: 'comuni ISTAT',
       // ⚡ MESURE DU 08/09 sur la source reelle (openpolis/geojson-italy, voir
       //    ANALYSE-ITALIE.md § 3) : les proprietes servies sont `name` et

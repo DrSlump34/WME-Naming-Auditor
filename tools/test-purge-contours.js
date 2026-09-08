@@ -70,6 +70,10 @@ function corps(nom) { return extraire(nom); }
 
 const api = new Function([
   relire('OCTETS_PAR_POINT'),
+  // ⚠️ v2.40 : `depDuCode` délègue au référentiel — le découpage est NATIONAL
+  //    (département en France, province en Italie). On lui fournit ici le
+  //    référentiel FRANÇAIS, qui est ce que ce fichier éprouve.
+  'const REF = { uniteDuCode: s => /^9[78]/.test(s) ? s.slice(0, 3) : s.slice(0, 2).toUpperCase() };',
   relireFlechee('depDuCode'),
   relire('SEUIL_ALERTE_OCTETS'),
   extraire('pointsDeGeom'),
