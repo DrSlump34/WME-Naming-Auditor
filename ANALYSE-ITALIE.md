@@ -8,17 +8,32 @@
 |---|---|
 | ✅ Garde-fou généralisé | il demande « quel référentiel sert ce territoire », plus « est-ce la France » |
 | ✅ 19 constantes nationales versées | le moteur ne lit plus **aucune** globale française |
-| ✅ `REFERENTIELS.IT` écrit | vocabulaire, types, 12 contrôles ; 9 contrôles FR volontairement absents |
-| ✅ `tools/test-italie.js` | 34 vérifications rejouant les **exemples du wiki** |
+| ✅ `REFERENTIELS.IT` écrit | vocabulaire, types, 14 contrôles ; 9 contrôles FR volontairement absents |
+| ✅ `tools/test-italie.js` | **65 vérifications** rejouant les **exemples du wiki** |
+| ✅ Fautes d'écriture IT | sigles sans espace, dates en chiffres romains |
+| ✅ Format des *frazioni* | `nomefrazione, nomecomune` |
+| ✅ Codes ISTAT à 6 chiffres | le partage communautaire fonctionne |
 | ⏳ 7 questions à Silvio | message prêt, 3 prioritaires (§ 6) |
-| ⏳ Contrôles neufs IT | `fari`, sigle sans espace, chiffres romains, ordinaux, fractions — ils touchent `verifierForme`, qui est commune |
+| ⏳ `fari` | ⚠️ **bloqué** : le nom du champ SDK doit être **relevé dans WME**, pas deviné |
+| ⏳ Ordinaux `1ª` / `1º` | trop ambigu pour être automatisé — question à Silvio |
 | ⏳ i18n | 714 chaînes, pas commencé |
 | ⏳ Essai réel | le référentiel n'a **jamais tourné sur la carte** |
 
 ⛔ **NE PAS PUBLIER** : la description de l'en-tête dit encore « FRANCE UNIQUEMENT », et
 c'est volontaire tant que les questions restent ouvertes et que rien n'a été essayé en vrai.
 
-**868 vérifications sur 29 fichiers, 0 échec.**
+**900 vérifications sur 29 fichiers, 0 échec.**
+
+### Les défauts trouvés *en portant* — aucun n'aurait fait de bruit
+
+| Défaut | Ce qu'il aurait produit |
+|---|---|
+| `codeInseeValide` à 5 caractères | **tout** polygone italien partagé rejeté, en silence |
+| `signTypeRocade: null` vs `signType: null` | **tout** segment sans cartouche déclaré « rocade, certain » |
+| `formatVillage` en dur | une frazione **déjà juste** signalée, puis abîmée par sa « correction » |
+| `detecterPays` → `'France'` ×2 | règles françaises appliquées en Italie |
+| Regex FR lues par le moteur | `SS12` pris pour un nom de rue, logigramme faussé |
+| `RE_NOM_COMPOSITE` FR | `A4 – Bergamo` (376316) amputé en `Bergamo` **avant** raisonnement |
 
 ---
 
