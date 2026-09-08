@@ -225,7 +225,7 @@ cette dernière portant le standard **en vigueur** qui remplace la règle barré
 
 | Fonction | France | Italie |
 |---|---|---|
-| Contours communaux | `geo.api.gouv.fr` (service interrogeable) | **ISTAT, en fichier** — 7 899 communes, pas d'API |
+| Contours communaux | `geo.api.gouv.fr` (service interrogeable) | **openpolis/geojson-italy** — voir § 3 bis |
 | Quel département sous les yeux | `geo.api.gouv.fr/communes?lat&lon` | ❌ aucun équivalent → **choix manuel de la province** |
 | Pré-tracé depuis les panneaux | `api.wazefrance.com/rs` (jeu du Ministère de l'Intérieur **FR**) | ❌ aucun équivalent connu → **tracé manuel** |
 
@@ -234,7 +234,50 @@ cette dernière portant le standard **en vigueur** qui remplace la règle barré
 l'Hérault (28 % de couverture EB10, mesuré le 28/08).
 
 ✅ **Le chargement par fichier GeoJSON existe déjà** (`clesNom` / `clesCode` du référentiel,
-outil `Recuperer-Communes.html`) : c'est exactement la forme sous laquelle ISTAT publie.
+outil `Recuperer-Communes.html`).
+
+---
+
+## 3 bis. La source de contours italienne — mesurée le 08/09
+
+**`openpolis/geojson-italy`** — le seul candidat qui remplisse le contrat français.
+
+| Critère | Mesure |
+|---|---|
+| **Licence** | **CC-BY-4.0** — permissive, **non virale** ✅ |
+| Mise à jour | **17/08/2026** (dépôt vivant) |
+| Découpage | **119 fichiers par province** + **20 par région** |
+| Poids province | 25 Ko → 1 030 Ko, **médiane 271 Ko** (France : ~3 Mo/département) |
+| Poids région | 300 Ko → 4 Mo |
+| Propriétés | **`name`** et **`com_istat_code`** |
+| Codes | **100 % à 6 chiffres** sur 620 communes vérifiées, zéros de tête compris |
+
+⚠️ **La licence était éliminatoire.** L'auteur a écarté `api.wazefrance.com` pour ses contours
+parce qu'ils dérivent d'OpenStreetMap (**ODbL, virale**). CC-BY-4.0 est du même ordre que la
+Licence Ouverte d'Admin Express : compatible.
+
+**Adressage des fichiers** — le numéro est le code ISTAT **sans zéro de tête** :
+```
+.../geojson-italy/master/geojson/limits_P_16_municipalities.geojson   → Bergamo, 243 communes
+.../geojson-italy/master/geojson/limits_R_20_municipalities.geojson   → Sardaigne, 377 communes
+```
+🔴 `limits_P_016_...` rend **404** : ne pas padder le code.
+
+### ⚠️ Neuf provinces sont VIDES — et ce n'est pas une panne
+
+`90, 91, 92, 95, 104, 105, 106, 107, 111` renvoient un `GeometryCollection` **vide de 49 octets**
+(et non un `FeatureCollection`). Toutes sardes : la Sardaigne a réorganisé ses provinces en 2016.
+
+✅ **Elles sont couvertes par le fichier RÉGION `limits_R_20`** (1,9 Mo, 377 communes), qui porte
+**exactement les mêmes clés** — vérifié.
+
+⇒ **Le chargeur doit reconnaître les deux niveaux** et retomber sur la région quand la province
+est vide. Un fichier de 49 octets ne doit pas se lire « cette province n'a pas de communes » mais
+« ce découpage-là ne la sert pas ».
+
+🔴 **Défaut corrigé grâce à cette mesure** : `clesCode` avait été écrite d'après les noms de
+colonnes des **shapefiles** ISTAT (`PRO_COM_T`, `COD_ISTAT`…) — aucune ne correspond aux clés
+réellement servies en GeoJSON. **Tout chargement italien aurait échoué**, faute de code de commune.
 
 ---
 

@@ -5470,9 +5470,19 @@
       //    interrogeable : c'est le chemin « charger un GeoJSON » qui sert,
       //    celui-la meme qu'utilise `Recuperer-Communes.html`.
       libelleDecoupage: 'comuni ISTAT',
-      clesNom: ['nome', 'NOME', 'COMUNE', 'comune', 'name', 'nom',
+      // ⚡ MESURE DU 08/09 sur la source reelle (openpolis/geojson-italy, voir
+      //    ANALYSE-ITALIE.md § 3) : les proprietes servies sont `name` et
+      //    `com_istat_code`. Verifie sur 620 communes — Bergamo (243) et
+      //    Sardaigne (377) — 100 % de codes a SIX chiffres, zeros de tete
+      //    compris (« 016001 »).
+      // 🔴 `com_istat_code` MANQUAIT a cette liste : ecrite d'apres les noms de
+      //    colonnes des shapefiles ISTAT (PRO_COM_T, COD_ISTAT…), elle ne
+      //    couvrait AUCUNE des cles reellement servies en GeoJSON. Tout
+      //    chargement italien aurait echoue faute de code de commune.
+      clesNom: ['name', 'nome', 'NOME', 'COMUNE', 'comune', 'nom',
                 'DEN_UTS', 'den_uts', 'NOME_COM', 'denominazione'],
-      clesCode: ['code', 'PRO_COM_T', 'pro_com_t', 'PRO_COM', 'pro_com',
+      clesCode: ['com_istat_code', 'com_istat_code_num', 'code',
+                 'PRO_COM_T', 'pro_com_t', 'PRO_COM', 'pro_com',
                  'COD_ISTAT', 'cod_istat', 'istat', 'codice', 'COD_COM'],
 
       // ── Types de voies ─────────────────────────────────────────────────────

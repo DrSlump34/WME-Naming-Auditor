@@ -478,6 +478,36 @@ verifier('85. ⭐⭐ `evaluerPays` bascule le référentiel dès que le pays est
 verifier('86. ⚠️ … et seulement quand un référentiel sert ce pays',
   /if \(ref\) choisirReferentiel/.test(corpsEval), true);
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 9. LE CONTRAT AVEC LA SOURCE DE CONTOURS (mesuré le 08/09)
+// ═══════════════════════════════════════════════════════════════════════════
+titre('🔴 Les clés du référentiel correspondent-elles à la SOURCE RÉELLE ?');
+// Propriétés relevées sur openpolis/geojson-italy (CC-BY-4.0), fichiers
+// limits_P_16 (Bergamo, 243 communes) et limits_R_20 (Sardaigne, 377) :
+// mêmes clés des deux côtés, 100 % de codes à 6 chiffres.
+const PROPS_REELLES = ['name', 'op_id', 'minint_elettorale', 'minint_finloc',
+  'prov_name', 'prov_istat_code', 'prov_acr', 'reg_name', 'reg_istat_code',
+  'opdm_id', 'com_catasto_code', 'com_istat_code', 'com_istat_code_num'];
+
+const litListe = (bloc, champ) => {
+  const m = bloc.match(new RegExp(champ + ':\\s*\\[([^\\]]*)\\]', 's'));
+  if (!m) throw new Error(champ + ' introuvable');
+  return [...m[1].matchAll(/'([^']+)'/g)].map(x => x[1]);
+};
+const clesNomIT = litListe(blocIT, 'clesNom');
+const clesCodeIT = litListe(blocIT, 'clesCode');
+
+verifier('87. ⭐⭐ une clé de NOM du référentiel existe dans la source',
+  clesNomIT.some(k => PROPS_REELLES.includes(k)), true);
+verifier('88. ⭐⭐ une clé de CODE du référentiel existe dans la source',
+  clesCodeIT.some(k => PROPS_REELLES.includes(k)), true);
+verifier('89. ⭐ `com_istat_code` est bien déclaré — il manquait',
+  clesCodeIT.includes('com_istat_code'), true);
+verifier('90. ⭐ `name` aussi', clesNomIT.includes('name'), true);
+// Les codes servis font six chiffres, zéros de tête compris.
+['016001', '112001', '101001', '016024'].forEach((c, i) =>
+  verifier((91 + i) + '. « ' + c +' » (code ISTAT réel) est accepté', codeIT.test(c), true));
+
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(60));
 console.log('%d verifications OK, %d ECHEC(S)', ok, ko);
