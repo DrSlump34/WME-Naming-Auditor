@@ -2241,7 +2241,8 @@
       cellules++;
       if (prog) prog.info(cellules + ' zone(s) interrogee(s), ' + vus.size + ' panneau(x) d\'agglo');
       let data;
-      try { data = JSON.parse(await telecharger(URL_PANNEAUX(lat, lon, zoom), prog)); }
+      if (!REF.sourcePanneaux) throw new Error('aucune source de panneaux dans ce pays');
+      try { data = JSON.parse(await telecharger(REF.sourcePanneaux.url(lat, lon, zoom), prog)); }
       catch (e) {
         if (e instanceof AnnulationDemandee) throw e;
         throw new Error('api.wazefrance.com : ' + e.message);
@@ -3878,6 +3879,11 @@
 
   async function sonderPanneaux(commune) {
     if (!commune) return null;
+    // ⚠️ Pas de source de panneaux dans ce pays : on ne sonde RIEN et on le dit
+    //    clairement — `aucun` grise le bouton avec sa raison, la ou `incertain`
+    //    laisserait croire a une panne reseau passagere.
+    if (!REF.sourcePanneaux) { sondages.set(commune.code, { etat: 'aucun', nb: 0 });
+                               return sondages.get(commune.code); }
     if (sondages.has(commune.code)) return sondages.get(commune.code);
     sondages.set(commune.code, { etat: 'encours', nb: 0 });
     let res;
@@ -5497,6 +5503,13 @@
           + 'les yeux, et télécharge ses contours quand ils manquent.'
       },
 
+      // ⚠️ Les panneaux d'entree d'agglomeration (EB10/EB20) viennent d'un jeu
+      //    du Ministere de l'Interieur FRANCAIS. Un pays sans equivalent laisse
+      //    ce champ a `null` : tout le chemin « relever les panneaux / proposer
+      //    un trace » disparait alors, au lieu de proposer un bouton qui ne
+      //    peut rien rendre.
+      sourcePanneaux: { url: URL_PANNEAUX, libelle: 'panneaux EB10 / EB20' },
+
       // Decoupage administratif de reference et cles admises dans le GeoJSON.
       // Le departement : deux caracteres, trois en outre-mer (971...).
       uniteDuCode: s => /^9[78]/.test(s) ? s.slice(0, 3) : s.slice(0, 2).toUpperCase(),
@@ -5734,6 +5747,12 @@
         unitesSousLaVue: (lon, lat) => PROVINCES_IT.filter(
           p => p.b && lon >= p.b[0] && lon <= p.b[2] && lat >= p.b[1] && lat <= p.b[3])
       },
+
+      // ⏳ AUCUNE source de panneaux italienne connue (question posee a Silvio
+      //    le 08/09, recherche en cours de son cote). Le trace se fait donc a
+      //    la main — ce qui est deja le quotidien de la moitie des departements
+      //    francais. Mieux vaut ne rien proposer qu'un bouton qui echoue.
+      sourcePanneaux: null,
 
       // ⚠️ La province tient dans les TROIS premiers chiffres du code ISTAT,
       //    et s'ecrit sans zero de tete : « 016024 » (Bergamo) => « 16 ».
@@ -12233,7 +12252,15 @@
     // la seconde — et peut dire qu'il n'y a rien a relever.
     const sondageEnCours = s && s.etat === 'encours';
     ui.btnPanneaux.disabled = !communeActive || horsFrance || !!sansPanneaux || !!sondageEnCours;
-    ui.btnPanneaux.title = sansPanneaux
+    // ⚠️ DEUX raisons de n'avoir aucun panneau, et elles ne se disent pas
+    //    pareil : la source existe mais ne couvre pas cette commune (France),
+    //    ou le pays n'a aucune source du tout (Italie). Servir le message
+    //    français à un éditeur italien lui ferait chercher un défaut chez lui.
+    ui.btnPanneaux.title = !REF.sourcePanneaux
+      ? 'Aucun jeu de données de panneaux d\'entrée d\'agglomération n\'existe pour ' +
+        REF.nom + '. Le tracé se fait à la main — c\'est déjà le cas dans une bonne ' +
+        'partie de la France.'
+      : sansPanneaux
       ? 'Aucun panneau d\'entrée d\'agglomération relevé sur cette commune dans le jeu ' +
         'officiel de signalisation. Ce n\'est pas un défaut du script : la source est ' +
         'très inégale. Trace l\'agglomération à la main.'
@@ -12712,7 +12739,7 @@
       b.disabled = !dispo;
       b.title = !communeActive
         ? 'Choisis d\'abord une commune : le script a besoin de son nom et de son contour.'
-        : !enFr ? 'Hors de France : les règles de ce script ne s\'y appliquent pas.'
+        : !enFr ? 'Territoire non pris en charge : aucun référentiel de nommage ne le sert.'
         : edition ? 'Édition d\'un tracé en cours (💾 pour enregistrer, Échap pour annuler).'
         : TITRE_SEL[zone];
     });

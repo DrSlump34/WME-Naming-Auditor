@@ -67,7 +67,10 @@ async function jouer(limites, pleines, panneaux) {
   const appels = [];
   const charger = new Function(
     'ZOOM_PANNEAUX_DEPART', 'ZOOM_PANNEAUX_MAX', 'PLAFOND_API', 'demiEmprise',
-    'clePanneau', 'telecharger', 'URL_PANNEAUX', 'AnnulationDemandee', 'log',
+    // ⚠️ v2.40 : l'URL des panneaux vient du référentiel — un pays sans source
+    //    (l'Italie) ne relève rien du tout. On monte ici le référentiel
+    //    FRANÇAIS, qui est ce que ce fichier éprouve.
+    'clePanneau', 'telecharger', 'URL_PANNEAUX', 'AnnulationDemandee', 'log', 'REF',
     extraire('chargerPanneauxAgglo') + '; return chargerPanneauxAgglo;')(
     Z_DEPART, Z_MAX, PLAFOND,
     z => { const k = Math.pow(2, Z_DEPART - z); return { dLat: 0.1651 * k, dLon: 0.2240 * k }; },
@@ -83,7 +86,9 @@ async function jouer(limites, pleines, panneaux) {
       return JSON.stringify({ rs });
     },
     (lat, lon, zoom) => `x?lat=${lat}&lon=${lon}&zoom=${zoom}`,
-    class AnnulationDemandee extends Error {}, () => {});
+    class AnnulationDemandee extends Error {}, () => {},
+    // Le référentiel français : il DÉCLARE une source de panneaux.
+    { sourcePanneaux: { url: (lat, lon, zoom) => `x?lat=${lat}&lon=${lon}&zoom=${zoom}` } });
   // bbox d'une petite commune : une seule cellule de depart.
   const r = await charger([4.70, 44.03, 4.73, 44.06], null, limites);
   return { ...r, appels };

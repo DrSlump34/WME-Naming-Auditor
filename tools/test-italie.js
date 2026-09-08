@@ -660,6 +660,28 @@ verifier('122. ⭐⭐ le code rendu existe dans PROVINCES_IT',
 verifier('123. … pour Rome aussi',
   provs.some(p => p.code === uniteIT('058091')), true);
 
+titre('🔴 Les panneaux EB10/EB20 n\'existent PAS en Italie');
+// Signalé par l'auteur le 08/09 : « maintenant que j'ai sélectionné Bari, il me
+// propose de chercher les panneaux EB10/EB20, or en Italie… ». Ces panneaux
+// viennent d'un jeu du Ministère de l'Intérieur FRANÇAIS (api.wazefrance.com).
+// L'analyse le disait dès le matin — le code, lui, ne le disait pas.
+verifier('130. ⭐⭐ le référentiel italien ne déclare AUCUNE source de panneaux',
+  /sourcePanneaux:\s*null/.test(blocIT), true);
+verifier('131. ⭐ … là où la France en déclare une',
+  /sourcePanneaux:\s*\{/.test(blocFR), true);
+// Le sondage doit répondre « aucun » sans réseau : c'est cet état qui grise le
+// bouton AVEC sa raison et fait sauter les étapes de guidage.
+const corpsSonde = src.slice(src.indexOf('async function sonderPanneaux'),
+                             src.indexOf('/** Ce que le sondage sait'));
+verifier('132. ⚠️ le sondage ne part pas sans source, et conclut « aucun »',
+  /if \(!REF\.sourcePanneaux\)/.test(corpsSonde) && /etat: 'aucun'/.test(corpsSonde), true);
+// ⚠️ « aucun » et « pas de source » ne se disent pas pareil : servir le message
+//    français à un éditeur italien lui ferait chercher un défaut chez lui.
+// ⚠️ L'apostrophe est ÉCHAPPÉE dans le source (`n\'existe`) : chercher
+//    « n'existe » tel quel ne matche jamais. On vise un fragment sans apostrophe.
+verifier('133. ⭐ le bouton explique la VRAIE raison selon le pays',
+  /!REF\.sourcePanneaux[\s\S]{0,220}existe pour/.test(src), true);
+
 titre('🔴🔴 Le découpage suit LA COMMUNE, pas le pays regardé');
 // Défaut du 08/09, et le plus coûteux de la journée : `depDuCode` déléguait à
 // `REF.uniteDuCode`, donc au référentiel COURANT. Dès qu'on passait en Italie,
