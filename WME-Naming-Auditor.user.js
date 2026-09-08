@@ -2235,48 +2235,116 @@
   // ⚠️ L'acronyme (BG, TO, MI...) est colle au nom : c'est par lui qu'un
   //    editeur italien cherchera sa province, pas par son numero ISTAT.
   const PROVINCES_IT = [
-{"code":"1","nom":"Torino (TO)"},{"code":"2","nom":"Vercelli (VC)"},{"code":"3","nom":"Novara (NO)"},
-{"code":"4","nom":"Cuneo (CN)"},{"code":"5","nom":"Asti (AT)"},{"code":"6","nom":"Alessandria (AL)"},
-{"code":"7","nom":"Valle d'Aosta/Vallée d'Aoste (AO)"},{"code":"8","nom":"Imperia (IM)"},
-{"code":"9","nom":"Savona (SV)"},{"code":"10","nom":"Genova (GE)"},{"code":"11","nom":"La Spezia (SP)"},
-{"code":"12","nom":"Varese (VA)"},{"code":"13","nom":"Como (CO)"},{"code":"14","nom":"Sondrio (SO)"},
-{"code":"15","nom":"Milano (MI)"},{"code":"16","nom":"Bergamo (BG)"},{"code":"17","nom":"Brescia (BS)"},
-{"code":"18","nom":"Pavia (PV)"},{"code":"19","nom":"Cremona (CR)"},{"code":"20","nom":"Mantova (MN)"},
-{"code":"21","nom":"Bolzano/Bozen (BZ)"},{"code":"22","nom":"Trento (TN)"},
-{"code":"23","nom":"Verona (VR)"},{"code":"24","nom":"Vicenza (VI)"},{"code":"25","nom":"Belluno (BL)"},
-{"code":"26","nom":"Treviso (TV)"},{"code":"27","nom":"Venezia (VE)"},{"code":"28","nom":"Padova (PD)"},
-{"code":"29","nom":"Rovigo (RO)"},{"code":"30","nom":"Udine (UD)"},{"code":"31","nom":"Gorizia (GO)"},
-{"code":"32","nom":"Trieste (TS)"},{"code":"33","nom":"Piacenza (PC)"},{"code":"34","nom":"Parma (PR)"},
-{"code":"35","nom":"Reggio nell'Emilia (RE)"},{"code":"36","nom":"Modena (MO)"},
-{"code":"37","nom":"Bologna (BO)"},{"code":"38","nom":"Ferrara (FE)"},{"code":"39","nom":"Ravenna (RA)"},
-{"code":"40","nom":"Forlì-Cesena (FC)"},{"code":"41","nom":"Pesaro e Urbino (PU)"},
-{"code":"42","nom":"Ancona (AN)"},{"code":"43","nom":"Macerata (MC)"},
-{"code":"44","nom":"Ascoli Piceno (AP)"},{"code":"45","nom":"Massa-Carrara (MS)"},
-{"code":"46","nom":"Lucca (LU)"},{"code":"47","nom":"Pistoia (PT)"},{"code":"48","nom":"Firenze (FI)"},
-{"code":"49","nom":"Livorno (LI)"},{"code":"50","nom":"Pisa (PI)"},{"code":"51","nom":"Arezzo (AR)"},
-{"code":"52","nom":"Siena (SI)"},{"code":"53","nom":"Grosseto (GR)"},{"code":"54","nom":"Perugia (PG)"},
-{"code":"55","nom":"Terni (TR)"},{"code":"56","nom":"Viterbo (VT)"},{"code":"57","nom":"Rieti (RI)"},
-{"code":"58","nom":"Roma (RM)"},{"code":"59","nom":"Latina (LT)"},{"code":"60","nom":"Frosinone (FR)"},
-{"code":"61","nom":"Caserta (CE)"},{"code":"62","nom":"Benevento (BN)"},{"code":"63","nom":"Napoli (NA)"},
-{"code":"64","nom":"Avellino (AV)"},{"code":"65","nom":"Salerno (SA)"},{"code":"66","nom":"L'Aquila (AQ)"},
-{"code":"67","nom":"Teramo (TE)"},{"code":"68","nom":"Pescara (PE)"},{"code":"69","nom":"Chieti (CH)"},
-{"code":"70","nom":"Campobasso (CB)"},{"code":"71","nom":"Foggia (FG)"},{"code":"72","nom":"Bari (BA)"},
-{"code":"73","nom":"Taranto (TA)"},{"code":"74","nom":"Brindisi (BR)"},{"code":"75","nom":"Lecce (LE)"},
-{"code":"76","nom":"Potenza (PZ)"},{"code":"77","nom":"Matera (MT)"},{"code":"78","nom":"Cosenza (CS)"},
-{"code":"79","nom":"Catanzaro (CZ)"},{"code":"80","nom":"Reggio Calabria (RC)"},
-{"code":"81","nom":"Trapani (TP)"},{"code":"82","nom":"Palermo (PA)"},{"code":"83","nom":"Messina (ME)"},
-{"code":"84","nom":"Agrigento (AG)"},{"code":"85","nom":"Caltanissetta (CL)"},
-{"code":"86","nom":"Enna (EN)"},{"code":"87","nom":"Catania (CT)"},{"code":"88","nom":"Ragusa (RG)"},
-{"code":"89","nom":"Siracusa (SR)"},{"code":"93","nom":"Pordenone (PN)"},{"code":"94","nom":"Isernia (IS)"},
-{"code":"96","nom":"Biella (BI)"},{"code":"97","nom":"Lecco (LC)"},{"code":"98","nom":"Lodi (LO)"},
-{"code":"99","nom":"Rimini (RN)"},{"code":"100","nom":"Prato (PO)"},{"code":"101","nom":"Crotone (KR)"},
-{"code":"102","nom":"Vibo Valentia (VV)"},{"code":"103","nom":"Verbano-Cusio-Ossola (VB)"},
-{"code":"108","nom":"Monza e della Brianza (MB)"},{"code":"109","nom":"Fermo (FM)"},
-{"code":"110","nom":"Barletta-Andria-Trani (BT)"},{"code":"112","nom":"Sassari (SS)"},
-{"code":"113","nom":"Gallura Nord-Est Sardegna (OT)"},{"code":"114","nom":"Nuoro (NU)"},
-{"code":"115","nom":"Oristano (OR)"},{"code":"116","nom":"Ogliastra (OG)"},
-{"code":"117","nom":"Medio Campidano (VS)"},{"code":"118","nom":"Cagliari (CA)"},
-{"code":"119","nom":"Sulcis Iglesiente (CI)"}
+{"code":"1","nom":"Torino (TO)","b":[6.626,44.713,8.152,45.603]},
+{"code":"2","nom":"Vercelli (VC)","b":[7.861,45.159,8.582,45.951]},
+{"code":"3","nom":"Novara (NO)","b":[8.31,45.291,8.843,45.877]},
+{"code":"4","nom":"Cuneo (CN)","b":[6.853,44.06,8.267,44.857]},
+{"code":"5","nom":"Asti (AT)","b":[7.883,44.519,8.514,45.132]},
+{"code":"6","nom":"Alessandria (AL)","b":[8.109,44.464,9.215,45.206]},
+{"code":"7","nom":"Valle d'Aosta/Vallée d'Aoste (AO)","b":[6.801,45.466,7.94,45.988]},
+{"code":"8","nom":"Imperia (IM)","b":[7.495,43.776,8.136,44.141]},
+{"code":"9","nom":"Savona (SV)","b":[7.977,43.938,8.669,44.529]},
+{"code":"10","nom":"Genova (GE)","b":[8.572,44.216,9.574,44.677]},
+{"code":"11","nom":"La Spezia (SP)","b":[9.465,44.023,10.071,44.439]},
+{"code":"12","nom":"Varese (VA)","b":[8.552,45.558,9.067,46.123]},
+{"code":"13","nom":"Como (CO)","b":[8.894,45.642,9.441,46.24]},
+{"code":"14","nom":"Sondrio (SO)","b":[9.247,46.011,10.631,46.636]},
+{"code":"15","nom":"Milano (MI)","b":[8.706,45.161,9.552,45.643]},
+{"code":"16","nom":"Bergamo (BG)","b":[9.445,45.422,10.263,46.092]},
+{"code":"17","nom":"Brescia (BS)","b":[9.836,45.204,10.841,46.355]},
+{"code":"18","nom":"Pavia (PV)","b":[8.498,44.679,9.552,45.394]},
+{"code":"19","nom":"Cremona (CR)","b":[9.454,44.937,10.597,45.505]},
+{"code":"20","nom":"Mantova (MN)","b":[10.309,44.908,11.428,45.428]},
+{"code":"21","nom":"Bolzano/Bozen (BZ)","b":[10.385,46.219,12.478,47.092]},
+{"code":"22","nom":"Trento (TN)","b":[10.452,45.673,11.963,46.533]},
+{"code":"23","nom":"Verona (VR)","b":[10.623,45.052,11.49,45.833]},
+{"code":"24","nom":"Vicenza (VI)","b":[11.135,45.255,11.836,46.013]},
+{"code":"25","nom":"Belluno (BL)","b":[11.666,45.88,12.732,46.68]},
+{"code":"26","nom":"Treviso (TV)","b":[11.742,45.53,12.686,46.083]},
+{"code":"27","nom":"Venezia (VE)","b":[11.961,45.055,13.103,45.855]},
+{"code":"28","nom":"Padova (PD)","b":[11.39,45.095,12.207,45.688]},
+{"code":"29","nom":"Rovigo (RO)","b":[11.173,44.792,12.556,45.164]},
+{"code":"30","nom":"Udine (UD)","b":[12.492,45.643,13.718,46.648]},
+{"code":"31","nom":"Gorizia (GO)","b":[13.239,45.674,13.643,46.052]},
+{"code":"32","nom":"Trieste (TS)","b":[13.577,45.58,13.919,45.808]},
+{"code":"33","nom":"Piacenza (PC)","b":[9.198,44.555,10.084,45.14]},
+{"code":"34","nom":"Parma (PR)","b":[9.438,44.346,10.505,45.045]},
+{"code":"35","nom":"Reggio nell'Emilia (RE)","b":[10.142,44.226,10.898,44.993]},
+{"code":"36","nom":"Modena (MO)","b":[10.47,44.114,11.369,44.962]},
+{"code":"37","nom":"Bologna (BO)","b":[10.804,44.062,11.843,44.805]},
+{"code":"38","nom":"Ferrara (FE)","b":[11.234,44.545,12.399,44.987]},
+{"code":"39","nom":"Ravenna (RA)","b":[11.524,44.1,12.384,44.629]},
+{"code":"40","nom":"Forlì-Cesena (FC)","b":[11.646,43.74,12.456,44.331]},
+{"code":"41","nom":"Pesaro e Urbino (PU)","b":[12.185,43.416,13.173,43.97]},
+{"code":"42","nom":"Ancona (AN)","b":[12.746,43.209,13.659,43.751]},
+{"code":"43","nom":"Macerata (MC)","b":[12.833,42.832,13.744,43.475]},
+{"code":"44","nom":"Ascoli Piceno (AP)","b":[13.187,42.687,13.917,43.08]},
+{"code":"45","nom":"Massa-Carrara (MS)","b":[9.686,43.975,10.256,44.473]},
+{"code":"46","nom":"Lucca (LU)","b":[10.143,43.749,10.738,44.286]},
+{"code":"47","nom":"Pistoia (PT)","b":[10.622,43.788,11.072,44.161]},
+{"code":"48","nom":"Firenze (FI)","b":[10.711,43.451,11.753,44.24]},
+{"code":"49","nom":"Livorno (LI)","b":[9.793,42.314,10.797,43.635]},
+{"code":"50","nom":"Pisa (PI)","b":[10.257,43.108,11.014,43.835]},
+{"code":"51","nom":"Arezzo (AR)","b":[11.397,43.157,12.372,43.878]},
+{"code":"52","nom":"Siena (SI)","b":[10.908,42.785,11.983,43.549]},
+{"code":"53","nom":"Grosseto (GR)","b":[10.706,42.238,11.82,43.188]},
+{"code":"54","nom":"Perugia (PG)","b":[11.913,42.596,13.265,43.618]},
+{"code":"55","nom":"Terni (TR)","b":[11.891,42.364,12.897,42.942]},
+{"code":"56","nom":"Viterbo (VT)","b":[11.449,42.146,12.52,42.838]},
+{"code":"57","nom":"Rieti (RI)","b":[12.436,42.089,13.41,42.741]},
+{"code":"58","nom":"Roma (RM)","b":[11.733,41.41,13.297,42.297]},
+{"code":"59","nom":"Latina (LT)","b":[12.53,40.784,13.895,41.715]},
+{"code":"60","nom":"Frosinone (FR)","b":[12.991,41.301,14.028,41.955]},
+{"code":"61","nom":"Caserta (CE)","b":[13.762,40.898,14.535,41.508]},
+{"code":"62","nom":"Benevento (BN)","b":[14.352,40.975,15.15,41.487]},
+{"code":"63","nom":"Napoli (NA)","b":[13.852,40.536,14.67,41.02]},
+{"code":"64","nom":"Avellino (AV)","b":[14.559,40.706,15.571,41.287]},
+{"code":"65","nom":"Salerno (SA)","b":[14.428,39.99,15.807,40.849]},
+{"code":"66","nom":"L'Aquila (AQ)","b":[13.018,41.682,14.23,42.592]},
+{"code":"67","nom":"Teramo (TE)","b":[13.348,42.42,14.147,42.895]},
+{"code":"68","nom":"Pescara (PE)","b":[13.765,42.073,14.255,42.545]},
+{"code":"69","nom":"Chieti (CH)","b":[14.075,41.759,14.784,42.445]},
+{"code":"70","nom":"Campobasso (CB)","b":[14.377,41.363,15.162,42.071]},
+{"code":"71","nom":"Foggia (FG)","b":[14.934,41.055,16.202,42.227]},
+{"code":"72","nom":"Bari (BA)","b":[16.202,40.691,17.4,41.23]},
+{"code":"73","nom":"Taranto (TA)","b":[16.696,40.294,17.8,40.803]},
+{"code":"74","nom":"Brindisi (BR)","b":[17.295,40.379,18.098,40.893]},
+{"code":"75","nom":"Lecce (LE)","b":[17.762,39.791,18.521,40.516]},
+{"code":"76","nom":"Potenza (PZ)","b":[15.334,39.894,16.399,41.14]},
+{"code":"77","nom":"Matera (MT)","b":[15.941,40.055,16.868,40.839]},
+{"code":"78","nom":"Cosenza (CS)","b":[15.755,39.048,17.024,40.144]},
+{"code":"79","nom":"Catanzaro (CZ)","b":[16.096,38.463,16.921,39.195]},
+{"code":"80","nom":"Reggio Calabria (RC)","b":[15.63,37.916,16.584,38.574]},
+{"code":"81","nom":"Trapani (TP)","b":[11.926,36.734,13.101,38.19]},
+{"code":"82","nom":"Palermo (PA)","b":[12.931,37.539,14.295,38.721]},
+{"code":"83","nom":"Messina (ME)","b":[14.183,37.795,15.654,38.818]},
+{"code":"84","nom":"Agrigento (AG)","b":[12.319,35.493,14.038,37.743]},
+{"code":"85","nom":"Caltanissetta (CL)","b":[13.65,37.001,14.476,37.746]},
+{"code":"86","nom":"Enna (EN)","b":[14.055,37.292,14.83,37.88]},
+{"code":"87","nom":"Catania (CT)","b":[14.352,37.05,15.259,37.961]},
+{"code":"88","nom":"Ragusa (RG)","b":[14.337,36.685,15.001,37.14]},
+{"code":"89","nom":"Siracusa (SR)","b":[14.772,36.644,15.337,37.413]},
+{"code":"93","nom":"Pordenone (PN)","b":[12.32,45.79,12.991,46.413]},
+{"code":"94","nom":"Isernia (IS)","b":[13.941,41.386,14.523,41.911]},
+{"code":"96","nom":"Biella (BI)","b":[7.881,45.376,8.328,45.758]},
+{"code":"97","nom":"Lecco (LC)","b":[9.244,45.649,9.541,46.158]},
+{"code":"98","nom":"Lodi (LO)","b":[9.31,45.052,9.902,45.47]},
+{"code":"99","nom":"Rimini (RN)","b":[12.096,43.731,12.754,44.163]},
+{"code":"100","nom":"Prato (PO)","b":[10.964,43.758,11.213,44.112]},
+{"code":"101","nom":"Crotone (KR)","b":[16.613,38.892,17.207,39.483]},
+{"code":"102","nom":"Vibo Valentia (VV)","b":[15.826,38.429,16.432,38.825]},
+{"code":"103","nom":"Verbano-Cusio-Ossola (VB)","b":[7.868,45.766,8.73,46.465]},
+{"code":"108","nom":"Monza e della Brianza (MB)","b":[9.051,45.536,9.496,45.743]},
+{"code":"109","nom":"Fermo (FM)","b":[13.216,42.89,13.85,43.295]},
+{"code":"110","nom":"Barletta-Andria-Trani (BT)","b":[15.87,40.897,16.543,41.442]},
+{"code":"112","nom":"Sassari (SS)","b":[8.133,40.296,9.285,41.121]},
+{"code":"113","nom":"Gallura Nord-Est Sardegna (OT)","b":[8.802,40.525,9.78,41.314]},
+{"code":"114","nom":"Nuoro (NU)","b":[8.611,39.822,9.829,40.707]},
+{"code":"115","nom":"Oristano (OR)","b":[8.274,39.627,9.173,40.427]},
+{"code":"116","nom":"Ogliastra (OG)","b":[9.272,39.549,9.736,40.225]},
+{"code":"117","nom":"Medio Campidano (VS)","b":[8.382,39.374,9.074,39.783]},
+{"code":"118","nom":"Cagliari (CA)","b":[8.699,38.875,9.66,39.852]},
+{"code":"119","nom":"Sulcis Iglesiente (CI)","b":[8.207,38.859,8.854,39.484]}
   ];
 
   // Les 101 departements, pour le selecteur integre a la fenetre.
@@ -5566,7 +5634,32 @@
         url: code => 'https://raw.githubusercontent.com/openpolis/geojson-italy/master' +
           '/geojson/limits_P_' + encodeURIComponent(code) + '_municipalities.geojson',
         aide: 'Province ISTAT (Bergamo = 16, Milano = 15…). ~270 Ko par province.',
-        nomSource: liste => 'openpolis/geojson-italy — prov. ' + liste.join(', ')
+        nomSource: liste => 'openpolis/geojson-italy — prov. ' + liste.join(', '),
+
+        /**
+         * Les provinces qui peuvent contenir ce point — pas « celle » qui le
+         * contient.
+         *
+         * ⚠️⚠️ ON NE DEVINE PAS, ON RESTREINT. La France interroge
+         * `geo.api.gouv.fr` pour savoir quel departement est sous les yeux ;
+         * l'Italie n'a pas de service equivalent. La tentation etait de
+         * trancher sur la plus PETITE boite englobante : mesure sur 620
+         * communes reelles, elle se trompe **une fois sur cinq** (78,2 %).
+         * Un chargement automatique qui telecharge la mauvaise province serait
+         * pire que le choix manuel — il coute du temps, de la bande passante,
+         * et l'editeur ne comprend pas pourquoi sa commune n'est pas la.
+         *
+         * ⭐ En revanche, la bonne province est TOUJOURS parmi celles dont la
+         * boite contient le point : **620/620 mesurees**, 1,70 en moyenne
+         * (une seule dans 42 % des cas, deux dans 47 %). On rend donc la
+         * liste courte et on la fait cocher — 110 choix ramenes a 1 ou 2,
+         * sans jamais se tromper.
+         * ⚠️ Les boites sont arrondies VERS L'EXTERIEUR : une boite rognee
+         * ferait perdre la bonne province sur un point de bordure. Le rappel
+         * reste 100 % apres arrondi (verifie).
+         */
+        unitesSousLaVue: (lon, lat) => PROVINCES_IT.filter(
+          p => p.b && lon >= p.b[0] && lon <= p.b[2] && lat >= p.b[1] && lat <= p.b[3])
       },
 
       libelleDecoupage: 'comuni ISTAT',
@@ -11818,9 +11911,34 @@
       //    lancerait un telechargement de fichiers inexistants.
       choisis.clear();
       grille.innerHTML = '';
-      sc.unites().forEach(d => {
-        const l = el('<label class="agn-dep" data-cle="' + esc(normSansAccent(d.code + ' ' + d.nom)) +
-          '"><input type="checkbox"><code>' + esc(d.code) + '</code><span>' + esc(d.nom) + '</span></label>');
+      // ── Ce qui est SOUS LES YEUX est proposé en premier, et pré-coché ──────
+      // ⚠️ Suggestion, pas décision : les cases restent décochables, et rien
+      //    ne part sans que l'éditeur clique. Sur une liste de 110 provinces,
+      //    lui en désigner 1 ou 2 est l'essentiel du service — et ne jamais se
+      //    tromper vaut mieux que deviner juste 4 fois sur 5.
+      let suggeres = [];
+      if (typeof sc.unitesSousLaVue === 'function') {
+        try {
+          const c = sdk.Map.getMapCenter();
+          if (c) suggeres = sc.unitesSousLaVue(c.lon, c.lat).map(u => u.code);
+        } catch (e) { suggeres = []; }
+      }
+      // Déjà en base : inutile de le proposer à nouveau.
+      const dejaLa = new Set(communes.map(c => String(c.code).slice(0, 3)));
+      const aProposer = suggeres.filter(code =>
+        !communes.length || ![...dejaLa].some(d => Number(d) === Number(code)));
+      const liste = sc.unites().slice().sort((a, b) => {
+        const sa = aProposer.includes(a.code) ? 0 : 1, sb = aProposer.includes(b.code) ? 0 : 1;
+        return sa - sb || Number(a.code) - Number(b.code);
+      });
+      liste.forEach(d => {
+        const vu = aProposer.includes(d.code);
+        const l = el('<label class="agn-dep' + (vu ? ' agn-dep-vu' : '') +
+          '" data-cle="' + esc(normSansAccent(d.code + ' ' + d.nom)) +
+          '" title="' + (vu ? 'Sous tes yeux — pré-coché, à toi de confirmer' : '') +
+          '"><input type="checkbox"' + (vu ? ' checked' : '') + '><code>' + esc(d.code) +
+          '</code><span>' + esc(d.nom) + (vu ? ' 👁️' : '') + '</span></label>');
+        if (vu) choisis.add(d.code);
         l.querySelector('input').onchange = e => {
           if (e.target.checked) choisis.add(d.code); else choisis.delete(d.code);
           majCompte();

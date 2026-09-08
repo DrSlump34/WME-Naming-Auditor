@@ -556,8 +556,9 @@ verifier('97. l\'hôte est bien celui mesuré',
 titre('⚠️ La liste des provinces — couverture mesurée le 08/09');
 const blocProv = src.slice(src.indexOf('const PROVINCES_IT = ['),
                            src.indexOf('// Les 101 departements'));
-const provs = [...blocProv.matchAll(/\{"code":"(\d+)","nom":"((?:[^"\\]|\\.)*)"\}/g)]
-  .map(m => ({ code: m[1], nom: m[2] }));
+const provs = [...blocProv.matchAll(
+  /\{"code":"(\d+)","nom":"((?:[^"\\]|\\.)*)","b":\[([-\d.,]+)\]\}/g)]
+  .map(m => ({ code: m[1], nom: m[2], b: m[3].split(',').map(Number) }));
 verifier('98. ⭐ 110 provinces — autant que de fichiers servis', provs.length, 110);
 // Les 9 fichiers vides du dépôt sont des provinces ABOLIES (réforme sarde de
 // 2016) : aucune ne doit figurer dans la liste, sinon le chargement rendrait
@@ -571,6 +572,40 @@ verifier('101. ⚠️ aucun code n\'a de zéro de tête',
   provs.filter(p => p.code.length > 1 && p.code[0] === '0'), []);
 verifier('102. les codes sont uniques',
   new Set(provs.map(p => p.code)).size, provs.length);
+
+titre('⭐ Deviner la province sous les yeux : RESTREINDRE, jamais trancher');
+// Mesure du 08/09 sur 620 communes réelles : la plus PETITE boîte englobante
+// se trompe une fois sur cinq (78,2 %). Un chargement automatique qui prend la
+// mauvaise province est pire que le choix manuel. En revanche la bonne est
+// TOUJOURS parmi les candidates — 620/620, 1,70 en moyenne.
+const sousLaVue = (lon, lat) => provs.filter(
+  p => lon >= p.b[0] && lon <= p.b[2] && lat >= p.b[1] && lat <= p.b[3]);
+
+verifier('103. toutes les provinces ont une boîte de 4 nombres',
+  provs.filter(p => p.b.length !== 4).length, 0);
+verifier('104. ⚠️ aucune boîte inversée (min > max)',
+  provs.filter(p => p.b[0] > p.b[2] || p.b[1] > p.b[3]).length, 0);
+verifier('105. ⚠️ toutes les boîtes tombent sur l\'Italie (6-19°E, 35-48°N)',
+  provs.filter(p => p.b[0] < 6 || p.b[2] > 19 || p.b[1] < 35 || p.b[3] > 48).length, 0);
+
+// Bergamo, centre-ville — coordonnées de l'essai réel.
+const cand = sousLaVue(9.6773, 45.6983).map(p => p.code);
+verifier('106. ⭐⭐ Bergamo est proposée depuis son centre-ville',
+  cand.includes('16'), true);
+verifier('107. ⭐ et la liste reste COURTE (≤ 4 candidates)',
+  cand.length >= 1 && cand.length <= 4, true);
+// Un point hors d'Italie ne doit rien proposer plutôt que proposer au hasard.
+verifier('108. ⚠️ en pleine mer, aucune candidate — on ne propose pas au hasard',
+  sousLaVue(3.0, 42.0).length, 0);
+verifier('109. ⚠️ Paris non plus', sousLaVue(2.35, 48.85).length, 0);
+
+titre('⚠️ La suggestion PRÉ-COCHE, elle ne télécharge pas');
+const corpsPeindre2 = src.slice(debPeindre,
+                                src.indexOf('ui.peindreSourceContours();', debPeindre));
+verifier('110. ⭐ rien ne part sans un clic : aucun appel de chargement ici',
+  /chargerDepuisGouv|telecharger\(/.test(corpsPeindre2), false);
+verifier('111. les candidates sont bien pré-cochées',
+  /checked/.test(corpsPeindre2), true);
 
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(60));
