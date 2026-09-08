@@ -11678,9 +11678,14 @@
     // Recocher la case doit tenter TOUT DE SUITE : l'editeur vient d'exprimer
     // son besoin, il n'a pas a bouger la carte pour que ca se declenche.
     coche('#agn-r-autodep', 'autoDep', () => { if (options.autoDep) autoChargerDepartement(); });
-    // ⚠️ Reference CAPTUREE, comme la grille : cette section est deplacee
-    //    au demarrage, un querySelector ulterieur ne la trouverait plus.
-    ui.optAutoDep = o.querySelector('#agn-r-autodep');
+    // ⚠️⚠️ `q`, PAS `o`. Cette fonction reçoit `pane` ; `o` est l'overlay, et
+    //    n'existe QUE dans `buildOverlay`/`brancherSources`. Écrit `o` ici, il
+    //    lève une ReferenceError qui interrompt `buildReglages` en plein
+    //    milieu : tout ce qui suit — la section sources et départements — n'est
+    //    jamais construit, et le panneau arrive amputé sans le moindre message.
+    //    Une exception dans un constructeur d'interface ne casse pas la ligne
+    //    fautive, elle casse TOUT LE RESTE.
+    ui.optAutoDep = q('#agn-r-autodep');
     if (ui.optAutoDep) ui.optAutoDep = ui.optAutoDep.closest('label') || ui.optAutoDep;
     // ⚠️ Cocher la purge ne purge PAS dans la seconde : `depsVus` est encore
     // vide au moment du clic, tout passerait donc pour « eloigne » — y compris

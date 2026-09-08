@@ -344,6 +344,32 @@ titre('Geometries « Multi » : eclatees en features simples');
     /aideBatieAvecProfil && profilLu/.test(src), true);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚠️ `buildReglages` reçoit `pane`, PAS `o`
+//
+// Défaut du 08/09, signalé par l'auteur : « t'as tout pété, plus rien dans le
+// panneau gauche ». Une ligne y appelait `o.querySelector(...)` — `o` est
+// l'overlay, il n'existe que dans `buildOverlay`/`brancherSources`. La
+// ReferenceError interrompait `buildReglages` en plein milieu, et TOUT ce qui
+// suivait — la section sources et départements — n'était jamais construit.
+// Le panneau arrivait amputé, sans le moindre message.
+// ⭐ Une exception dans un constructeur d'interface ne casse pas la ligne
+//    fautive : elle casse tout le reste. D'où ce garde-fou.
+// ═══════════════════════════════════════════════════════════════════════════
+{
+  const d = src.indexOf('  function buildReglages(pane) {');
+  const suite = src.slice(d + 10);
+  const m = suite.match(/\n  (async )?function /);
+  const corps = src.slice(d, d + 10 + (m ? m.index : suite.length));
+  const fautifs = corps.split('\n')
+    .filter(l => /\bo\.(querySelector|appendChild|classList|style)\b/.test(l))
+    .map(l => l.trim().slice(0, 70));
+  verifier('buildReglages : la tranche examinée est bien la fonction',
+    corps.length > 2000 && corps.includes('#agn-r-autodep'), true);
+  verifier('⭐⭐ buildReglages n\'utilise JAMAIS `o` (il n\'y existe pas)',
+    fautifs, []);
+}
+
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(60));
 console.log('%d verifications OK, %d ECHEC(S)', ok, ko);
