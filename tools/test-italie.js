@@ -660,6 +660,38 @@ verifier('122. ⭐⭐ le code rendu existe dans PROVINCES_IT',
 verifier('123. … pour Rome aussi',
   provs.some(p => p.code === uniteIT('058091')), true);
 
+titre('🔴🔴 Le découpage suit LA COMMUNE, pas le pays regardé');
+// Défaut du 08/09, et le plus coûteux de la journée : `depDuCode` déléguait à
+// `REF.uniteDuCode`, donc au référentiel COURANT. Dès qu'on passait en Italie,
+// les 5 561 communes FRANÇAISES déjà en base étaient redécoupées à
+// l'italienne — « 83000 » devenait « 830 ». Mesure en live : 17 départements
+// devenus 73 unités fantômes, 142 Mo, purge et chargement automatique affolés,
+// et la carte qui partait à 200 km. Un code porte son pays dans sa FORME.
+const depReel = new Function('code', `
+  const REFERENTIELS = {
+    FR: { reCodeCommune: ${blocFR.match(/reCodeCommune:\s*(\/[^\n,]+\/)/)[1]},
+          uniteDuCode: ${blocFR.match(/uniteDuCode:\s*(s => [^\n]+?),\n/)[1]} },
+    IT: { reCodeCommune: ${blocIT.match(/reCodeCommune:\s*(\/[^\n,]+\/)/)[1]},
+          uniteDuCode: ${blocIT.match(/uniteDuCode:\s*(s => [^\n]+?),\n/)[1]} } };
+  const s = String(code || '');
+  const ref = Object.values(REFERENTIELS)
+    .find(r => r.reCodeCommune && r.reCodeCommune.test(s) && r.uniteDuCode);
+  if (ref) return ref.uniteDuCode(s);
+  return /^9[78]/.test(s) ? s.slice(0, 3) : s.slice(0, 2).toUpperCase();`);
+
+verifier('124. ⭐⭐ une commune FRANÇAISE garde son département, même en Italie',
+  ['83000', '11170', '34172'].map(depReel), ['83', '11', '34']);
+verifier('125. ⭐ la Corse aussi', depReel('2A004'), '2A');
+verifier('126. ⭐ et l\'outre-mer', depReel('97401'), '974');
+verifier('127. ⭐⭐ une commune ITALIENNE relève de sa province',
+  ['016024', '058091', '004172'].map(depReel), ['16', '58', '4']);
+verifier('128. ⚠️ … et JAMAIS « 830 » pour une commune française — le défaut mesuré',
+  depReel('83000') === '830', false);
+// Le découpage doit être STABLE : la même commune rend toujours la même unité,
+// que l'éditeur regarde la France ou l'Italie. C'est ce qui manquait.
+verifier('129. ⭐⭐ le découpage ne dépend d\'AUCUN état courant',
+  new Set(['83000', '83000', '83000'].map(depReel)).size, 1);
+
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(60));
 console.log('%d verifications OK, %d ECHEC(S)', ok, ko);

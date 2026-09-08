@@ -1594,8 +1594,23 @@
    */
   const depDuCode = c => {
     const s = String(c || '');
-    const decoupe = REF && REF.uniteDuCode;
-    if (typeof decoupe === 'function') return decoupe(s);
+    // ⚠️⚠️ LE DECOUPAGE APPARTIENT A LA COMMUNE, PAS AU REFERENTIEL ACTIF.
+    //
+    // 🔴 J'ai d'abord ecrit `REF.uniteDuCode(s)`. Des qu'on passait en Italie,
+    // les 5 561 communes FRANCAISES deja en base etaient redecoupees a
+    // l'italienne : « 83000 » devenait « 830 » au lieu de « 83 ». Mesure en
+    // live : 17 departements devenus SOIXANTE-TREIZE unites fantomes
+    // (830, 633, 341, 504...), 142 Mo, purge et chargement automatique
+    // affoles, et la carte qui partait a l'autre bout du pays.
+    //
+    // C'est le MEME piege que le « cercle » corrige une heure plus tot : faire
+    // dependre du referentiel COURANT ce qui appartient a la donnee. Un code de
+    // commune porte son pays dans sa forme ; c'est elle qu'il faut lire, pas
+    // l'endroit ou l'editeur regarde.
+    const ref = Object.values(REFERENTIELS)
+      .find(r => r.reCodeCommune && r.reCodeCommune.test(s) && r.uniteDuCode);
+    if (ref) return ref.uniteDuCode(s);
+    // Format inconnu : la regle francaise, seule en vigueur avant la v2.40.
     return /^9[78]/.test(s) ? s.slice(0, 3) : s.slice(0, 2).toUpperCase();
   };
 
