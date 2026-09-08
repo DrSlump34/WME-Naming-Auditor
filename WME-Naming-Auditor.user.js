@@ -1836,8 +1836,20 @@
       // ⚡ `_pts` est compte ICI, une fois : c'est ce qui permet d'afficher le
       // poids d'un departement sans reparcourir 1,5 million de coordonnees a
       // chaque rendu (mesure : 47 ms sinon).
+      // ⚠️⚠️ CHAQUE CONTOUR RETIENT SON PAYS (v2.40), et ce n'est pas une
+      // commodite : sans lui, `detecterPays` tournait en ROND. Sa premiere
+      // preuve est « le centre de la vue tombe dans un contour charge » — mais
+      // un contour ne sait pas de quel pays il est, et je lui faisais repondre
+      // le referentiel ACTIF. Boucle fermee : REF=France => « on est en
+      // France » => REF reste France, indefiniment. Mesure en live : contours
+      // de Bergamo charges, communes italiennes trouvees dans l'overlay, et le
+      // panneau repasse en francais. Tant qu'aucun contour n'etait charge la
+      // preuve 2 (les segments, qui disent VRAIMENT le pays) prenait le relais
+      // et tout marchait — charger les contours fermait la boucle.
+      // ⚠️ `pays` est celui du referentiel qui a servi a LIRE ce fichier : ce
+      //    sont ses cles qui viennent d'en extraire nom et code.
       out.push({ code: code || nom, nom, geom: f.geometry, bbox: bboxOf(f.geometry), mairie,
-                 _pts: pointsDeGeom(f.geometry) });
+                 pays: REF.code, _pts: pointsDeGeom(f.geometry) });
     }
     if (!out.length) throw new Error('aucune commune exploitable (nom introuvable dans les propriétés)');
     const depsNouveaux = new Set(out.map(c => depDuCode(c.code)));
@@ -5851,6 +5863,31 @@
    * profil de l'editeur, et le code, lui, est du FIPS 10-4 — jamais de l'ISO
    * (voir [[waze-codes-pays-fips]]). Aucun des deux n'est fiable seul.
    */
+  /**
+   * Le referentiel dont releve un contour DEJA EN BASE.
+   *
+   * ⚠️ RETROCOMPATIBILITE. Les contours enregistres avant la v2.40 n'ont pas
+   * de champ `pays` : ils sont anterieurs a l'existence d'un second
+   * referentiel. Plutot que de faire tout retelecharger, on le DEDUIT du
+   * format du code, que chaque referentiel declare deja (`reCodeCommune`).
+   * Les formats sont disjoints — cinq chiffres ou 2A/2B en France, six en
+   * Italie — donc la deduction est sure. Le jour ou deux pays partageront un
+   * format, c'est `pays` qui tranchera, et il sera present sur tout ce qui
+   * aura ete charge depuis.
+   */
+  function referentielDeCommune(com) {
+    if (!com) return null;
+    if (com.pays) {
+      return Object.values(REFERENTIELS).find(r => r.code === com.pays) || REFERENTIELS.FR;
+    }
+    const code = String(com.code || '');
+    const parFormat = Object.values(REFERENTIELS)
+      .filter(r => r.reCodeCommune && r.reCodeCommune.test(code));
+    // Un seul candidat : on conclut. Plusieurs, ou aucun : la France, seul
+    // referentiel du temps ou ces contours ont ete enregistres.
+    return parFormat.length === 1 ? parFormat[0] : REFERENTIELS.FR;
+  }
+
   function referentielPour(nom, code) {
     return Object.values(REFERENTIELS)
       .find(r => r.correspond(nom) || r.correspond(code)) || null;
@@ -5924,14 +5961,23 @@
    */
   function detecterPays() {
     // 1. Preuve geometrique : nos propres contours, sous le centre.
-    // ⚠️⚠️ LE PAYS SE LIT DANS LE REFERENTIEL ACTIF (v2.40) — c'est le SECOND
-    // endroit ou « France » etait ecrit en dur, et je n'avais corrige que
-    // l'autre. Meme defaut, deux occurrences : les contours charges sont ceux
-    // du referentiel courant, c'est donc lui qui dit de quel pays ils sont.
+    //
+    // ⚠️⚠️ LE PAYS SE LIT SUR LE CONTOUR TROUVE, PAS SUR LE REFERENTIEL ACTIF.
+    // J'ai d'abord ecrit `{ nom: REF.nom, code: REF.code }` : c'etait
+    // CIRCULAIRE. Le referentiel est choisi d'apres le pays, et le pays etait
+    // deduit du referentiel — REF=France repondait « France », donc REF restait
+    // France, pour toujours. Le defaut ne se voyait qu'une fois des contours
+    // charges : avant, la preuve 1 echouait et les segments tranchaient.
+    // ⚠️ Un contour d'avant la v2.40 n'a pas de `pays` : il est francais par
+    //    construction (c'etait le seul referentiel), d'ou le repli sur 'FR'.
     try {
       const ctr = sdk.Map.getMapCenter();
-      if (ctr && communes.length && communeDuPoint(ctr.lon, ctr.lat)) {
-        return { nom: REF.nom, code: REF.code };
+      if (ctr && communes.length) {
+        const com = communeDuPoint(ctr.lon, ctr.lat);
+        if (com) {
+          const ref = referentielDeCommune(com);
+          return { nom: ref.nom, code: ref.code };
+        }
       }
     } catch (e) { /* on essaie la suite */ }
     // 1 bis. ⚠️⚠️ UNE COMMUNE INSEE CHOISIE EST FRANCAISE, POINT — arbitrage de
@@ -5960,7 +6006,12 @@
     // la porte a ce qu'il existe pour empecher, et sans rien signaler.
     // Le referentiel actif est ce qui a servi a charger ces contours : c'est
     // lui qui dit de quel pays cette commune releve.
-    if (communeActive) return { nom: REF.nom, code: REF.code };
+    // ⚠️ Meme raisonnement qu'en 1 : c'est la COMMUNE qui dit son pays, pas le
+    //    referentiel actif — sans quoi la deduction tourne en rond.
+    if (communeActive) {
+      const ref = referentielDeCommune(communeActive);
+      return { nom: ref.nom, code: ref.code };
+    }
     // 2. Pays majoritaire des segments REELLEMENT dans la vue.
     try {
       let ext; try { ext = sdk.Map.getMapExtent(); } catch (e) { ext = null; }

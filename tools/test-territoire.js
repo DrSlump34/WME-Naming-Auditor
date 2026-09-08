@@ -81,9 +81,18 @@ function monter(etat) {
   //    `detecterPays` : sur commune active, c'est LUI qui dit le pays, au lieu
   //    du « France » qui y etait ecrit en dur. Par defaut la France, comme le
   //    script au demarrage.
-  return new Function('sdk', 'communes', 'communeActive', 'REF', code)
+  // ⚠️ `REFERENTIELS` est une dépendance depuis la v2.40 : le pays se lit
+  //    désormais sur le CONTOUR trouvé (sa propriété `pays`), et il faut la
+  //    table pour retrouver le nom du référentiel correspondant.
+  // ⚠️ Les formats de code sont RELUS dans les descripteurs, pas réécrits ici :
+  //    c'est eux qui permettent de dater un contour d'avant la v2.40.
+  const reFR = /^(\d{5}|2[AB]\d{3})$/, reIT = /^\d{6}$/;
+  const REFERENTIELS = { FR: { code: 'FR', nom: 'France', reCodeCommune: reFR },
+                         IT: { code: 'IT', nom: 'Italie', reCodeCommune: reIT } };
+  return new Function('sdk', 'communes', 'communeActive', 'REF', 'REFERENTIELS',
+                      extraire('referentielDeCommune') + '\n' + code)
     .call(null, sdk, etat.communes || [], etat.active || null,
-          etat.ref || { nom: 'France', code: 'FR' });
+          etat.ref || { nom: 'France', code: 'FR' }, REFERENTIELS);
 }
 
 // Gruissan, tel qu'il est en base : un contour cotier. La mer est a l'EST.
@@ -152,7 +161,8 @@ const COMUNE_IT = { code: '016024', nom: 'Bergamo',
   geom: carre(9.63, 45.67, 9.72, 45.72), bbox: [9.63, 45.67, 9.72, 45.72] };
 verifier('27. commune italienne + référentiel IT ⇒ Italie (et NON France)',
   monter({ centre: { lon: 9.90, lat: 45.70 }, extent: [9.5, 45.6, 10.0, 45.8],
-           communes: [COMUNE_IT], active: COMUNE_IT,
+           communes: [{ ...COMUNE_IT, pays: 'IT' }],
+           active: { ...COMUNE_IT, pays: 'IT' },
            ref: { nom: 'Italie', code: 'IT' } })(),
   { nom: 'Italie', code: 'IT' });
 verifier('28. … et la France reste la France quand c\'est elle qui sert',
@@ -166,9 +176,48 @@ verifier('28. … et la France reste la France quand c\'est elle qui sert',
 // chargés, recevoir « France » — donc les règles françaises.
 verifier('28 bis. ⭐ contour sous le centre + référentiel IT ⇒ Italie',
   monter({ centre: { lon: 9.67, lat: 45.69 }, extent: [9.5, 45.6, 10.0, 45.8],
-           communes: [COMUNE_IT], active: null,
+           communes: [{ ...COMUNE_IT, pays: 'IT' }], active: null,
            ref: { nom: 'Italie', code: 'IT' } })(),
   { nom: 'Italie', code: 'IT' });
+
+titre('🔴🔴 LE CERCLE — le pays ne se déduit PAS du référentiel actif');
+// Défaut mesuré en live : `detecterPays` répondait { REF.nom, REF.code } dès
+// qu'un contour tombait sous le centre. Or REF est CHOISI d'après ce que
+// répond detecterPays. REF=France ⇒ « on est en France » ⇒ REF reste France,
+// indéfiniment. Invisible tant qu'aucun contour n'était chargé (les segments
+// tranchaient) ; charger Bergamo fermait la boucle, et le panneau repassait en
+// français devant une carte italienne.
+verifier('28 ter. ⭐⭐ commune ITALIENNE sous le centre, référentiel encore FRANÇAIS ⇒ Italie',
+  monter({ centre: { lon: 9.67, lat: 45.69 }, extent: [9.5, 45.6, 10.0, 45.8],
+           communes: [{ ...COMUNE_IT, pays: 'IT' }], active: null,
+           ref: { nom: 'France', code: 'FR' } })(),
+  { nom: 'Italie', code: 'IT' });
+verifier('28 quater. ⭐ … et la commune SÉLECTIONNÉE dit son pays elle aussi',
+  monter({ centre: EN_MER, extent: VUE_LARGE,
+           communes: [{ ...COMUNE_IT, pays: 'IT' }],
+           active: { ...COMUNE_IT, pays: 'IT' },
+           ref: { nom: 'France', code: 'FR' } })(),
+  { nom: 'Italie', code: 'IT' });
+// Rétrocompatibilité : les contours chargés avant la v2.40 n'ont pas de `pays`.
+verifier('28 quinquies. ⚠️ un contour SANS `pays` mais à code français ⇒ France',
+  monter({ centre: SUR_TERRE, extent: VUE_LARGE, communes: [GRUISSAN], active: null,
+           ref: { nom: 'Italie', code: 'IT' } })(),
+  { nom: 'France', code: 'FR' });
+// ⭐ Les contours italiens déjà en base au moment de la mise à jour n'ont pas
+// de `pays` non plus. Plutôt que d'imposer un retéléchargement, on déduit du
+// FORMAT du code — 6 chiffres en Italie, 5 (ou 2A/2B) en France : disjoints.
+verifier('28 sexies. ⭐⭐ un contour SANS `pays` mais à code ISTAT ⇒ Italie',
+  monter({ centre: { lon: 9.67, lat: 45.69 }, extent: [9.5, 45.6, 10.0, 45.8],
+           communes: [{ code: '016024', nom: 'Bergamo',
+                        geom: carre(9.63, 45.67, 9.72, 45.72),
+                        bbox: [9.63, 45.67, 9.72, 45.72] }],
+           active: null, ref: { nom: 'France', code: 'FR' } })(),
+  { nom: 'Italie', code: 'IT' });
+verifier('28 septies. ⚠️ la Corse (2A004) reste française',
+  monter({ centre: SUR_TERRE, extent: VUE_LARGE,
+           communes: [{ ...GRUISSAN, code: '2A004' }], active: null,
+           ref: { nom: 'Italie', code: 'IT' } })(),
+  { nom: 'France', code: 'FR' });
 
 // ═══════════════════════════════════════════════════════════════════════════
 // LA DECISION : ce territoire est-il SERVI ?
