@@ -14,7 +14,7 @@
 | ✅ Format des *frazioni* | `nomefrazione, nomecomune` |
 | ✅ Codes ISTAT à 6 chiffres | le partage communautaire fonctionne |
 | ⏳ 7 questions à Silvio | message prêt, 3 prioritaires (§ 6) |
-| ⏳ `fari` | ⚠️ **bloqué** : le nom du champ SDK doit être **relevé dans WME**, pas deviné |
+| ⏳ `fari` | nom du champ **relevé** (voir ci-dessous) ; reste à voir comment le **SDK** l'expose |
 | ⏳ Ordinaux `1ª` / `1º` | trop ambigu pour être automatisé — question à Silvio |
 | ⏳ i18n | 714 chaînes, pas commencé |
 | ⏳ Essai réel | le référentiel n'a **jamais tourné sur la carte** |
@@ -23,6 +23,33 @@
 c'est volontaire tant que les questions restent ouvertes et que rien n'a été essayé en vrai.
 
 **900 vérifications sur 29 fichiers, 0 échec.**
+
+### ⚡ Relevé du 08/09 — l'attribut « obbligo accensione dei fari »
+
+Mesuré **dans WME**, pas deviné : les traductions de l'éditeur donnent le nom du champ
+sans qu'aucun segment n'ait besoin d'être chargé.
+
+```
+I18n.translations.fr.objects.segment.flag_fields.headlights → « Allumez vos feux »
+I18n.translations.fr.edit.segment.fields.headlights         → « Allumez vos feux »
+```
+
+⇒ Le champ s'appelle **`headlights`**, et c'est un **flag field**. Sa famille complète :
+
+| Drapeau | Libellé FR |
+|---|---|
+| `beacons` | Avec balises |
+| `fwdSpeedCamera` | Radar tronçon A→B |
+| **`headlights`** | **Allumez vos feux** |
+| `nearbyHOV` | Voie VOM à proximité |
+| `revSpeedCamera` | Radar tronçon B→A |
+| `tunnel` | Tunnel |
+| `unpaved` | Non bitumée |
+
+⏳ **Ce qui manque encore** : comment le **SDK** (et non `W.model`) expose ce drapeau — WNA lit
+`sdk.DataModel.Segments`, jamais le modèle brut. Il faut un segment réellement chargé pour le
+voir, et l'onglet piloté reste `visibilityState: "hidden"` : WME n'y charge aucune donnée.
+⚠️ **Ne pas coder le contrôle avant** : le nom du champ ne dit pas comment on le lit.
 
 ### Les défauts trouvés *en portant* — aucun n'aurait fait de bruit
 
