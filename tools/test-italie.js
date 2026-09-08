@@ -421,6 +421,46 @@ verifier('76. ⚠️ headlights non booléen (undefined) ⇒ rien',
            enAgglo: false }), 0);
 verifier('77. aucun contexte ⇒ rien', feux({ primary: {}, alts: [] }, null).length, 0);
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 8. LE CHANGEMENT DE PAYS DOIT SE JOUER, PAS SEULEMENT SE DÉCIDER
+// ═══════════════════════════════════════════════════════════════════════════
+titre('🔴 Basculer de pays initialise les contrôles du NOUVEAU référentiel');
+// Mesuré en live à Bergamo le 08/09 : REF basculait bien sur l'Italie, mais
+// les options des contrôles italiens n'étaient jamais initialisées — donc
+// `undefined`, donc FALSY, donc AUCUN contrôle italien ne s'exécutait. Le
+// référentiel était juste et l'interface mentait.
+{
+  const api = new Function([
+    'const options = { controles: {} };',
+    'let REF = { controles: [' +
+      '{ cle: "nommageZone" }, { cle: "fari" }, { cle: "sigleEspace" },' +
+      '{ cle: "dateRomaine" }, { cle: "poiNumero", defaut: false },' +
+      '{ cle: "avecFonction", defaut: () => false } ] };',
+    extraire('initOptionsControles'),
+    'return { options, initOptionsControles };'
+  ].join('\n'))();
+  api.initOptionsControles();
+  verifier('78. ⭐⭐ un contrôle du nouveau pays est ACTIVÉ, pas laissé undefined',
+    api.options.controles.fari, true);
+  verifier('79. … et les autres aussi',
+    [api.options.controles.sigleEspace, api.options.controles.dateRomaine], [true, true]);
+  verifier('80. ⚠️ un `defaut: false` reste décoché', api.options.controles.poiNumero, false);
+  verifier('81. ⚠️ un `defaut` FONCTION est évalué', api.options.controles.avecFonction, false);
+  // Le choix déjà fait par l'éditeur ne doit pas être écrasé au changement de pays.
+  api.options.controles.fari = false;
+  api.initOptionsControles();
+  verifier('82. ⭐ un choix DÉJÀ fait par l\'éditeur survit au rejeu',
+    api.options.controles.fari, false);
+}
+
+titre('⚠️ `choisirReferentiel` rejoue bien les deux gestes');
+const corpsChoisir = src.slice(src.indexOf('function choisirReferentiel'),
+                               src.indexOf('function referentielPour'));
+verifier('83. ⭐ il initialise les options du nouveau référentiel',
+  /initOptionsControles\(\)/.test(corpsChoisir), true);
+verifier('84. ⭐ et il repeint la liste des cases',
+  /peindreControles\(\)/.test(corpsChoisir), true);
+
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(60));
 console.log('%d verifications OK, %d ECHEC(S)', ok, ko);

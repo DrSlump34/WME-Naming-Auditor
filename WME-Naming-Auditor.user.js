@@ -5572,9 +5572,65 @@
    *  dit dans quel pays on travaille. */
   let REF = REFERENTIELS.FR;
 
+  /**
+   * Initialise les options des controles du referentiel COURANT.
+   *
+   * ⚠️ Se rejoue a chaque changement de pays : les controles d'un referentiel
+   * qui vient d'etre choisi n'ont jamais ete initialises, et une option
+   * `undefined` est FALSY — le controle ne s'executerait pas du tout.
+   */
+  function initOptionsControles() {
+    REF.controles.forEach(ct => {
+      // ⚠️ Un controle peut demander a etre DECOCHE au depart (`defaut: false`).
+      // ⚠️ `defaut` peut etre une FONCTION quand l'etat de depart depend de
+      //    l'environnement. Elle n'est evaluee qu'a la PREMIERE rencontre :
+      //    ensuite c'est le choix de l'editeur qui fait foi.
+      if (options.controles[ct.cle] === undefined) {
+        const d = (typeof ct.defaut === 'function') ? ct.defaut() : ct.defaut;
+        options.controles[ct.cle] = d !== undefined ? d : true;
+      }
+    });
+  }
+
+  /** (Re)dessine la liste des cases a cocher d'apres le referentiel courant. */
+  function peindreControles() {
+    const zone = ui && ui.zoneControles;
+    if (!zone) return;                       // le panneau n'existe pas encore
+    zone.innerHTML = '';
+    REF.controles.forEach(({ cle, libelle }) => {
+      const l = el(`<label class="agn-sb-c"><input type="checkbox"> ${esc(tr(libelle))}</label>`);
+      const inp = l.querySelector('input');
+      inp.checked = !!options.controles[cle];
+      inp.onchange = () => {
+        options.controles[cle] = inp.checked; saveUI();
+        // ⚠️ Cocher le dictionnaire APRES le demarrage doit le telecharger :
+        // sans ca, le controle resterait muet et l'editeur croirait sa carte
+        // impeccable (« zero est un resultat », lecon de la v2.26).
+        if (cle === 'redactionDico') {
+          if (inp.checked && !dico.regles.length) {
+            majEtatDico('chargement');
+            chargerDictionnaireFr().then(() => { majEtatDico(); prevenir(); });
+          } else { majEtatDico(); }
+        }
+        prevenir();
+      };
+      zone.appendChild(l);
+    });
+  }
+
   function choisirReferentiel(nomPays) {
     const trouve = Object.values(REFERENTIELS).find(r => r.correspond(nomPays));
-    if (trouve && trouve !== REF) { REF = trouve; log('referentiel : ' + REF.nom); }
+    if (trouve && trouve !== REF) {
+      REF = trouve;
+      log('referentiel : ' + REF.nom);
+      // ⚠️⚠️ LE CHANGEMENT DE PAYS DOIT SE VOIR ET SE JOUER (v2.40). Sans ces
+      // deux lignes, `REF` basculait mais l'interface restait sur l'ancien
+      // pays : cases francaises affichees en Italie, et surtout options des
+      // controles italiens jamais initialisees — donc `undefined`, donc AUCUN
+      // controle italien execute. Mesure en live a Bergamo le 08/09.
+      initOptionsControles();
+      try { peindreControles(); } catch (e) { /* panneau pas encore construit */ }
+    }
     return REF;
   }
 
@@ -9904,20 +9960,10 @@
     }
     // Les controles disponibles dependent du referentiel : on active par defaut
     // ceux qu'il declare et que l'utilisateur n'a pas deja regles.
-    REF.controles.forEach(ct => {
-      // ⚠️ Un controle peut demander a etre DECOCHE au depart (`defaut: false`) :
-      // c'est le cas du numero de rue manquant sur les POI, qui concerne la
-      // moitie d'entre eux et noierait le reste (arbitrage de l'auteur, 26/07).
-      // ⚠️ `defaut` peut etre une FONCTION quand l'etat de depart depend de
-      // l'environnement — le dictionnaire de redaction se tait si WME Check
-      // Road Name est deja la. Elle n'est evaluee qu'ICI, au tout premier
-      // demarrage : ensuite c'est le choix de l'editeur qui fait foi, et une
-      // installation ou desinstallation de CRN ne le bousculera pas.
-      if (options.controles[ct.cle] === undefined) {
-        const d = (typeof ct.defaut === 'function') ? ct.defaut() : ct.defaut;
-        options.controles[ct.cle] = d !== undefined ? d : true;
-      }
-    });
+    // ⚠️ Le meme geste se rejoue a chaque changement de PAYS (voir
+    //    `choisirReferentiel`) : un referentiel fraichement choisi apporte des
+    //    controles que personne n'a encore initialises.
+    initOptionsControles();
 
     const o = el(`
       <div id="agn-overlay">
@@ -11291,29 +11337,18 @@
     // La liste des controles vient du REFERENTIEL du pays, pas d'une liste en
     // dur : un autre pays affichera automatiquement les siens.
     const zoneCtrl = q('#agn-r-controles');
-    // ⭐ Un SEUL `tr()` traduit tous les libellés de contrôles, des deux pays.
-    //   Ils sont traduits ICI, au rendu, et non dans le descripteur : celui-ci
-    //   est construit au chargement, avant que la langue de WME soit lue — les
-    //   libellés y seraient figés en français.
-    REF.controles.forEach(({ cle, libelle }) => {
-      const l = el(`<label class="agn-sb-c"><input type="checkbox"> ${esc(tr(libelle))}</label>`);
-      const inp = l.querySelector('input');
-      inp.checked = !!options.controles[cle];
-      inp.onchange = () => {
-        options.controles[cle] = inp.checked; saveUI();
-        // ⚠️ Cocher le dictionnaire APRES le demarrage doit le telecharger :
-        // sans ca, le controle resterait muet et l'editeur croirait sa carte
-        // impeccable (« zero est un resultat », lecon de la v2.26).
-        if (cle === 'redactionDico') {
-          if (inp.checked && !dico.regles.length) {
-            majEtatDico('chargement');
-            chargerDictionnaireFr().then(() => { majEtatDico(); prevenir(); });
-          } else { majEtatDico(); }
-        }
-        prevenir();
-      };
-      zoneCtrl.appendChild(l);
-    });
+    // ⚠️⚠️ LA LISTE SE REPEINT QUAND LE PAYS CHANGE (v2.40). Elle etait
+    // construite UNE SEULE FOIS au demarrage. Mesure en live le 08/09, carte
+    // deplacee de la France a Bergamo : WME rendait bien « Italy/IT », le
+    // garde-fou acceptait — et le panneau affichait toujours « Cartouches des
+    // Dxxx », « Voie Communale n°6 », « A6a: Paris ».
+    // Et ce n'etait pas qu'un affichage : les options des controles italiens
+    // (`fari`, `sigleEspace`, `dateRomaine`) n'etaient jamais initialisees,
+    // donc `undefined`, donc FALSY — AUCUN controle italien ne se serait
+    // execute, et les cases affichees ne correspondaient a rien de ce qui
+    // tournait. Le referentiel etait juste, l'interface mentait.
+    ui.zoneControles = zoneCtrl;
+    peindreControles();
     majEtatDico();
     coche('#agn-r-zoom', 'zoomClic');
     coche('#agn-r-surligner', 'surligner', () => redrawEcarts(null));
