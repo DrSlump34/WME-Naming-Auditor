@@ -371,6 +371,56 @@ verifier('64. ⚠️ un code à 5 chiffres n\'est PAS un code ISTAT',
 verifier('65. les zéros de tête sont conservés (« 001272 » = Alessandria)',
   codeIT.test('001272'), true);
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 7. « OBBLIGO ACCENSIONE DEI FARI » — la seule règle qui ne porte pas sur le nom
+// ═══════════════════════════════════════════════════════════════════════════
+titre('Les feux hors centro abitato (376292)');
+const feux = new Function([
+  relire('ROADTYPE_SANS_ADRESSE'), relire('ROADTYPE_SANS_ADRESSE_TOTALE'),
+  'const REF = { typesSansAdresse: ROADTYPE_SANS_ADRESSE,' +
+  '  typesSansAdresseTotale: ROADTYPE_SANS_ADRESSE_TOTALE };',
+  extraire('verifierFeuxIT'),
+  'return verifierFeuxIT;'
+].join('\n'))();
+
+// ⚡ La forme de `flagAttributes` est celle RELEVÉE dans WME le 08/09 :
+//    un objet de booléens, tous présents, pas un masque de bits.
+const segIT = (type, headlights) => ({
+  seg: { id: 1, roadType: type, flagAttributes: {
+    beacons: false, fwdLanesEnabled: false, fwdSpeedCamera: false,
+    headlights: headlights, nearbyHOV: false, revLanesEnabled: false,
+    revSpeedCamera: false, tunnel: false, unpaved: false } },
+  enAgglo: false
+});
+const nbFeux = ctx => feux({ primary: {}, alts: [] }, ctx).length;
+
+verifier('66. ⭐ route hors zone bâtie SANS les feux ⇒ signalé', nbFeux(segIT(1, false)), 1);
+verifier('67. … AVEC les feux ⇒ rien', nbFeux(segIT(1, true)), 0);
+verifier('68. ⭐ DANS le centro abitato ⇒ rien, la règle ne s\'y applique pas',
+  nbFeux({ ...segIT(1, false), enAgglo: true }), 0);
+
+titre('⚠️ Ce qui n\'est PAS une « strada extraurbana »');
+verifier('69. parking (20) ⇒ rien', nbFeux(segIT(20, false)), 0);
+verifier('70. voie privée (17) ⇒ rien', nbFeux(segIT(17, false)), 0);
+verifier('71. voie ferrée (18) ⇒ rien', nbFeux(segIT(18, false)), 0);
+verifier('72. ferry (15) ⇒ rien', nbFeux(segIT(15, false)), 0);
+verifier('73. autoroute (3) ⇒ signalé : c\'est bien une route hors ville',
+  nbFeux(segIT(3, false)), 1);
+
+titre('🔴 ABSENT N\'EST PAS FAUX — le piège qui aurait signalé TOUTE la commune');
+// `headlights` n'existe NI sur l'objet SDK, NI dans le modèle brut (où les
+// drapeaux vivent dans un masque `flags`). Écrire `seg.headlights` aurait rendu
+// `undefined` partout — donc « feux manquants » sur chaque segment, avec
+// l'aplomb d'un contrôle qui marche.
+verifier('74. ⭐⭐ pas de flagAttributes du tout ⇒ on ne conclut RIEN',
+  nbFeux({ seg: { id: 1, roadType: 1 }, enAgglo: false }), 0);
+verifier('75. ⭐ flagAttributes sans la clé headlights ⇒ rien non plus',
+  nbFeux({ seg: { id: 1, roadType: 1, flagAttributes: { tunnel: false } }, enAgglo: false }), 0);
+verifier('76. ⚠️ headlights non booléen (undefined) ⇒ rien',
+  nbFeux({ seg: { id: 1, roadType: 1, flagAttributes: { headlights: undefined } },
+           enAgglo: false }), 0);
+verifier('77. aucun contexte ⇒ rien', feux({ primary: {}, alts: [] }, null).length, 0);
+
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(60));
 console.log('%d verifications OK, %d ECHEC(S)', ok, ko);

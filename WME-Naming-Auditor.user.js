@@ -4925,6 +4925,8 @@
       //    Silvio, 08/09) — un Italien qui aide en France la lira aussi.
       'Giratoires : sans nom (ville selon la zone)':
         'Rotatorie: senza nome (città secondo la zona)',
+      'Feux obligatoires hors centro abitato':
+        'Obbligo accensione dei fari fuori dal centro abitato',
       'Sigles écrites avec un espace (« SS 12 » au lieu de « SS12 »)':
         'Sigle scritte con uno spazio (« SS 12 » invece di « SS12 »)',
       'Dates en chiffres romains (« Via IV Novembre »)':
@@ -5094,6 +5096,49 @@
    *  buchet37 sont francaises et n'ont aucun equivalent : le controle
    *  `redactionDico` n'est donc pas propose en Italie. */
   const DICO_FONCTIONS_IT = {};
+
+  /**
+   * ITALIE — « obbligo accensione dei fari » hors centro abitato.
+   *
+   * Regle ecrite (376292) : « su TUTTE le strade extraurbane della mappa
+   * dev'essere presente l'attributo ». C'est la seule regle italienne qui ne
+   * porte pas sur le NOM mais sur un attribut du segment — d'ou le contexte
+   * passe aux controles de portee 'segment'.
+   *
+   * ⚡ RELEVE EN LIVE dans WME le 08/09, jamais devine : le SDK expose
+   * `segment.flagAttributes`, un objet de booleens — `beacons`,
+   * `fwdLanesEnabled`, `fwdSpeedCamera`, `headlights`, `nearbyHOV`,
+   * `revLanesEnabled`, `revSpeedCamera`, `tunnel`, `unpaved`.
+   * ⚠️ `headlights` n'existe PAS comme attribut direct : ni sur l'objet du SDK,
+   * ni dans le modele brut, ou les drapeaux vivent dans un masque `flags`.
+   * Ecrire `seg.headlights` aurait rendu `undefined` sur tous les segments —
+   * donc « feux manquants » PARTOUT, avec l'aplomb d'un controle qui marche.
+   */
+  function verifierFeuxIT(nam, ctx) {
+    // La regle ne vaut que HORS zone batie. En ville, rien n'est exige.
+    if (!ctx || ctx.enAgglo) return [];
+    const seg = ctx.seg;
+    if (!seg) return [];
+    // ⚠️ Ce qui n'est pas une « strada » n'est pas concerne : voies ferrees,
+    //    pistes, ferries, parkings et voies privees ne sont pas des routes
+    //    extra-urbaines au sens du Code de la route.
+    const t = seg.roadType;
+    if (REF.typesSansAdresse.has(t) || REF.typesSansAdresseTotale.has(t)) return [];
+    const fa = seg.flagAttributes;
+    // ⚠️⚠️ ABSENT N'EST PAS FAUX. Si le SDK ne rend pas les drapeaux (version
+    //    plus ancienne, objet incomplet), on ne conclut RIEN : signaler
+    //    « feux manquants » sur une donnee qu'on n'a pas lue serait un
+    //    mensonge, et il porterait sur toute la commune d'un coup.
+    if (!fa || typeof fa.headlights !== 'boolean') return [];
+    if (fa.headlights) return [];
+    return [{
+      champ: 'feux obligatoires (hors centro abitato)',
+      avant: 'attribut absent',
+      apres: 'cocher « Allumez vos feux » : le Code de la route l\'impose ' +
+             'sur toute route hors agglomération',
+      sansProposition: true
+    }];
+  }
 
   /** Forme attendue d'une bretelle italienne (376292 + 376306). */
   const RE_BRET_FORME_IT = new RegExp(
@@ -5465,6 +5510,10 @@
         { cle: 'cartouches', portee: 'segment',
           libelle: 'Cartouches des SS / SR / SP',
           executer: verifierCartouches },
+        // ⚡ La seule règle italienne qui ne porte pas sur le nom.
+        { cle: 'fari', portee: 'segment',
+          libelle: 'Feux obligatoires hors centro abitato',
+          executer: verifierFeuxIT },
         { cle: 'bretelles', portee: 'type',
           libelle: 'Bretelles : jamais de ville (« SEMPRE senza città »)' },
         { cle: 'rails', portee: 'type',
@@ -7935,9 +7984,15 @@
       // plutot que de proposer d'effacer une adresse peut-etre juste — les
       // ALTERNATIFS, eux, restent proposes : ceux-la sont surs.
       if (mitoyenIndecis) ecartsNom = ecartsNom.filter(e => e.champ !== 'principal');
+      // ⚠️ Un CONTEXTE est passé en second argument (v2.40) : certains
+      //    contrôles nationaux portent sur le segment lui-même et sur la zone,
+      //    pas seulement sur son nommage — l'obligation italienne d'allumer
+      //    les feux hors centro abitato en est le premier cas. Les contrôles
+      //    existants ne prennent qu'un argument et l'ignorent : aucun d'eux ne
+      //    change de comportement.
       const ecartsCart = REF.controles
         .filter(ct => ct.portee === 'segment' && c[ct.cle] && ct.executer)
-        .reduce((acc, ct) => acc.concat(ct.executer(nam)), []);
+        .reduce((acc, ct) => acc.concat(ct.executer(nam, { seg, enAgglo })), []);
       const ecarts = ecartsNom.concat(ecartsCart, forme);
       if (!ecarts.length) continue;
       if (ecartsCart.length) zones.cartouche++;
