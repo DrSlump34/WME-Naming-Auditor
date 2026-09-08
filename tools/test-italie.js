@@ -461,6 +461,19 @@ verifier('83. ⭐ il initialise les options du nouveau référentiel',
 verifier('84. ⭐ et il repeint la liste des cases',
   /peindreControles\(\)/.test(corpsChoisir), true);
 
+titre('🔴 Le référentiel suit le PAYS, pas l\'analyse');
+// Mesuré à Bergamo : 1 479 segments italiens sous les yeux, WME rendant
+// « Italy », et « Cartouches des Dxxx » toujours affiché. `choisirReferentiel`
+// n'était appelé que depuis `scan()` — or `scan()` exige une commune, et une
+// commune vient des CONTOURS. Sans contours ISTAT, aucune commune, donc jamais
+// d'analyse, donc jamais de bascule. Le pays, lui, est connu bien avant.
+const corpsEval = src.slice(src.indexOf('function evaluerPays'),
+                            src.indexOf('const paysServi'));
+verifier('85. ⭐⭐ `evaluerPays` bascule le référentiel dès que le pays est connu',
+  /choisirReferentiel\(/.test(corpsEval), true);
+verifier('86. ⚠️ … et seulement quand un référentiel sert ce pays',
+  /if \(ref\) choisirReferentiel/.test(corpsEval), true);
+
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(60));
 console.log('%d verifications OK, %d ECHEC(S)', ok, ko);

@@ -5799,6 +5799,15 @@
       //   sans qu'une seule ligne de garde-fou soit touchee.
       const ref = referentielPour(p.nom, p.code);
       pays = { etat: ref ? 'servi' : 'hors', nom: p.nom, code: p.code, ref };
+      // ⚠️⚠️ LE REFERENTIEL SUIT LE PAYS, PAS L'ANALYSE (v2.40).
+      // `choisirReferentiel` n'etait appele que depuis `scan()`. Or `scan()`
+      // exige une commune selectionnee, et une commune vient des CONTOURS
+      // charges : en Italie, sans contours ISTAT, il n'y en a aucune. Le
+      // referentiel ne basculait donc JAMAIS — mesure en live a Bergamo le
+      // 08/09 avec 1 479 segments italiens sous les yeux et « Cartouches des
+      // Dxxx » toujours affiche. Le pays est connu bien avant qu'on analyse :
+      // c'est ici que la bascule doit se faire.
+      if (ref) choisirReferentiel(p.nom || p.code);
     }
     if (pays.etat !== avant) {
       log('territoire : ' + pays.etat + (pays.nom ? ' (' + pays.nom + ')' : ''));
