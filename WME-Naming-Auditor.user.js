@@ -596,7 +596,15 @@
    */
   function rocadeDe(nam) {
     const entrees = nam ? [nam.primary, ...(nam.alts || [])].filter(Boolean) : [];
-    if (entrees.some(e => e && e.signType === REF.signTypeRocade)) {
+    // ⚠️⚠️ `!= null` N'EST PAS UNE PRECAUTION DE STYLE. Un pays dont
+    // l'identifiant de cartouche Rocade n'a pas encore ete releve dans WME le
+    // laisse a `null` — et un segment SANS cartouche porte lui aussi
+    // `signType: null`. Sans cette garde, la comparaison null === null rendait
+    // TOUT segment sans cartouche « rocade, certain: true », donc « jamais de
+    // ville » : une degradation massive, silencieuse, et d'autant plus
+    // trompeuse qu'elle se presente comme CERTAINE.
+    if (REF.signTypeRocade != null &&
+        entrees.some(e => e && e.signType === REF.signTypeRocade)) {
       return { rocade: true, certain: true, motif: 'cartouche Rocade' };
     }
     const noms = entrees.map(e => (e && e.name) || '').join(' ');
@@ -4805,6 +4813,162 @@
     return ecarts;
   }
 
+  // ===========================================================================
+  // REFERENTIEL ITALIE (v2.40) — demande de Silvio, Country Coordinator IT
+  //
+  // Sources : Wazeopedia Italia, « Denominazione delle strade » (Discuss
+  // 376292), « Centro abitato & City Boundary » (376277), « Abbreviazioni del
+  // TTS » (376274) et « Indicazioni di guida sulle svolte » (376306).
+  // Rapatriees et analysees le 08/09/2026 — voir ANALYSE-ITALIE.md.
+  //
+  // ⭐⭐ LE RAISONNEMENT N'EST PAS REECRIT. Le « centro abitato » est la meme
+  // notion que l'agglomeration francaise : une zone batie delimitee par des
+  // panneaux (les « cartelli bianchi »), DISTINCTE du contour communal — le
+  // wiki italien le dit mot pour mot. Et les cas C/R/H de `expectedNaming`
+  // correspondent un a un a la table recapitulative italienne, y compris la
+  // ville en ALTERNATIF hors zone batie (cas H6/H7/H9), que l'Italie exige et
+  // que WNA reclame deja depuis l'arbitrage du 27/07. Ce bloc ne fournit donc
+  // que le VOCABULAIRE et les REGLES.
+  //
+  // ⚠️⚠️ LE CITY BOUNDARY DE WME NE PEUT PAS SERVIR DE REFERENCE. Il est
+  // FORME par les segments eux-memes (« i segmenti con impostato il valore
+  // City nel PN concorrono alla formazione del City Boundary »). L'utiliser
+  // pour auditer ces memes segments serait circulaire : un segment portant une
+  // ville a tort elargirait la zone qui le declarerait ensuite conforme. La
+  // zone batie reste donc un polygone a tracer, exactement comme en France.
+  // ===========================================================================
+
+  const IT_CODES = new Set(['IT']);
+  const IT_NOMS = new Set(['italie', 'italia', 'italy'].map(n => normSansAccent(n)));
+
+  /**
+   * Ce nom ou ce code designe-t-il l'Italie ?
+   *
+   * ⚠️ Saint-Marin et le Vatican sont des PAYS distincts dans le modele Waze,
+   * avec leurs propres regles : ne pas les rattacher ici.
+   * ⚠️ Le code rendu par WME est du FIPS 10-4, pas de l'ISO. Pour l'Italie les
+   * deux coincident sur `IT` — c'est une chance, pas une regle : ne jamais
+   * generaliser ce raccourci a un autre pays (voir [[waze-codes-pays-fips]]).
+   */
+  function estTerritoireItalien(nomOuCode) {
+    const t = String(nomOuCode || '').trim();
+    if (!t) return false;
+    if (t.length <= 3 && IT_CODES.has(t.toUpperCase())) return true;
+    return IT_NOMS.has(normSansAccent(t));
+  }
+
+  /**
+   * Numero de route italien. Les sigles s'ecrivent « in maiuscolo e senza
+   * spazi » : A1, SS12, SR31, SP20bis, SS591var, SS20dir, NSA122.
+   *
+   * ⚠️⚠️ L'ESPACE EST TOLERE ICI, ET C'EST VOLONTAIRE. « SS 12 » est une
+   * FAUTE en Italie, mais si l'expression le refusait, le moteur y verrait un
+   * NOM DE RUE : le logigramme partirait alors de travers (il reclamerait un
+   * numero de route par-dessus) au lieu de signaler une faute d'ecriture.
+   * On reconnait donc large, et l'espace se signale a part. Meme parti qu'en
+   * France, ou `RE_ROUTE` accepte « D 26 ».
+   *
+   * ⚠️ SPexSS et SGC d'abord : une alternance rend la PREMIERE branche qui
+   * matche, et « SP » avalerait le debut de « SPexSS » (voir
+   * [[regex-alternative-ordre]]).
+   */
+  const RE_ROUTE_IT =
+    /^(?:SPexSS|SGC|NSA|GRA|SS|SR|SP|SC|RA|A)\s?\d+[a-zA-Z0-9]*$/;
+
+  /** Autoroute : A + chiffres. Aucune ville, ni en principal ni en alternatif
+   *  (« Name: A22, City: No city » ET « AN: A22 del Brennero, City: No city »).
+   *  Regle identique a la France. */
+  const RE_AUTOROUTE_IT = /^A\s?\d+/;
+
+  /** Strada Comunale. ⏳ La forme abregee obligatoire (« SC6 » plutot que
+   *  « Strada Comunale n.6 ») n'est PAS ecrite dans le wiki : question posee a
+   *  Silvio le 08/09. En attendant, on reconnait la sigle sans rien exiger. */
+  const RE_COMMUNALE_IT = /^SC\s?\d+/i;
+
+  /**
+   * 🔴 LE NOM COMPOSITE EST LEGITIME EN ITALIE — expression volontairement
+   * INCAPABLE DE MATCHER.
+   *
+   * En France « D980 - Route de Bagnols » est un format interdit. En Italie
+   * « SS42 del Tonale e della Mendola » est au contraire le NOM OFFICIEL
+   * etendu, celui que le wiki demande de porter en alternatif.
+   *
+   * ⚡ MESURE, plutot que crainte generale : l'expression francaise exige le
+   * tiret JUSTE apres le numero, donc « SS42 del Tonale… » et « SP13 Foggia -
+   * Torremaggiore » lui echappent — les sigles SS/SR/SP/NSA ne sont pas dans
+   * son vocabulaire. Le risque est plus etroit, mais reel, et il porte sur des
+   * formes ECRITES dans le wiki : « A4 – Bergamo », la forme officielle des
+   * Places d'echangeur (376316), est amputee en « Bergamo », et « A22 -
+   * Brennero » en « Brennero ». Les sigles A et E, elles, sont communes aux
+   * deux pays.
+   * ⚠️ Et l'amputation ne fait pas que signaler : `expectedNaming` s'en sert
+   * pour « nettoyer » un nom AVANT de raisonner. La cible proposee aurait donc
+   * porte le nom mutile.
+   * ⇒ Le controle `nomComposite` est retire de la liste des controles, et
+   *   l'expression ne matche rien pour que le nettoyage soit neutre.
+   */
+  const RE_NOM_COMPOSITE_IT = /^(?!)/;
+
+  /** Abreviations interdites : le wiki impose « Via », « Viale », « Corso »,
+   *  « Piazza », « Vicolo » en toutes lettres.
+   *  ⚠️ « Cav. » (Cavaliere) est au contraire ADMISE — la table TTS la liste :
+   *  ne pas la faire tomber sous cette expression. */
+  const RE_ABREV_IT =
+    /(^|\s)(V\.le|C\.so|P\.zza|P\.za|V\.lo|Vl\.|Cso\.|Pza\.|Str\.|Loc\.)(\s|$)/i;
+  const RE_ABREV_SANS_POINT_IT = /(^|\s)(Vle|Cso|Pzza|Pza|Vlo)(\s|$)/i;
+
+  /**
+   * Lettres pointees : « Via G. Garibaldi » est interdit, « le TTS ne les lit
+   * pas correctement ». C'est l'equivalent italien du controle « contractions »
+   * francais (St-, Ste-).
+   * ⚠️ Une initiale isolee SUIVIE D'UN POINT, et pas n'importe quelle majuscule
+   * seule : « Via A 4 » n'est pas concerne. « Cav. » compte deux lettres et
+   * echappe donc a l'expression, ce qui est voulu.
+   */
+  const RE_SAINT_IT = /(^|\s)[A-Z]\.(\s|$)/;
+
+  /** Rocades italiennes : circonvallazione (abregee « circ » par le TTS),
+   *  tangenziale, et le Grande Raccordo Anulare. */
+  const RE_ROCADE_IT = /(circonvallazione|\bcirc\b|tangenziale|\bGRA\b)/i;
+
+  /**
+   * ⏳ Suffixes admis apres un numero sur une rocade : la liste fermee
+   * francaise n'a pas d'equivalent ecrit en Italie. On n'invente pas : aucune
+   * forme n'est declaree valide, donc le controle de format de rocade ne
+   * prononcera aucun verdict positif a tort.
+   */
+  const RE_SUFFIXE_ROCADE_IT = /^(?!)/;
+
+  /** ⏳ Aucune regle italienne ecrite n'interdit une fonction ou une direction
+   *  dans un nom de voie : on ne transpose pas le controle francais. */
+  const RE_FONCTION_IT = /^(?!)/;
+  const RE_DIRECTION_IT = /^(?!)/;
+  const RE_VOIE_LONGUE_IT = /^(?!)/;
+
+  /**
+   * Forme des bretelles italiennes, reconstituee depuis 376292 ET 376306 —
+   * cette derniere portant le standard EN VIGUEUR qui remplace la regle barree
+   * du premier. Le `>` se lit « Direzione » et ne s'emploie QUE sur des Ramps.
+   *
+   *   > Verona            > Thiene, Asiago      > A4, A21
+   *   SS42 > Mantova      A4 > Venezia
+   *   A4 Verona Sud       A4 A21 Brescia Centro     Raccordo A21
+   *   Uscita Fano         Uscita 17: Jesi Centro
+   */
+  const RE_BRET_DIRECTION_ROUTE_IT =
+    /^((?:SPexSS|SGC|NSA|GRA|SS|SR|SP|SC|RA|A)\s?\d+[a-zA-Z0-9]*)\s*>\s*(\S.*)$/;
+  const RE_BRET_DOUBLE_NUMERO_IT =
+    /^>\s*(?:SPexSS|SGC|NSA|GRA|SS|SR|SP|SC|RA|A)\s?\d+[a-zA-Z0-9]*\s*,/;
+
+  /** ⏳ Le vocabulaire des voies developpees (« Voie Communale n°6 » ->
+   *  « C6 ») n'a pas d'equivalent italien ecrit : table vide, pas inventee. */
+  const PREFIXE_VOIE_IT = {};
+
+  /** ⏳ Pas de dictionnaire de redaction italien. Les ~1 430 regles de
+   *  buchet37 sont francaises et n'ont aucun equivalent : le controle
+   *  `redactionDico` n'est donc pas propose en Italie. */
+  const DICO_FONCTIONS_IT = {};
+
   // ---------------------------------------------------------------------------
   // Descripteur du referentiel francais : c'est le SEUL point de contact entre
   // le pays et le moteur. Un autre pays fournit le meme objet.
@@ -4972,6 +5136,122 @@
       ],
       // Les controles de forme partagent une seule fonction, qui lit elle-meme
       // quelles cases sont cochees.
+      verifierForme: verifierForme,
+      verifierSansVille: verifierSansVille
+    },
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // ITALIE — meme moteur, meme logigramme, autre vocabulaire.
+    //
+    // ⏳ Les entrees marquees ainsi attendent une reponse de Silvio (les 3
+    //    questions posees le 08/09, plus 4 de finition — § 6 d'ANALYSE-ITALIE).
+    //    Doctrine du projet : le script APPLIQUE la norme, il ne la CREE pas.
+    //    Une regle non ecrite n'est donc pas devinee — le controle est retire.
+    // ═════════════════════════════════════════════════════════════════════════
+    IT: {
+      code: 'IT',
+      nom: 'Italie',
+      correspond: estTerritoireItalien,
+
+      // ── Vocabulaire routier ────────────────────────────────────────────────
+      reRoute: RE_ROUTE_IT,
+      reCommunale: RE_COMMUNALE_IT,
+      reAutoroute: RE_AUTOROUTE_IT,
+      reNomComposite: RE_NOM_COMPOSITE_IT,
+      reAbrev: RE_ABREV_IT,
+      reAbrevSansPoint: RE_ABREV_SANS_POINT_IT,
+      reSaint: RE_SAINT_IT,
+      reRocade: RE_ROCADE_IT,
+      reSuffixeRocade: RE_SUFFIXE_ROCADE_IT,
+      reFonction: RE_FONCTION_IT,
+      reDirection: RE_DIRECTION_IT,
+      reVoieLongue: RE_VOIE_LONGUE_IT,
+      reBretDirectionRoute: RE_BRET_DIRECTION_ROUTE_IT,
+      reBretDoubleNumero: RE_BRET_DOUBLE_NUMERO_IT,
+      prefixeVoie: PREFIXE_VOIE_IT,
+      dicoFonctions: DICO_FONCTIONS_IT,
+      // ⏳ Identifiant du cartouche « rocade » italien : NON RELEVE. Il se lit
+      //    dans WME (`W.model.signTypes`) une fois la carte sur l'Italie, comme
+      //    l'a ete le 3035 francais. `null` est sur : `rocadeDe` ne conclut
+      //    alors jamais « certain » sur un cartouche (garde `!= null`).
+      signTypeRocade: null,
+
+      // ── Decoupage administratif ────────────────────────────────────────────
+      // ⚠️ ISTAT publie les 7 899 comuni en FICHIER, pas en service
+      //    interrogeable : c'est le chemin « charger un GeoJSON » qui sert,
+      //    celui-la meme qu'utilise `Recuperer-Communes.html`.
+      libelleDecoupage: 'comuni ISTAT',
+      clesNom: ['nome', 'NOME', 'COMUNE', 'comune', 'name', 'nom',
+                'DEN_UTS', 'den_uts', 'NOME_COM', 'denominazione'],
+      clesCode: ['code', 'PRO_COM_T', 'pro_com_t', 'PRO_COM', 'pro_com',
+                 'COD_ISTAT', 'cod_istat', 'istat', 'codice', 'COD_COM'],
+
+      // ── Types de voies ─────────────────────────────────────────────────────
+      // ⏳ Le wiki italien ecrit que tramways, pistes cyclables, sentiers de
+      //    montagne, allees de parcs et voies de copropriete « non vanno
+      //    editate ». C'est l'INVERSE du choix francais du 21/07, ou sentiers
+      //    et escaliers restent audites. Mais « ne pas editer » n'est pas
+      //    exactement « pas d'adresse a reclamer » : on s'en tient pour
+      //    l'instant aux deux memes types que la France, et la question part
+      //    avec les autres. Elargir sans certitude ferait TAIRE des anomalies.
+      typesSansAdresse: ROADTYPE_SANS_ADRESSE,
+      typesSansAdresseTotale: ROADTYPE_SANS_ADRESSE_TOTALE,
+      typeBretelle: 4,
+      typeAutoroute: 3,
+      typePiste: 19,
+      typeRail: 18,
+      rocadeDe: rocadeDe,
+
+      // ── Le coeur, partage ──────────────────────────────────────────────────
+      // ⭐ Rigoureusement les memes fonctions qu'en France : c'est tout l'objet
+      //   de la mesure du 08/09. Le logigramme ne connait que `REF`.
+      etatCible: expectedNaming,
+      villeAgglo: villeAgglo,
+
+      // ⏳ ADRESSAGE — la regle italienne ne distingue PAS zone urbaine et
+      //    rurale pour les numeri civici, contrairement a la France. Reprendre
+      //    telle quelle la bascule francaise inventerait une regle. Les deux
+      //    controles qui en dependent (`hnHorsAgglo`, `poiAgglo`) sont donc
+      //    absents de la liste ci-dessous tant que Silvio n'a pas tranche.
+      adressage: { hnEnAgglo: true, poiHorsAgglo: false, categoriePoi: 'RESIDENTIAL' },
+
+      controles: [
+        { cle: 'nommageZone', portee: 'zone',
+          libelle: 'Nommage dentro / fuori il centro abitato (cœur)' },
+        { cle: 'cartouches', portee: 'segment',
+          libelle: 'Cartouches des SS / SR / SP',
+          executer: verifierCartouches },
+        { cle: 'bretelles', portee: 'type',
+          libelle: 'Bretelles : jamais de ville (« SEMPRE senza città »)' },
+        { cle: 'rails', portee: 'type',
+          libelle: 'Voies ferrées, pistes, ferries : jamais de ville' },
+        { cle: 'abreviations', portee: 'forme',
+          libelle: 'Abréviations interdites (V.le, C.so, P.zza…)' },
+        { cle: 'contractions', portee: 'forme',
+          libelle: 'Lettres pointées interdites (« Via G. Garibaldi »)' },
+        { cle: 'majuscule', portee: 'forme',
+          libelle: 'Nom commençant par une minuscule' },
+        { cle: 'formatBretelle', portee: 'forme',
+          libelle: 'Bretelles : format du nom (« > Verona », « SS42 > Mantova »)' },
+        { cle: 'bretelleForme', portee: 'forme', defaut: false,
+          libelle: 'Bretelles : le nom suit-il « > Verona » ou « Uscita 17: Jesi Centro » ?' },
+        { cle: 'poiAdresse', portee: 'poi',
+          libelle: 'POI : adresse incomplète (rue ou commune manquante)' },
+        { cle: 'poiVilleCommune', portee: 'poi',
+          libelle: 'POI : commune différente du contour ISTAT (à vérifier)' },
+        { cle: 'poiNumero', portee: 'poi', defaut: false,
+          libelle: 'POI : numéro de rue manquant' }
+        // ⏳ ABSENTS, et chacun pour une raison ECRITE :
+        //  · nomComposite   — « SS42 del Tonale e della Mendola » est le nom
+        //                     OFFICIEL : le controle francais signalerait comme
+        //                     faute ce que la regle italienne exige ;
+        //  · voieCommunale  — la forme abregee des SC n'est pas ecrite ;
+        //  · redactionDico  — aucun dictionnaire de redaction italien ;
+        //  · fonctionDirection, rocades — aucune regle ecrite trouvee ;
+        //  · hnHorsAgglo, poiAgglo, hnSurRoute — dependent d'une bascule
+        //                     urbain/rural que l'Italie ne fait pas ;
+        //  · giratoires     — le guide « Rotatorie » ne parle QUE du trace.
+      ],
       verifierForme: verifierForme,
       verifierSansVille: verifierSansVille
     }

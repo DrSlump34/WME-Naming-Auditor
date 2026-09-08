@@ -174,32 +174,59 @@ verifier('28. … et la France reste la France quand c\'est elle qui sert',
 // le blocage joue » compris. Le verrou n'etait pas eprouve, il etait suppose.
 // C'est le meme schema que le harnais de `test-cadrage` (26/08).
 // ═══════════════════════════════════════════════════════════════════════════
+// ⚠️⚠️ ON EPROUVE `referentielPour`, PAS `estTerritoireFrancais`. Depuis que
+// l'Italie existe, la question n'est plus « est-ce la France ? » mais « QUEL
+// referentiel sert ce territoire ? ». Un test qui interrogerait encore la
+// seule reconnaissance francaise repondrait « Italy ⇒ refuse » — et passerait
+// au vert en affirmant le contraire de ce que fait le script.
 function monterDecision() {
   const code = [
     relire('normSansAccent'),
     relire('FR_CODES'), relire('FR_NOMS'),
-    extraire('estTerritoireFrancais'),
-    'return estTerritoireFrancais;'
+    relire('IT_CODES'), relire('IT_NOMS'),
+    extraire('estTerritoireFrancais'), extraire('estTerritoireItalien'),
+    // Un REFERENTIELS reduit a ce que `referentielPour` lit : son identite et
+    // sa reconnaissance. Les `correspond` sont les VRAIES fonctions extraites.
+    'const REFERENTIELS = {' +
+    '  FR: { nom: "France", correspond: estTerritoireFrancais },' +
+    '  IT: { nom: "Italie", correspond: estTerritoireItalien } };',
+    extraire('referentielPour'),
+    'return referentielPour;'
   ].join('\n');
   return new Function(code)();
 }
-const servi = monterDecision();
+const decide = monterDecision();
+const sert = v => { const r = decide(v, null); return r && r.nom; };
 
-titre('LA DECISION — les territoires francais sont acceptes');
-[['France', 'le nom nu'], ['FR', 'le code'], ['france', 'la casse'],
- ['Guadeloupe', 'l\'outre-mer par le nom'], ['GP', 'l\'outre-mer par le code'],
- ['La Reunion', 'sans accent'], ['Nouvelle-Caledonie', 'le Pacifique'],
- ['Corse', 'l\'ile']
-].forEach(([v, quoi], i) =>
-  verifier((11 + i) + '. ' + quoi + ' : « ' + v +' » ⇒ servi', servi(v), true));
+titre('LA DECISION — quel referentiel sert ce territoire ?');
+[['France', 'le nom nu', 'France'], ['FR', 'le code', 'France'],
+ ['france', 'la casse', 'France'],
+ ['Guadeloupe', 'l\'outre-mer par le nom', 'France'],
+ ['GP', 'l\'outre-mer par le code', 'France'],
+ ['La Reunion', 'sans accent', 'France'],
+ ['Nouvelle-Caledonie', 'le Pacifique', 'France'],
+ ['Corse', 'l\'ile', 'France'],
+ ['Italy', '⭐ l\'Italie, telle que WME la nomme', 'Italie'],
+ ['Italia', 'son nom local', 'Italie'],
+ ['Italie', 'son nom francais', 'Italie'],
+ ['IT', 'son code', 'Italie']
+].forEach(([v, quoi, attendu], i) =>
+  verifier((11 + i) + '. ' + quoi + ' : « ' + v + ' » ⇒ ' + attendu, sert(v), attendu));
 
 titre('LA DECISION — tout le reste est refuse');
 [['Spain', 'le voisin du sud'], ['ES', 'son code'],
- ['Italy', '⚠️ l\'Italie n\'est PAS encore servie'], ['IT', 'son code'],
  ['Belgique', 'le voisin du nord'], ['Suisse', 'francophone, mais pas la France'],
+ ['San Marino', '⚠️ enclave, mais PAYS distinct chez Waze'],
+ ['Vatican City', '⚠️ idem'],
  ['', 'la chaine vide'], [null, 'l\'absence de reponse']
 ].forEach(([v, quoi], i) =>
-  verifier((19 + i) + '. ' + quoi + ' : « ' + v + ' » ⇒ REFUSE', servi(v), false));
+  verifier((23 + i) + '. ' + quoi + ' : « ' + v + ' » ⇒ REFUSE', sert(v), null));
+
+titre('⚠️ Le NOM et le CODE sont essayes tous les deux');
+verifier('31. nom illisible mais code su ⇒ le referentiel est trouvé',
+  (decide(null, 'IT') || {}).nom, 'Italie');
+verifier('32. code illisible mais nom su ⇒ de même',
+  (decide('France', null) || {}).nom, 'France');
 
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(60));
