@@ -4921,6 +4921,10 @@
         'Lettere puntate vietate (« Via G. Garibaldi »)',
       'Nom commençant par une minuscule':
         'Nome che inizia con una lettera minuscola',
+      // ⚡ Même règle dans les deux pays, donc une seule clé (réponse de
+      //    Silvio, 08/09) — un Italien qui aide en France la lira aussi.
+      'Giratoires : sans nom (ville selon la zone)':
+        'Rotatorie: senza nome (città secondo la zona)',
       'Sigles écrites avec un espace (« SS 12 » au lieu de « SS12 »)':
         'Sigle scritte con uno spazio (« SS 12 » invece di « SS12 »)',
       'Dates en chiffres romains (« Via IV Novembre »)':
@@ -5465,6 +5469,15 @@
           libelle: 'Bretelles : jamais de ville (« SEMPRE senza città »)' },
         { cle: 'rails', portee: 'type',
           libelle: 'Voies ferrées, pistes, ferries : jamais de ville' },
+        // ⚡ RÉPONSE DE SILVIO (08/09) : « Chez nous on n'ajoute ni nom de la
+        //    rue ni HN [sur les rotatorie] » — même règle qu'en France. Le
+        //    libellé est volontairement IDENTIQUE au français : c'est la même
+        //    règle, donc la même clé de traduction.
+        // ⚠️ `verifierGiratoire` ne couvre que le NOM ; l'interdiction des
+        //    numéros civiques sur un giratoire n'est PAS contrôlée, ni ici ni
+        //    en France. Ne pas le laisser croire.
+        { cle: 'giratoires', portee: 'type',
+          libelle: 'Giratoires : sans nom (ville selon la zone)' },
         { cle: 'abreviations', portee: 'forme',
           libelle: 'Abréviations interdites (V.le, C.so, P.zza…)' },
         { cle: 'contractions', portee: 'forme',
@@ -5495,8 +5508,11 @@
         //  · redactionDico  — aucun dictionnaire de redaction italien ;
         //  · fonctionDirection, rocades — aucune regle ecrite trouvee ;
         //  · hnHorsAgglo, poiAgglo, hnSurRoute — dependent d'une bascule
-        //                     urbain/rural que l'Italie ne fait pas ;
-        //  · giratoires     — le guide « Rotatorie » ne parle QUE du trace.
+        //                     urbain/rural que l'Italie ne fait pas.
+        // ✅ `giratoires` a REJOINT la liste le 08/09 : le guide « Rotatorie »
+        //    ne dit rien du nom, mais Silvio a tranche — ni nom, ni HN.
+        //    ⏳ Reste SA question : les grandes places (piazza) qui portent
+        //      legitimement un nom ou des numeros civiques.
       ],
       verifierForme: verifierForme,
       verifierSansVille: verifierSansVille
