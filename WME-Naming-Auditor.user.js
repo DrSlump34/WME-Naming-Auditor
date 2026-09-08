@@ -2455,6 +2455,25 @@
     if (!ext || ext.length !== 4) return [];
     const [x1, y1, x2, y2] = ext;
     const points = [[(x1 + x2) / 2, (y1 + y2) / 2], [x1, y1], [x2, y1], [x1, y2], [x2, y2]];
+
+    // ⭐⭐ UN PAYS PEUT SAVOIR REPONDRE SANS RESEAU (v2.40).
+    // La France interroge `geo.api.gouv.fr` parce qu'elle n'a pas mieux.
+    // L'Italie, elle, porte les boites englobantes de ses 110 provinces : la
+    // reponse est locale, instantanee, et ne depend d'aucun service.
+    // ⚠️ On ne retient pas UNE province mais TOUTES les candidates — mesure du
+    //    08/09 : trancher sur la plus petite boite se trompe une fois sur cinq,
+    //    tandis que la bonne est TOUJOURS dans la liste (620/620, 1,70 en
+    //    moyenne). On charge donc parfois une province de trop, jamais la
+    //    mauvaise. C'est le seul arbitrage honnete : ~190 Ko de surplus contre
+    //    un editeur devant une liste vide sans comprendre pourquoi.
+    if (typeof REF.sourceContours.unitesSousLaVue === 'function') {
+      const vus = new Set();
+      points.forEach(([lon, lat]) => {
+        (REF.sourceContours.unitesSousLaVue(lon, lat) || []).forEach(u => vus.add(u.code));
+      });
+      return [...vus];
+    }
+
     const deps = new Set();
     // ⚠️ Un coin EN MER rend une liste vide avec un HTTP 200 — ce n'est pas une
     // panne (verifie : lat 43.10 / lon 3.40 → `[]`). Mais si TOUS les appels
@@ -2495,7 +2514,10 @@
       const manquants = deps.filter(d => !dejaLa.has(d));
       manquants.forEach(d => depsTentes.add(d));      // une seule tentative
       if (!manquants.length) return;
-      const noms = manquants.map(d => (DEPARTEMENTS.find(x => x.code === d) || {}).nom || d);
+      // ⚠️ Le nom affiche vient du referentiel : « Bergamo (BG) », pas un
+      //    departement francais introuvable dans la liste italienne.
+      const noms = manquants.map(d =>
+        (REF.sourceContours.unites().find(x => x.code === d) || {}).nom || d);
       const prog = progression(ui.progContours, { annulable: true,
         titre: 'Contours manquants — ' + noms.join(', ') });
       try {
@@ -5437,7 +5459,9 @@
         url: code => 'https://geo.api.gouv.fr/departements/' + encodeURIComponent(code) +
           '/communes?fields=nom,code,contour,mairie&format=geojson&geometry=contour',
         aide: 'Numéro de département (01 à 95, 2A, 2B, 971…). ~3 Mo et ~10 s par département.',
-        nomSource: liste => 'geo.api.gouv.fr — dep. ' + liste.join(', ')
+        nomSource: liste => 'geo.api.gouv.fr — dep. ' + liste.join(', '),
+        aideAuto: 'Interroge geo.api.gouv.fr pour savoir quel département est sous '
+          + 'les yeux, et télécharge ses contours quand ils manquent.'
       },
 
       // Decoupage administratif de reference et cles admises dans le GeoJSON.
@@ -5647,6 +5671,8 @@
           '/geojson/limits_P_' + encodeURIComponent(code) + '_municipalities.geojson',
         aide: 'Province ISTAT (Bergamo = 16, Milano = 15…). ~270 Ko par province.',
         nomSource: liste => 'openpolis/geojson-italy — prov. ' + liste.join(', '),
+        aideAuto: 'Trouve les provinces sous les yeux à partir de leurs limites, '
+          + 'SANS aucun appel réseau, et télécharge celles qui manquent.',
 
         /**
          * Les provinces qui peuvent contenir ce point — pas « celle » qui le
@@ -11652,6 +11678,10 @@
     // Recocher la case doit tenter TOUT DE SUITE : l'editeur vient d'exprimer
     // son besoin, il n'a pas a bouger la carte pour que ca se declenche.
     coche('#agn-r-autodep', 'autoDep', () => { if (options.autoDep) autoChargerDepartement(); });
+    // ⚠️ Reference CAPTUREE, comme la grille : cette section est deplacee
+    //    au demarrage, un querySelector ulterieur ne la trouverait plus.
+    ui.optAutoDep = o.querySelector('#agn-r-autodep');
+    if (ui.optAutoDep) ui.optAutoDep = ui.optAutoDep.closest('label') || ui.optAutoDep;
     // ⚠️ Cocher la purge ne purge PAS dans la seconde : `depsVus` est encore
     // vide au moment du clic, tout passerait donc pour « eloigne » — y compris
     // la zone qu'on vient de quitter pour ouvrir les reglages. On note d'abord
@@ -11955,6 +11985,9 @@
       //    n'a aucun sens : on la retire de la liste hors de France plutot que
       //    de laisser l'editeur decouvrir qu'elle ne rend rien.
       if (optWazefrance) optWazefrance.hidden = (REF.code !== 'FR');
+      // ⚠️ L'infobulle du chargement automatique annonçait « Interroge
+      //    geo.api.gouv.fr » — faux en Italie, qui répond sans réseau.
+      if (ui.optAutoDep && sc.aideAuto) ui.optAutoDep.title = tr(sc.aideAuto);
       go.title = 'Télécharge les contours des ' + tr(sc.unitesLabel) +
         ' cochées et les AJOUTE à ta base, sans effacer les autres. ' + tr(sc.aide);
       // ⚠️ On VIDE la selection : des codes de departements francais n'ont

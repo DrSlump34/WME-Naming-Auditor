@@ -607,6 +607,39 @@ verifier('110. ⭐ rien ne part sans un clic : aucun appel de chargement ici',
 verifier('111. les candidates sont bien pré-cochées',
   /checked/.test(corpsPeindre2), true);
 
+titre('⭐ Chargement AUTOMATIQUE : la vue désigne ses provinces, sans réseau');
+// La France interroge geo.api.gouv.fr faute de mieux ; l'Italie porte ses 110
+// boîtes et répond en local. On interroge les 5 points de la vue (centre + 4
+// coins), comme le fait la version française — une vue large chevauche souvent
+// deux provinces.
+const depsDeLaVueIT = (ext) => {
+  const [x1, y1, x2, y2] = ext;
+  const pts = [[(x1 + x2) / 2, (y1 + y2) / 2], [x1, y1], [x2, y1], [x1, y2], [x2, y2]];
+  const vus = new Set();
+  pts.forEach(([lon, lat]) => sousLaVue(lon, lat).forEach(u => vus.add(u.code)));
+  return [...vus];
+};
+// Rome — le cas signalé par l'auteur. Province ISTAT 58.
+verifier('112. ⭐⭐ une vue sur Rome désigne bien la province 58',
+  depsDeLaVueIT([12.44, 41.87, 12.55, 41.94]).includes('58'), true);
+// Bergamo, déjà éprouvé en vrai.
+verifier('113. ⭐ une vue sur Bergamo désigne la province 16',
+  depsDeLaVueIT([9.63, 45.67, 9.72, 45.72]).includes('16'), true);
+// Milano (15) et Napoli (63), deux autres grandes villes.
+verifier('114. Milano ⇒ 15',
+  depsDeLaVueIT([9.15, 45.44, 9.24, 45.50]).includes('15'), true);
+verifier('115. Napoli ⇒ 63',
+  depsDeLaVueIT([14.22, 40.82, 14.30, 40.88]).includes('63'), true);
+// ⚠️ La liste doit rester courte, sinon le chargement automatique devient
+//    coûteux : 5 points × plusieurs provinces, ça peut enfler.
+const tailles = [[12.44, 41.87, 12.55, 41.94], [9.63, 45.67, 9.72, 45.72],
+                 [9.15, 45.44, 9.24, 45.50], [14.22, 40.82, 14.30, 40.88]]
+  .map(e => depsDeLaVueIT(e).length);
+verifier('116. ⚠️ jamais plus de 5 provinces désignées par une vue de travail',
+  tailles.every(n => n >= 1 && n <= 5), true);
+verifier('117. ⚠️ une vue hors d\'Italie n\'en désigne AUCUNE',
+  depsDeLaVueIT([2.30, 48.83, 2.40, 48.88]).length, 0);
+
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(60));
 console.log('%d verifications OK, %d ECHEC(S)', ok, ko);
