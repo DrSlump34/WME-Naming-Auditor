@@ -583,8 +583,8 @@
    * « numero colle au nom » interdit. PURE.
    */
   function formatRocade(nom) {
-    const m = String(nom || '').trim().match(RE_NOM_COMPOSITE);
-    return !!(m && RE_SUFFIXE_ROCADE.test(m[2].trim()));
+    const m = String(nom || '').trim().match(REF.reNomComposite);
+    return !!(m && REF.reSuffixeRocade.test(m[2].trim()));
   }
 
   /**
@@ -600,7 +600,7 @@
       return { rocade: true, certain: true, motif: 'cartouche Rocade' };
     }
     const noms = entrees.map(e => (e && e.name) || '').join(' ');
-    if (RE_ROCADE.test(noms)) {
+    if (REF.reRocade.test(noms)) {
       return { rocade: true, certain: false, motif: 'nom (aucun cartouche Rocade posé)' };
     }
     if (entrees.some(e => formatRocade(e && e.name))) {
@@ -4284,8 +4284,8 @@
              alts: (addr.altStreets || []).map(a => one(a.street, a.city)) };
   }
 
-  const isRoute = e => !!e.name && (RE_ROUTE.test(e.name.trim()) || (!!e.signText && e.signText.trim() === e.name.trim()));
-  const isCommunale = e => !!e.name && RE_COMMUNALE.test(e.name.trim());
+  const isRoute = e => !!e.name && (REF.reRoute.test(e.name.trim()) || (!!e.signText && e.signText.trim() === e.name.trim()));
+  const isCommunale = e => !!e.name && REF.reCommunale.test(e.name.trim());
 
   /**
    * Ville a appliquer dans une agglomeration.
@@ -4328,7 +4328,7 @@
     // existe deja ailleurs, les deux se confondent et il n'y a plus d'ecart
     // fantome ; s'il est le seul, la cible proposee est le nom PROPRE.
     const nettoyer = e => {
-      const m = (e.name || '').match(RE_NOM_COMPOSITE);
+      const m = (e.name || '').match(REF.reNomComposite);
       return m ? { name: m[2].trim(), cityName: e.cityName,
                    signText: e.signText, signType: e.signType } : e;
     };
@@ -4391,7 +4391,7 @@
     // Autoroute : aucune ville nulle part, agglo ou pas. On garde les noms
     // alternatifs existants (E15, second numero...) mais debarrasses de leur
     // ville, et on force le signalement des alternatifs qui en portent une.
-    const auto = entries.find(e => RE_AUTOROUTE.test((e.name || '').trim()));
+    const auto = entries.find(e => REF.reAutoroute.test((e.name || '').trim()));
     if (auto) {
       return {
         cas: 'A', strict: true, doute,
@@ -4453,7 +4453,7 @@
    * peu importe qu'il existe ou non en alternatif. Ce « rappel » proposait donc
    * une correction qui ABIMAIT le nommage.
    */
-  const estNumero = e => RE_ROUTE.test((e.name || '').trim());
+  const estNumero = e => REF.reRoute.test((e.name || '').trim());
   const sansCartouche = e => !(e.signText && e.signText.trim()) || e.signType == null;
 
   function verifierCartouches(nam) {
@@ -4612,8 +4612,8 @@
       const dicoLeCorrige = test => propose != null && !test(propose);
 
       const faute = {
-        abrev: s => RE_ABREV.test(s) || RE_ABREV_SANS_POINT.test(s),
-        contraction: s => RE_SAINT.test(s) || initialeIsolee(s),
+        abrev: s => REF.reAbrev.test(s) || REF.reAbrevSansPoint.test(s),
+        contraction: s => REF.reSaint.test(s) || initialeIsolee(s),
         minuscule: s => /^[a-zà-ÿ]/.test(s)
       };
       if (c.abreviations && faute.abrev(nom) && !dicoLeCorrige(faute.abrev)) {
@@ -4724,7 +4724,7 @@
       // segment mal identifie ne doit pas se faire casser son nom pour autant,
       // et « A9 - Autoroute la Languedocienne » reste interdit.
       if (c.nomComposite && !formatRocade(nom)) {
-        const m = nom.match(RE_NOM_COMPOSITE);
+        const m = nom.match(REF.reNomComposite);
         if (m) {
           const nomSeul = m[2].trim();
           // Le bon nom existe-t-il DEJA ailleurs sur ce segment ? Alors le
@@ -4826,6 +4826,28 @@
       // ⇒ Les deux sont fondus. `estTerritoireFrancais` est declaree en
       //   `function` (donc hoistee) : la referencer ici est sur.
       correspond: estTerritoireFrancais,
+
+      // ── VOCABULAIRE ROUTIER (v2.40) ────────────────────────────────────────
+      // ⚠️⚠️ CE BLOC MANQUAIT, et son absence rendait FAUSSE la promesse du
+      // dossier de specifications (« tout le franco-français est isolé ici,
+      // ajouter un pays ne touche pas au moteur »). Les 9 expressions vivaient
+      // en GLOBALES, lues en 21 endroits du moteur — `isRoute`, le coeur de
+      // `expectedNaming`, en tete. Un second referentiel aurait donc applique
+      // ses regles avec le vocabulaire FRANCAIS : « SS12 » n'etant pas reconnu
+      // comme un numero de route, tout le logigramme partait de travers, sans
+      // qu'aucun controle ne s'en apercoive.
+      // ⇒ Les declarations restent dans le bloc REFERENTIEL FRANCE (c'est leur
+      //   place : elles SONT le francais) ; le moteur, lui, ne lit plus que
+      //   `REF.` — il ne sait plus dans quel pays il travaille, et c'est le but.
+      reRoute: RE_ROUTE,
+      reCommunale: RE_COMMUNALE,
+      reAutoroute: RE_AUTOROUTE,
+      reNomComposite: RE_NOM_COMPOSITE,
+      reAbrev: RE_ABREV,
+      reAbrevSansPoint: RE_ABREV_SANS_POINT,
+      reSaint: RE_SAINT,
+      reRocade: RE_ROCADE,
+      reSuffixeRocade: RE_SUFFIXE_ROCADE,
 
       // Decoupage administratif de reference et cles admises dans le GeoJSON.
       libelleDecoupage: 'communes INSEE',
@@ -5970,7 +5992,7 @@
                             // `rueDuPoi`) : le numero de route reste PROPOSABLE
                             // — l'editeur peut avoir ses raisons — mais jamais
                             // en tete, et jamais applique sans qu'il l'ait dit.
-                            estRoute: RE_ROUTE.test(nom) });
+                            estRoute: REF.reRoute.test(nom) });
         }
       }
     }
@@ -6079,11 +6101,11 @@
       // ⚠️ RE_AUTOROUTE, pas RE_ROUTE : « D121 » sur un POI reste une adresse a
       //    revoir (doctrine de `rueDuPoi`) — seule l'autoroute est une adresse
       //    LEGITIME pour un lieu.
-      const rueAutoroute = !!nomRue && RE_AUTOROUTE.test(nomRue);
+      const rueAutoroute = !!nomRue && REF.reAutoroute.test(nomRue);
       const estCatAutoroute = cats.some(x => POI_CATEGORIES_AUTOROUTE.has(x));
       const adresseAutoroute = rueAutoroute || estCatAutoroute;
       if (adresseAutoroute) stats.poiAutoroute++;
-      const rueDejaBonne = !!nomRue && (!RE_ROUTE.test(nomRue) || rueAutoroute);
+      const rueDejaBonne = !!nomRue && (!REF.reRoute.test(nomRue) || rueAutoroute);
       // ⚠️ La ville manquante ne declenche plus la recherche quand l'adresse est
       // celle d'une autoroute : il n'y a PAS de ville a proposer, et le calcul
       // coute une distance par segment de la commune.
@@ -6093,7 +6115,7 @@
       // qu'on propose comme adresse, plutot que de renvoyer l'editeur la chercher.
       // ⚡ Les candidats sont deja tries par distance a categorie egale.
       const autoProche = propose && propose.candidats
-        ? propose.candidats.filter(x => RE_AUTOROUTE.test(x.nom))[0] : null;
+        ? propose.candidats.filter(x => REF.reAutoroute.test(x.nom))[0] : null;
       const cibleAutoroute = autoProche
         ? 'renseigner « ' + autoProche.nom + ' » (autoroute à ' + Math.round(autoProche.d) +
           ' m), et AUCUNE commune'
@@ -6309,7 +6331,7 @@
     const parNom = new Map();
     for (const e of [nam.primary, ...nam.alts]) {
       const nom = (e.name || '').trim();
-      if (!nom || RE_ROUTE.test(nom)) continue;      // pas de nom, ou numero de route
+      if (!nom || REF.reRoute.test(nom)) continue;      // pas de nom, ou numero de route
       if (!parNom.has(nom)) parNom.set(nom, new Set());
       const v = (e.cityName || '').trim();
       if (v) parNom.get(nom).add(v);
@@ -6593,7 +6615,7 @@
         // Le nom de rue existe-t-il malgre tout, en alternatif ? C'est ce qui
         // distingue « adresse recuperable » de « aucune adresse postale ici » —
         // et c'est le chiffre qui rendra la discussion utile.
-        const alt = (nam.alts || []).find(a => a && a.name && !RE_ROUTE.test(a.name.trim()));
+        const alt = (nam.alts || []).find(a => a && a.name && !REF.reRoute.test(a.name.trim()));
         stats.hnSurRoute = (stats.hnSurRoute || 0) + liste.length;
         if (alt) stats.hnSurRouteAvecAlt = (stats.hnSurRouteAvecAlt || 0) + liste.length;
         for (const h of liste) {
@@ -7139,7 +7161,7 @@
       // ⚡ Le TYPE du segment fait foi, comme pour la bretelle ; le nom sert de
       //   filet quand un troncon d'autoroute est type autrement.
       const estAutoroute = seg.roadType === REF.typeAutoroute ||
-                           RE_AUTOROUTE.test((nam.primary.name || '').trim());
+                           REF.reAutoroute.test((nam.primary.name || '').trim());
       const enAgglo = loc.partAgglo >= haut;
 
       // ⚠️ `forme` se calcule APRES le type : une bretelle n'obeit pas tout a
@@ -7442,7 +7464,7 @@
       if (!g) { g = { streetId: sid, name: p.name, city: p.cityName,
                       dejaCartouche: !sansCartouche(p), segs: [] }; cartInfo.set(sid, g); }
       const shields = nam.alts
-        .filter(a => estNumero(a) && !RE_AUTOROUTE.test((a.name || '').trim()) && !sansCartouche(a))
+        .filter(a => estNumero(a) && !REF.reAutoroute.test((a.name || '').trim()) && !sansCartouche(a))
         .map(a => ({ key: a.signText + '|' + a.signType, signText: a.signText,
                      signType: a.signType, name: a.name }));
       g.segs.push({ segId: seg.id, geom: seg.geometry, centre: base.centre,
@@ -7860,7 +7882,7 @@
    */
   function cartoucheAReprendre(nomAlt, nams) {
     const cible = String(nomAlt || '').trim();
-    if (!cible || !RE_ROUTE.test(cible)) return null;
+    if (!cible || !REF.reRoute.test(cible)) return null;
     for (const nam of nams) {
       if (!nam || !nam.primary) continue;
       for (const e of [nam.primary].concat(nam.alts || [])) {

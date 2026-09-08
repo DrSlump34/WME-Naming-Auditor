@@ -46,7 +46,11 @@ function verifier(titre, obtenu, attendu) {
   }
 }
 
-const PREAMBULE = [relire('RE_AUTOROUTE'), relire('RE_ROUTE'),
+// ⚠️ v2.40 : le moteur ne lit plus les regex globales mais `REF.` — le
+//    vocabulaire routier appartient au referentiel du pays. On remonte donc
+//    un REF de test a partir des memes constantes, jamais recopiees.
+const REF_TEST = 'const REF = { reAutoroute: RE_AUTOROUTE, reRoute: RE_ROUTE };';
+const PREAMBULE = [relire('RE_AUTOROUTE'), relire('RE_ROUTE'), REF_TEST,
                    relire('estNumero'), relire('sansCartouche'), relire('fmt')].join('\n');
 
 /**

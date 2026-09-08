@@ -54,6 +54,10 @@ const api = new Function([
    'RE_NOM_COMPOSITE', 'RE_ROCADE', 'RE_BRET_DIRECTION_ROUTE',
    'RE_BRET_DOUBLE_NUMERO', 'RE_VOIE_LONGUE', 'PREFIXE_VOIE',
    'RE_SUFFIXE_ROCADE', 'SIGNTYPE_ROCADE_FR'].map(relire).join('\n'),
+  // ⚠️ v2.40 : le vocabulaire routier vit dans le referentiel, plus en global.
+  'const REF = { reAbrev: RE_ABREV, reAbrevSansPoint: RE_ABREV_SANS_POINT,' +
+  '  reSaint: RE_SAINT, reNomComposite: RE_NOM_COMPOSITE, reRocade: RE_ROCADE,' +
+  '  reSuffixeRocade: RE_SUFFIXE_ROCADE };',
   extraire('initialeIsolee'), extraire('formatRocade'), extraire('rocadeDe'),
   'const dico = { regles: [] };',
   'function ecartDeRedaction() { return null; }',

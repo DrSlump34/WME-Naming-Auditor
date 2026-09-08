@@ -49,7 +49,11 @@ function relire(nom) {
 
 const api = new Function([
   relire('RE_ROUTE'), relire('RE_COMMUNALE'), relire('RE_AUTOROUTE'),
-  relire('RE_NOM_COMPOSITE'), relire('isRoute'), relire('isCommunale'),
+  relire('RE_NOM_COMPOSITE'),
+  // ⚠️ v2.40 : `isRoute` et `isCommunale` lisent desormais REF, pas les globales.
+  'const REF = { reRoute: RE_ROUTE, reCommunale: RE_COMMUNALE,' +
+  '  reAutoroute: RE_AUTOROUTE, reNomComposite: RE_NOM_COMPOSITE };',
+  relire('isRoute'), relire('isCommunale'),
   relire('fmt'), relire('key'),
   'const options = { altEnTrop: false };',
   extraire('villeAgglo'), extraire('expectedNaming'), extraire('diffNaming'),

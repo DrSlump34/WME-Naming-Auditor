@@ -88,6 +88,10 @@ console.log('\n=== Le contrôle dans verifierForme ===\n');
 const PREAMBULE = [relire('RE_ROUTE'), relire('RE_ABREV'), relire('RE_ABREV_SANS_POINT'),
                    relire('RE_SAINT'), relire('RE_FONCTION'), relire('RE_DIRECTION'),
                    relire('RE_NOM_COMPOSITE'), relire('RE_SUFFIXE_ROCADE'),
+                   // ⚠️ v2.40 : le vocabulaire routier vit dans le referentiel.
+                   'const REF = { reRoute: RE_ROUTE, reAbrev: RE_ABREV,' +
+                   '  reAbrevSansPoint: RE_ABREV_SANS_POINT, reSaint: RE_SAINT,' +
+                   '  reNomComposite: RE_NOM_COMPOSITE, reSuffixeRocade: RE_SUFFIXE_ROCADE };',
                    // ⚠️ Le format des rocades est EXEMPTE du controle : voir
                    // la section « rocade » du userscript et test-guide-fr.js.
                    extraire('formatRocade')].join('\n');

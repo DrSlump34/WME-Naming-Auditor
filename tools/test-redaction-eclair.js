@@ -66,6 +66,10 @@ function relire(nom) {
 const api = new Function([
   ['RE_ABREV', 'RE_ABREV_SANS_POINT', 'RE_SAINT', 'RE_FONCTION', 'RE_DIRECTION',
    'RE_NOM_COMPOSITE', 'RE_SUFFIXE_ROCADE', 'nettoyerNom'].map(relire).join('\n'),
+  // ⚠️ v2.40 : le vocabulaire routier vit dans le referentiel, plus en global.
+  'const REF = { reAbrev: RE_ABREV, reAbrevSansPoint: RE_ABREV_SANS_POINT,' +
+  '  reSaint: RE_SAINT, reNomComposite: RE_NOM_COMPOSITE,' +
+  '  reSuffixeRocade: RE_SUFFIXE_ROCADE };',
   extraire('formatRocade'),
   extraireIife('DICO_FONCTIONS'),
   extraire('initialeIsolee'), extraire('analyserDictionnaire'),
