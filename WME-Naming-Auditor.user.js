@@ -12320,6 +12320,17 @@
       majResumeSections();
       majBandeauPays();
       majBoutonsZone();
+      // ⚠️⚠️ LE CHEMIN OUBLIE. Les deux autres sorties de `renderAgglos`
+      // rafraichissent le guidage, la fin de la fonction aussi — et son
+      // commentaire dit meme que la brancher la « evite d'oublier un chemin ».
+      // Celui-ci l'etait. Or c'est EXACTEMENT celui qu'on emprunte apres avoir
+      // choisi une commune qui n'a pas encore d'agglomeration : le bandeau
+      // gardait donc « Choisis ta commune dans la liste » alors que la commune
+      // venait d'etre choisie. Il ne se corrigeait qu'au deplacement suivant de
+      // la carte, par un autre appelant — d'ou un message qui semblait ne
+      // jamais partir. Signale par l'auteur le 08/09, reproductible a Bari puis
+      // Venezia, et ANTERIEUR au portage : la France etait touchee aussi.
+      majGuidage();
       return;
     }
     majResumeSections();

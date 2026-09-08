@@ -336,6 +336,40 @@ titre('Verrous sur le SOURCE');
     /btnPanneaux\.disabled[^\n]*sondageEnCours/.test(rA2.slice(0, 600)), true);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚠️⚠️ TOUTE sortie de `renderAgglos` doit rafraîchir le guidage
+//
+// Défaut du 08/09, signalé par l'auteur et reproductible : choisir une commune
+// ne faisait pas disparaître « Choisis ta commune dans la liste ». Le bandeau
+// ne se corrigeait qu'au déplacement de carte suivant, par un autre appelant —
+// d'où un message qui semblait ne jamais partir.
+//
+// `renderAgglos` a plusieurs sorties. Deux appelaient `majGuidage()`, la fin de
+// la fonction aussi — et son commentaire affirme que la brancher là « évite
+// d'oublier un chemin ». Un `return` intermédiaire l'avait pourtant oublié, et
+// c'était précisément celui qu'on emprunte après avoir choisi une commune sans
+// agglomération tracée.
+// ⭐ Défaut ANTÉRIEUR au portage italien : la France était touchée aussi.
+// ═══════════════════════════════════════════════════════════════════════════
+{
+  const d = src.indexOf('  function renderAgglos() {');
+  const suite = src.slice(d + 10);
+  const m = suite.match(/\n  (async )?function /);
+  const corps = src.slice(d, d + 10 + (m ? m.index : suite.length));
+  verifier('renderAgglos : la tranche examinée est bien la fonction',
+    corps.length > 1500 && corps.includes('majGuidage'), true);
+  // Chaque `return;` nu doit être précédé d'un `majGuidage()` dans les lignes
+  // qui le précèdent immédiatement (même bloc de sortie).
+  const lignesC = corps.split('\n');
+  const sansGuidage = [];
+  lignesC.forEach((l, i) => {
+    if (!/^\s*return;\s*$/.test(l)) return;
+    const avant = lignesC.slice(Math.max(0, i - 6), i).join('\n');
+    if (!/majGuidage\(\)/.test(avant)) sansGuidage.push('ligne ~' + (i + 1));
+  });
+  verifier('⭐⭐ chaque sortie de renderAgglos rafraîchit le guidage', sansGuidage, []);
+}
+
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(60));
 console.log('%d verifications OK, %d ECHEC(S)', ok, ko);
