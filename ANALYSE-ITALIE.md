@@ -1,7 +1,26 @@
 # WNA — Portage vers l'Italie · Analyse préalable
 
 **Date** : 2026-09-08 · **Demandeur** : Silvio, Country Coordinator IT
-**Statut** : analyse close, code non commencé — restent **7** questions à Silvio (§ 6)
+
+## ⏸️ ÉTAT AU 08/09 AU SOIR — v2.40.00, non publiée
+
+| | |
+|---|---|
+| ✅ Garde-fou généralisé | il demande « quel référentiel sert ce territoire », plus « est-ce la France » |
+| ✅ 19 constantes nationales versées | le moteur ne lit plus **aucune** globale française |
+| ✅ `REFERENTIELS.IT` écrit | vocabulaire, types, 12 contrôles ; 9 contrôles FR volontairement absents |
+| ✅ `tools/test-italie.js` | 34 vérifications rejouant les **exemples du wiki** |
+| ⏳ 7 questions à Silvio | message prêt, 3 prioritaires (§ 6) |
+| ⏳ Contrôles neufs IT | `fari`, sigle sans espace, chiffres romains, ordinaux, fractions — ils touchent `verifierForme`, qui est commune |
+| ⏳ i18n | 714 chaînes, pas commencé |
+| ⏳ Essai réel | le référentiel n'a **jamais tourné sur la carte** |
+
+⛔ **NE PAS PUBLIER** : la description de l'en-tête dit encore « FRANCE UNIQUEMENT », et
+c'est volontaire tant que les questions restent ouvertes et que rien n'a été essayé en vrai.
+
+**868 vérifications sur 29 fichiers, 0 échec.**
+
+---
 
 ⚡ **Le sommaire officiel est « Pagina principale » (376308)**, désigné par Silvio lui-même.
 Il porte un journal des modifications (« Ultime modifiche », dernière entrée **07/04/2025**) et
