@@ -121,7 +121,14 @@ const morceauxConnus = k => {
   //    Exiger que TOUS les morceaux soient retrouves refusait deux blocs
   //    parfaitement servis. Un bloc invente de toutes pieces, lui, n'en a
   //    AUCUN de reconnu : le controle mord toujours sur ce qui compte.
-  return bouts.length > 0 && bouts.some(x => detendu(x).test(horsDico));
+  if (bouts.length) return bouts.some(x => detendu(x).test(horsDico));
+  // ⚠️ Aucun morceau assez long : la cle est COURTE, et elle peut quand meme
+  //    etre legitime — « <b>Bretelles · Rocades</b> » est desormais assemble
+  //    par `siControle("rocades", ' · Rocades')` et ne figure nulle part d'un
+  //    seul tenant. On exige alors que TOUS ses mots se retrouvent dans le
+  //    code : une cle inventee y echoue toujours.
+  const mots = k.replace(/<[^>]+>/g, ' ').match(/[A-Za-zÀ-ÿ]{4,}/g) || [];
+  return mots.length > 0 && mots.every(m => horsDico.indexOf(m) >= 0);
 };
 const connue = k => horsDico.indexOf(k) >= 0 || detendu(k).test(horsDico) ||
   (sansSuffixe(k) !== k && sansSuffixe(k) &&

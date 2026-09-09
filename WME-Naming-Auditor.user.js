@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.45.00
+// @version      2.46.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -5454,6 +5454,97 @@
         'L\'attributo <i>obbligo di accensione dei fari</i> va impostato <b>fuori dal centro abitato</b>, e tolto all\'interno. Lo script confronta l\'attributo con la zona.',
       '⚠️ <b>Les grandes places tracées en anneau.</b> Une <i>piazza</i> ressemble à une rotatoria mais porte légitimement un nom et des numéros civiques. Le script <b>la signale quand même</b> — c\'est le choix retenu par le CC italien : il vaut mieux un signalement que l\'éditeur écarte, qu\'une exception qui laisserait passer de vraies rotatoires nommées. <b>Ignore la ligne, ce n\'est pas une erreur du script.</b>':
         '⚠️ <b>Le grandi piazze tracciate ad anello.</b> Una <i>piazza</i> assomiglia a una rotatoria ma porta legittimamente un nome e dei numeri civici. Lo script <b>la segnala comunque</b> — è la scelta del CC italiano: meglio una segnalazione che l\'editor scarta, che un\'eccezione capace di lasciar passare vere rotatorie con un nome. <b>Ignora la riga, non è un errore dello script.</b>',
+      // ── L'AIDE (09/09) ──────────────────────────────────────────────────
+      // ⭐ Traduite PAR BLOC : dans l'aide une phrase est coupee par ses
+      //    <b>, et l'italien ne remet pas les morceaux dans cet ordre. La
+      //    cle est donc le HTML interne de l'element, et la traduction porte
+      //    son propre balisage (voir `traduireDOM`).
+      // ⚠️ Ces blocs couvrent les DEUX referentiels : un editeur italien qui
+      //    aide en France lit l'aide FRANCAISE en italien.
+      'Tout se décoche, dans <b>☰ → Contrôles</b>. Un contrôle décoché ne signale rien et le bilan le rappelle.':
+        'Tutto si può deselezionare, in <b>☰ → Controlli</b>. Un controllo deselezionato non segnala nulla, e il bilancio lo ricorda.',
+      '<b>Nommage agglo / hors agglo</b>':
+        '<b>Denominazione dentro / fuori il centro abitato</b>',
+      'Le cœur : en agglomération une voie porte la ville, hors agglomération elle ne la porte pas — et le numéro de route passe au principal.<br>⚠️ <b>Y compris sur les parkings et les voies privées</b>, qui sont pourtant exclus du reste de l\'audit : leur nom n\'est pas jugé (une absence de nom n\'y est pas une anomalie), mais une <b>ville en trop hors agglomération</b> y est une faute comme partout ailleurs. Ces reports portent le cas <b>H-VP</b> ; la ville se retire <b>à la main</b>, aucune correction automatique n\'est proposée sur ces voies.':
+        'Il cuore: nel centro abitato una strada porta la città, fuori non la porta — e il numero di strada passa al principale.<br>⚠️ <b>Anche sui parcheggi e sulle strade private</b>, che pure sono esclusi dal resto dell\'audit: il loro nome non viene giudicato (l\'assenza di nome non è un\'anomalia), ma una <b>città di troppo fuori dal centro abitato</b> è un errore come altrove. Queste segnalazioni portano il caso <b>H-VP</b>; la città si toglie <b>a mano</b>, nessuna correzione automatica è proposta su queste strade.',
+      '<b>Cartouches</b>':
+        '<b>Scudetti</b>',
+      'Un numéro de route (Dxxx, Nxxx, Cxxx) doit porter son écusson. ⚠️ En agglomération, <b>aucun cartouche sur un nom de rue en principal</b>.':
+        'Un numero di strada (Dxxx, Nxxx, Cxxx) deve portare il suo scudetto. ⚠️ Nel centro abitato, <b>nessuno scudetto su un nome di via in principale</b>.',
+      '<b>Bretelles · Rocades</b>':
+        '<b>Rampe · Tangenziali</b>',
+      'Ne portent <b>jamais</b> de ville.':
+        'Non portano <b>mai</b> la città.',
+      '<b>Voies ferrées, pistes, ferries</b>':
+        '<b>Ferrovie, piste, traghetti</b>',
+      '<b>Jamais de ville</b>, dans les trois cas. Le <b>nom</b>, lui, suit trois règles distinctes : une <b>voie ferrée</b> n\'en porte <b>ni en principal ni en alternatif</b> ; une <b>piste d\'aéroport</b> peut porter son <b>code OACI</b> ; un <b>ferry</b> n\'en porte pas en principal.':
+        '<b>Mai la città</b>, in tutti e tre i casi. Il <b>nome</b>, invece, segue tre regole distinte: una <b>ferrovia</b> non ne porta <b>né in principale né in alternativo</b>; una <b>pista aeroportuale</b> può portare il suo <b>codice ICAO</b>; un <b>traghetto</b> non ne porta in principale.',
+      'Sans nom ; la ville suit la zone (et le format « Village (Commune) » s\'il y a lieu).':
+        'Senza nome; la città segue la zona (e il formato « Village (Commune) » se del caso).',
+      '« Av. », « Bd », « Rte »… à écrire en toutes lettres.':
+        '« Av. », « Bd », « Rte »… da scrivere per esteso.',
+      '« St- » pour Saint-, « R. Poincaré »…':
+        '« St- » per Saint-, « R. Poincaré »…',
+      '<b>Minuscule initiale</b>':
+        '<b>Minuscola iniziale</b>',
+      'Un nom de voie commence par une majuscule.':
+        'Un nome di via inizia con una maiuscola.',
+      '<b>Numéro collé au nom</b>':
+        '<b>Numero unito al nome</b>',
+      '« D980 - Route de… » est <b>interdit</b> : le numéro va au principal hors agglo, ou en alternatif en agglo, jamais collé au nom.':
+        '« D980 - Route de… » è <b>vietato</b>: il numero va al principale fuori dal centro abitato, o in alternativo dentro, mai unito al nome.',
+      '<b>Fonction ou direction</b>':
+        '<b>Funzione o direzione</b>',
+      '« vers X », « accès Y » n\'appartiennent pas au nom.':
+        '« vers X », « accès Y » non fanno parte del nome.',
+      '<b>Rédaction : dictionnaire FR</b>':
+        '<b>Redazione: dizionario FR</b>',
+      'Confronte le nom au <b>dictionnaire communautaire français</b> (~1 430 règles) et propose le nom corrigé : abréviations que les contrôles ci-dessus ne voient pas (« Che », « Pl », « Imp », « Sq »), titres (« Dr », « Gal », « Cdt », « Mal »), <b>accents manquants</b>, espaces en trop, « St-Jean ».':
+        'Confronta il nome con il <b>dizionario della comunità francese</b> (~1 430 regole) e propone il nome corretto: abbreviazioni che i controlli qui sopra non vedono (« Che », « Pl », « Imp », « Sq »), titoli (« Dr », « Gal », « Cdt », « Mal »), <b>accenti mancanti</b>, spazi di troppo, « St-Jean ».',
+      '<b>Bretelles : format du nom</b>':
+        '<b>Rampe: formato del nome</b>',
+      'Le nom doit suivre le format du pays regardé — et le script dit lequel dans son infobulle.':
+        'Il nome deve seguire il formato del paese guardato — e lo script dice quale nel suo suggerimento.',
+      'Forme abrégée obligatoire : <span class="agn-aide-ex">C6</span>, pas <span class="agn-aide-ex">Voie Communale n°6</span>.':
+        'Forma abbreviata obbligatoria: <span class="agn-aide-ex">C6</span>, non <span class="agn-aide-ex">Voie Communale n°6</span>.',
+      '🏷️ <b>D\'où viennent ces règles.</b> Elles ne sont pas de nous : c\'est le dictionnaire de <b>WME Check Road Name</b> (buchet37), maintenu par la communauté française depuis 2015 dans deux classeurs partagés, et employé ici <b>avec l\'accord de son auteur</b>. WNA les <b>lit</b>, il n\'en garde pas de copie — une correction apportée par la communauté vaut donc pour WNA dès le rechargement de la page.<br> ⚠️ <b>Les deux classeurs n\'ont pas le même statut</b>, et son auteur y tient : le dictionnaire <b>principal</b> est <b>figé</b>, tandis que le dictionnaire <b>public</b> vit au gré des éditeurs, <b>sans validation préalable</b>. Une proposition venue d\'ici n\'est donc pas une règle arbitrée : <b>relis-la avant d\'appliquer</b>, comme tu le ferais d\'une suggestion d\'un collègue.<br> ✍️ <b>Une règle te manque ou te paraît fausse ?</b> Elle ne se corrige pas dans WNA, qui ne fait que lire : passe par <b>WME Check Road Name</b>, c\'est lui qui donne accès aux dictionnaires.<br> ⚠️ <b>Si tu as déjà WME Check Road Name</b>, ce contrôle est <b>décoché d\'office</b> : il te dirait exactement la même chose. Tu peux le cocher quand même.<br> ⚠️⚠️ <b>Une limite mesurée, et le script s\'y tient.</b> Ce dictionnaire suppose une casse déjà à peu près correcte : il ne sait <b>pas</b> redresser un nom écrit entièrement en majuscules (« RUE DES ECOLES » lui fait produire « RUE DES ÉcolES »). Dans ce cas précis, WNA <b>signale la capitale sans proposer de nom</b> — mieux vaut te laisser écrire le bon que t\'en suggérer un faux.':
+        '🏷️ <b>Da dove vengono queste regole.</b> Non sono nostre: è il dizionario di <b>WME Check Road Name</b> (buchet37), mantenuto dalla comunità francese dal 2015 in due fogli condivisi, e usato qui <b>con l\'accordo del suo autore</b>. WNA le <b>legge</b>, non ne conserva copia — una correzione fatta dalla comunità vale quindi per WNA al ricaricamento della pagina.<br> ⚠️ <b>I due fogli non hanno lo stesso statuto</b>, e il suo autore ci tiene: il dizionario <b>principale</b> è <b>congelato</b>, mentre quello <b>pubblico</b> vive secondo gli editor, <b>senza validazione preventiva</b>. Una proposta che viene da qui non è dunque una regola arbitrata: <b>rileggila prima di applicarla</b>, come faresti con il suggerimento di un collega.<br> ✍️ <b>Ti manca una regola o te ne pare sbagliata una?</b> Non si corregge in WNA, che si limita a leggere: passa da <b>WME Check Road Name</b>, è lui a dare accesso ai dizionari.<br> ⚠️ <b>Se hai già WME Check Road Name</b>, questo controllo è <b>deselezionato d\'ufficio</b>: ti direbbe esattamente la stessa cosa. Puoi comunque selezionarlo.<br> ⚠️⚠️ <b>Un limite misurato, e lo script lo rispetta.</b> Questo dizionario presuppone maiuscole e minuscole già più o meno corrette: <b>non</b> sa raddrizzare un nome scritto tutto in maiuscolo (« RUE DES ECOLES » gli fa produrre « RUE DES ÉcolES »). In questo caso preciso, WNA <b>segnala il maiuscolo senza proporre un nome</b> — meglio lasciarti scrivere quello giusto che suggerirtene uno falso.',
+      '<b>Feux obligatoires</b>':
+        '<b>Obbligo fari</b>',
+      '<b>Sigles avec un espace</b>':
+        '<b>Sigle con uno spazio</b>',
+      'Un numéro de route s\'écrit <b>collé</b> : <span class="agn-aide-ex">SS12</span>, jamais <span class="agn-aide-ex">SS 12</span>.':
+        'Un numero di strada si scrive <b>attaccato</b>: <span class="agn-aide-ex">SS12</span>, mai <span class="agn-aide-ex">SS 12</span>.',
+      '<b>Dates en chiffres romains</b>':
+        '<b>Date in numeri romani</b>',
+      '<span class="agn-aide-ex">Via IV Novembre</span> s\'écrit <span class="agn-aide-ex">Via 4 Novembre</span>. ⚠️ Ne vise que les <b>dates</b> : les papes et les rois gardent leurs chiffres romains.':
+        '<span class="agn-aide-ex">Via IV Novembre</span> si scrive <span class="agn-aide-ex">Via 4 Novembre</span>. ⚠️ Riguarda solo le <b>date</b>: i papi e i re mantengono i loro numeri romani.',
+      '<b>Voie rapide</b>':
+        '<b>Via rapida</b>',
+      'Toute la commune en un appel, sans bouger ta carte. C\'est le mode normal.':
+        'Tutto il comune in una sola chiamata, senza spostare la mappa. È la modalità normale.',
+      '<b>Balayage</b>':
+        '<b>Scansione</b>',
+      '<b>Les groupes</b>':
+        '<b>I gruppi</b>',
+      '<b>Clic sur une ligne</b>':
+        '<b>Clic su una riga</b>',
+      'Cadre la carte sur l\'écart et le sélectionne dans WME.':
+        'Inquadra la mappa sulla difformità e la seleziona in WME.',
+      'Segment verrouillé au-dessus de ton niveau : la correction est refusée, le script ne propose pas de bouton.':
+        'Segmento bloccato a un livello superiore al tuo: la correzione è rifiutata, lo script non propone alcun pulsante.',
+      '<b>‹ Précédent / Suivant ›</b>':
+        '<b>‹ Precedente / Successivo ›</b>',
+      'Passe d\'un écart au suivant en cadrant la carte à chaque fois.':
+        'Passa da una difformità alla successiva inquadrando ogni volta la mappa.',
+      '<b>Le cas (C3, H5…)</b>':
+        '<b>Il caso (C3, H5…)</b>',
+      'Le code de la situation, repris du logigramme de nommage. Survole une ligne sur la carte pour le revoir.':
+        'Il codice della situazione, ripreso dal diagramma di denominazione. Passa sopra una riga sulla mappa per rivederlo.',
+      '<b>Le référentiel</b>':
+        '<b>Il riferimento</b>',
+      '<b>La langue</b>':
+        '<b>La lingua</b>',
       // ── LES MESSAGES D'ETAT (09/09) ─────────────────────────────────────
       // ⚡ Ce que le panneau dit de lui-meme entre deux analyses. Ils sont
       //    poses par un point de sortie SUR (`textContent = '…'`), donc ils
