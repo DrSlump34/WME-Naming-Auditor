@@ -110,29 +110,19 @@ deux.
 | | Règles FR | Règles IT |
 |---|---|---|
 | **En français** | ✅ d'origine | ✅ depuis la v2.42 — l'aide suit le référentiel |
-| **En italien** | 🚧 interface ✅, aide en cours | 🚧 interface ✅, aide en cours |
+| **En italien** | ✅ v2.48 | ✅ v2.48 |
+
+✅ **LES QUATRE CASES TIENNENT** — v2.48.00. **395 clés italiennes**, dont l'aide entière :
+251 blocs sur 251 et 14 titres sur 14, pour les deux référentiels. `tools/couverture-i18n.js` le
+mesure à chaque reprise plutôt que de l'annoncer.
 
 **Ce qui est acquis** : le référentiel et la langue sont deux axes séparés (v2.42), la traduction
 par bloc fonctionne (v2.43), l'interface courante est traduite (138 clés), et l'aide **dit le vrai
 pour chaque pays**, quelle que soit la langue.
 
-**Ce qui reste** : les mots de l'aide. Mesure du 09/09 par `tools/couverture-i18n.js` —
-**206 blocs sur 229**, soit ~30 Ko :
+**Ce qui a été fait dans la journée**, dans l ordre : le référentiel séparé de la langue (v2.42), la traduction PAR BLOC — une phrase de l aide est coupée par ses `<b>`, et l italien ne remet pas les morceaux dans cet ordre (v2.43) — puis le dictionnaire rempli section par section (v2.44 à v2.48).
 
-| Section | Blocs | Caractères |
-|---|---|---|
-| `regles` (les deux pays) | 67 | 9 476 |
-| `controles` | 29 | 4 083 |
-| `contours` | 22 | 2 722 |
-| `agglo` | 18 | 3 292 |
-| `limites` | 18 | 2 515 |
-| `numerotation` · `poi` | 30 | 4 583 |
-| `partage` · `selzone` | 18 | 3 425 |
-| `resultats` · `analyse` · `pays` | 9 | 179 |
-| **`demarrage`** | **0** | ✅ fait |
-
-⚠️ **Le compte porte sur les DEUX référentiels** : un éditeur italien qui aide en France lit l'aide
-**française** en italien. Les 124 blocs communs ne sont comptés qu'une fois.
+⚠️ **SEPT TEXTES NE SONT PAS TRADUITS, ET C EST VOULU** — la liste et ses raisons vivent dans `tools/couverture-i18n.js`, sinon la mesure dirait « reste 7 » pour toujours : « Frazione », « Scudetti », « Rampe », « Rotatorie », « Fari », « ⏹ Stop » sont identiques dans les deux langues ; et **« a un numéro de rue invalide » CITE un message de WME** dont nous ne connaissons pas la version italienne. ⏳ Celle-là est à demander à Silvio — l inventer ferait chercher à l éditeur un message qu il ne verra jamais sous ces mots.
 
 🔴 **Une section mentait depuis la v2.40** : « Pourquoi la France uniquement » disait encore
 *« le script se ferme hors de France »* — la première chose qu'un testeur italien serait allé lire.
