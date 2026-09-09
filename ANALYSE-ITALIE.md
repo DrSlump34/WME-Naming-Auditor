@@ -66,22 +66,35 @@ les 60 tirets légitimes qui doivent rester intacts. Éprouvé par **mutation** 
 couper au tiret, brancher la normalisation sur la France, ou l'ôter de la restauration — **les
 quatre font tomber le harnais**.
 
-### ⚠️ CE QUE LE CORRECTIF SUPPOSE — et qui n'est vérifié que sur UN cas
+### ✅ VÉRIFIÉ DANS WME, DANS LES QUATRE ZONES BILINGUES (09/09)
 
-La normalisation retient **le nom italien**, parce que c'est lui qu'openpolis place en premier et
-que WME écrit « Bolzano ». **Ce relevé porte sur un comune, pas sur les 124.** Le Haut-Adige est
-majoritairement germanophone et le val Gardena ladin : rien ne garantit que WME écrive *Ortisei*
-plutôt que *St. Ulrich*, ni *Sgonico* plutôt que *Zgonik*.
+La normalisation retient le **nom italien**. Ce n'était vérifié que sur Bolzano ; l'auteur a relevé
+les quatre autres directement dans l'éditeur, une par régime linguistique :
 
-⇒ **Si WME portait l'autre nom quelque part, le script signalerait un écart** — visible et refusable
-par l'éditeur, pas une dégradation silencieuse. Mais c'est un faux positif de plus, et il se lève
-en regardant **un segment dans chacune de ces zones** : Bolzano ✅, le val Gardena, le Frioul
-slovène, le val di Fassa. À faire au prochain essai réel, avec la province 21 chargée.
+| Zone | Ce qu'openpolis sert | **Ce que WME porte** |
+|---|---|---|
+| Bolzano — chef-lieu | `Bolzano/Bozen` | **Bolzano** ✅ |
+| Ortisei — val Gardena, **ladin** | `Ortisei/St. Ulrich` | **Ortisei** ✅ |
+| Silandro — Vinschgau, **germanophone** | `Silandro/Schlanders` | **Silandro** ✅ |
+| San Giovanni di Fassa — Trentin, **ladin** | `San Giovanni di Fassa-Sèn Jan` | **Vigo, San Giovanni di Fassa** ✅ |
+| Sgonico — Karst, **slovène** | `Sgonico-Zgonik` | **Sgonico** ✅ |
 
-⏳ **Ce qui reste ouvert chez Silvio** : les *cartelli bianchi* (recherche en cours de son côté),
-les grandes places qui portent nom de rue et HN (les trois solutions lui ont été proposées, à lui
-de trancher), et — la mesure du jour la rend concrète — **la question 7 : dans les régions
-bilingues, quel nom la règle italienne attend-elle sur le segment ?**
+⇒ **WME porte l'italien partout**, y compris là où la langue majoritaire ne l'est pas. Les deux
+formes de composition (slash et tiret) sont couvertes, et le sélecteur de commune affiche bien
+« Bolzano ».
+
+⭐⭐ **Et le val di Fassa a donné mieux qu'une confirmation : un cas qui CROISE les deux
+mécaniques.** « Vigo, San Giovanni di Fassa » est une **frazione** au format italien, portée par un
+comune à **double nom**. Il faut que `nomComuneIT` ramène le comune à « San Giovanni di Fassa »
+*et* que `villeAgglo` reconnaisse la virgule, sinon WNA réclamerait de remplacer une valeur déjà
+juste. C'est désormais le cas **59 bis / 59 ter de `tools/test-italie.js`** — un relevé de terrain
+vaut mieux qu'un exemple de wiki.
+
+⏳ **Ce qui reste ouvert chez Silvio** : les *cartelli bianchi* (recherche en cours de son côté)
+et les grandes places qui portent nom de rue et HN (les trois solutions lui ont été proposées, à
+lui de trancher).
+✅ **La question 7 — le nom en région bilingue — n'a plus besoin de lui** : l'éditeur a tranché à
+sa place, WME porte l'italien dans les quatre zones.
 
 ## ⏸️ ÉTAT AU 08/09 AU SOIR — v2.40.00, non publiée
 
@@ -446,7 +459,11 @@ liste de catégorie :
 4. Le wiki emploie **trois** façons de marquer l'obsolète. Convention officielle ?
 5. L'exemple SS494, marqué « *non è più valido* » — que devient-il ?
 6. **Voies communales `SC`** : forme abrégée obligatoire, comme les `C6` français ?
-7. **Régions bilingues** : seconde langue **obligatoire** en AN, ou facultative ?
+7. ~~**Régions bilingues** : seconde langue **obligatoire** en AN, ou facultative ?~~
+   ✅ **TRANCHÉ PAR L'ÉDITEUR LE 09/09** — pour la **ville**, la question ne se pose plus : WME
+   porte l'italien dans les quatre zones bilingues (Bolzano, val Gardena ladin, Vinschgau
+   germanophone, Karst slovène). Voir le bloc du 09/09 en tête. ⏳ Reste ouverte pour le **nom de
+   la voie** (`Via` / `Straße`), qui est un autre sujet et n'est pas contrôlé.
 
 ---
 

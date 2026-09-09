@@ -246,6 +246,25 @@ const RATTACHE = { rattache: true, ville: null };
   verifier('59. … et la France garde ses parenthèses',
     r.primary.cityName, 'Le Bosquet (Gruissan)');
 }
+{
+  // ⭐⭐ RELEVE EN VRAI DANS WME (auteur, 09/09) : au val di Fassa, la ville
+  // portee par le segment est « Vigo, San Giovanni di Fassa ». Ce cas CROISE
+  // les deux mecaniques, et c'est pour ca qu'il vaut mieux qu'un exemple de
+  // wiki :
+  //   • le comune est a DOUBLE NOM — openpolis sert
+  //     « San Giovanni di Fassa-Sèn Jan », d'ou `nomComuneIT` ;
+  //   • et la ville du segment est une FRAZIONE, donc au format a la virgule.
+  // Si l'un des deux lachait, WNA reclamerait de remplacer une valeur JUSTE.
+  const nomComuneIT = new Function(extraire('nomComuneIT') +
+    '\n' + relire('COMUNI_DOUBLE_NOM') + '\nreturn nomComuneIT;')();
+  const comune = nomComuneIT('San Giovanni di Fassa-Sèn Jan');
+  verifier('59 bis. le comune a double nom se ramene a son nom italien',
+    comune, 'San Giovanni di Fassa');
+  const r = IT.expectedNaming(nam(['Strada de Ciampedie', 'Vigo, San Giovanni di Fassa']),
+                              RATTACHE, comune);
+  verifier('59 ter. ⭐⭐ « Vigo, San Giovanni di Fassa » est DEJA juste — releve dans WME',
+    r.primary.cityName, 'Vigo, San Giovanni di Fassa');
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 5. LES FAUTES D'ECRITURE ITALIENNES (`formesInterdites`)
