@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.42.00
+// @version      2.43.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -5590,6 +5590,47 @@
         return;
       }
       if (n.nodeType !== 1) return;            // ni element, ni texte : rien a faire
+
+      // 🔴🔴 LE VERROU, ET IL N'EST PAS DECORATIF. Traduire un BLOC remplace un
+      // `innerHTML` : cela CREE des noeuds, donc cela produit une mutation
+      // `childList` — celle-la meme qu'observe `observerTraduction`. La
+      // propriete « la traduction ne se declenche pas elle-meme », vraie tant
+      // qu'on ne touchait qu'a des `nodeValue`, ne l'est plus. Sans cette
+      // marque, chaque bloc traduit repartirait pour un tour, et un
+      // dictionnaire ou une traduction serait elle-meme une cle tournerait
+      // indefiniment dans le navigateur de l'editeur.
+      if (n.getAttribute && n.getAttribute('data-agn-tr')) return;
+
+      // ⭐⭐⭐⭐ LE BLOC AVANT LE FRAGMENT (v2.43). Dans l'aide, une phrase est
+      // COUPEE par ses `<b>` : « Un numéro de route (», « Dxxx », «) doit
+      // porter son écusson. » Traduire ces morceaux un par un est impossible —
+      // l'italien ne les remet pas dans cet ordre, et « (» n'est pas une
+      // phrase. On tente donc d'abord de traduire le CONTENU ENTIER de
+      // l'element : la cle est le HTML interne, et la traduction porte son
+      // propre balisage, libre de le reorganiser.
+      // ⚠️ On essaie AVANT de descendre : sinon les fragments seraient traduits
+      //    d'abord et le bloc ne se reconnaitrait plus.
+      // ⚠️ Espaces normalises : le HTML d'un template porte l'indentation du
+      //    fichier, la cle s'ecrit sur une ligne.
+      // ⚠️ SEULEMENT SI L'ELEMENT PORTE DU BALISAGE. Sur un element qui ne
+      //    contient qu'un nœud texte, la voie « bloc » ecraserait les espaces
+      //    d'origine — « Segments <span> » y perdait le sien et deux mots se
+      //    collaient (defaut vu au harnais, cas 3). Et elle n'y sert a rien :
+      //    le bloc n'a d'interet que la ou il y a des balises a reorganiser.
+      const enfants0 = n.childNodes || [];
+      const balise = Array.prototype.some.call(enfants0, c => c && c.nodeType === 1);
+      const dedans = balise ? n.innerHTML : '';
+      if (dedans && dedans.length <= 4000) {
+        const blocTrad = d[dedans.trim()] || d[dedans.trim().replace(/\s+/g, ' ')];
+        if (blocTrad) {
+          // ⚠️ La marque AVANT l'ecriture : l'observateur peut etre appele
+          //    avant que la ligne suivante ne s'execute.
+          if (n.setAttribute) n.setAttribute('data-agn-tr', '1');
+          n.innerHTML = blocTrad;
+          return;
+        }
+      }
+
       for (const a of ATTRS_VISIBLES) {
         const v = n.getAttribute && n.getAttribute(a);
         if (!v) continue;

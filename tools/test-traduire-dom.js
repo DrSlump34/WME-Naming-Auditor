@@ -50,11 +50,27 @@ function texte(v) { return { nodeType: 3, nodeValue: v }; }
 function commentaire(v) { return { nodeType: 8, nodeValue: v }; }
 function elem(tag, attrs, enfants) {
   const a = Object.assign({}, attrs || {});
-  return {
+  const n = {
     nodeType: 1, tag, _a: a, childNodes: enfants || [],
     getAttribute(k) { return Object.prototype.hasOwnProperty.call(a, k) ? a[k] : null; },
-    setAttribute(k, v) { a[k] = v; }
+    setAttribute(k, v) { a[k] = v; },
+    // ⚠️ `innerHTML` est ici une PROPRIETE CALCULEE, pas un champ : la fonction
+    //    la lit pour chercher une cle de bloc, puis l'ECRIT pour poser la
+    //    traduction. Un DOM de papier qui se contenterait d'un champ inerte
+    //    laisserait passer une fonction qui n'ecrit nulle part.
+    _html: null
   };
+  Object.defineProperty(n, 'innerHTML', {
+    get() {
+      if (n._html !== null) return n._html;
+      return (n.childNodes || []).map(c =>
+        c.nodeType === 3 ? c.nodeValue :
+        c.nodeType === 1 ? '<' + c.tag + '>' + c.innerHTML + '</' + c.tag + '>' : ''
+      ).join('');
+    },
+    set(v) { n._html = v; n.childNodes = [texte(v)]; }
+  });
+  return n;
 }
 /** Empreinte de la STRUCTURE seule — les valeurs n'y entrent pas. */
 function forme(n) {
@@ -183,6 +199,48 @@ const trFr = monter(DICO, 'fr');
 // 15. Les cas vides.
 v('15. une racine nulle est rendue telle quelle', trIt(null), null);
 v('16. la racine est RENDUE, pour pouvoir chainer', trIt(elem('i', {}, [])).tag, 'i');
+
+// ── LE BLOC AVANT LE FRAGMENT (v2.43) ───────────────────────────────────────
+// 🔴 CE QUE CES CAS PROTEGENT : dans l'aide, une phrase est coupee par ses
+// `<b>`. Traduire les morceaux un par un ne peut pas marcher — l'italien ne les
+// remet pas dans cet ordre. La cle est donc le HTML interne de l'element, et la
+// traduction porte son propre balisage.
+{
+  const DICO3 = { it: {
+    'Un numéro de route (<b>Dxxx</b>) doit porter son écusson.':
+      'Un numero di strada (<b>SS</b>) deve portare il suo scudetto.',
+    'Segments': 'Segmenti'
+  } };
+  const tr3 = monter(DICO3, 'it');
+  const cellule = elem('td', {}, [
+    texte('Un numéro de route ('), elem('b', {}, [texte('Dxxx')]),
+    texte(') doit porter son écusson.')
+  ]);
+  tr3(cellule);
+  v('20. ⭐⭐ un BLOC coupé par ses balises se traduit en entier',
+    cellule.innerHTML, 'Un numero di strada (<b>SS</b>) deve portare il suo scudetto.');
+  v('21. 🔴 … et il est MARQUÉ, sinon l\'observateur le reprendrait sans fin',
+    cellule.getAttribute('data-agn-tr'), '1');
+
+  // Un element deja marque ne doit plus etre visite du tout.
+  const dejaFait = elem('p', { 'data-agn-tr': '1' }, [texte('Segments')]);
+  tr3(dejaFait);
+  v('22. 🔴 un élément déjà traduit n\'est pas repris', textes(dejaFait), ['Segments']);
+
+  // Le bloc l'emporte sur le fragment : sinon « Segments » serait traduit
+  // d'abord et le bloc ne se reconnaitrait plus.
+  const DICO4 = { it: { '<b>Segments</b> et le reste': 'IL BLOC', 'Segments': 'NON' } };
+  const p = elem('p', {}, [elem('b', {}, [texte('Segments')]), texte(' et le reste')]);
+  monter(DICO4, 'it')(p);
+  v('23. ⭐ le BLOC est tenté AVANT les fragments qu\'il contient',
+    p.innerHTML, 'IL BLOC');
+
+  // Un bloc absent du dictionnaire laisse les fragments suivre leur chemin.
+  const q = elem('p', {}, [texte('Segments')]);
+  tr3(q);
+  v('24. ⚠️ sans clé de bloc, les nœuds texte sont traduits normalement',
+    textes(q), ['Segmenti']);
+}
 
 // 17. 🔴 L'observateur n'ecoute QUE `childList` — la contrepartie de la n° 10.
 {
