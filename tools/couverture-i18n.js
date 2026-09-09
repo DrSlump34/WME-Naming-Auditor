@@ -38,9 +38,19 @@ bloc.replace(/\$\{([^}]*)\}/g, (m, x) => {
   (x.match(/\b[A-Z][A-Z0-9_]{2,}\b/g) || []).filter(k => k !== 'REF').forEach(k => constantes.add(k));
   return m;
 });
-const monter = pays => new Function('src', 'extraire', 'bloc', 'constantes',
+// ⚠️ `valeurDe` vit AVANT le morceau repris du harnais : c'est lui qui déclare
+//    les constantes avec leur VRAIE valeur, et sans elle rien ne s'évalue.
+//    Cette dépendance invisible a fait rendre à l'outil une sortie VIDE
+//    pendant que j'annonçais un chiffre pris au passage précédent.
+const valeurDe = nom => {
+  const m = src.match(new RegExp('\\bconst ' + nom + '\\s*=\\s*([^;\\n]+)'));
+  if (!m) return '0';
+  const v = m[1].trim();
+  return /^-?[0-9]+([.][0-9]+)?$/.test(v) ? v : '0';
+};
+const monter = pays => new Function('src', 'extraire', 'bloc', 'constantes', 'valeurDe',
   morceau + '\nreturn sectionsDe(true, ' + JSON.stringify(pays) + ');')
-  (src, extraireFn, bloc, constantes);
+  (src, extraireFn, bloc, constantes, valeurDe);
 
 // Le dictionnaire actuel.
 const iT = src.indexOf('const TEXTES = {');
@@ -79,8 +89,28 @@ for (const pays of ['FR', 'IT']) {
 }
 const tousBlocs = new Set([...par.FR.blocs, ...par.IT.blocs]);
 const tousTitres = new Set([...par.FR.titres, ...par.IT.titres]);
-const resteBlocs = [...tousBlocs].filter(b => !DICO[b]);
-const resteTitres = [...tousTitres].filter(t => !DICO[t]);
+/**
+ * ⭐ CE QUI N'A PAS À ÊTRE TRADUIT, et pourquoi. Sans cette liste, la mesure
+ * dirait « reste 7 » pour toujours, et on chercherait un travail qui n'existe
+ * pas. Chaque entrée a une raison, et elle est écrite.
+ */
+const IDENTIQUES = [
+  // Déjà en italien : c'est le titre italien lui-même.
+  '📖 Le regole ufficiali italiane',
+  // Mots italiens employés tels quels dans le texte français : la traduction
+  // serait l'identité, et le contrôle 6 du harnais refuse (à juste titre) ce
+  // bruit dans le dictionnaire.
+  '<b>Frazione</b>', '<b>Scudetti</b>', '<b>Rampe</b>', '<b>Rotatorie</b>',
+  '<b>Fari</b>', '<b>⏹ Stop</b>',
+  // ⚠️ CITATION D'UN MESSAGE DE WME, pas un texte du script. Sa version
+  // italienne existe dans l'éditeur mais nous ne la connaissons pas :
+  // l'inventer ferait chercher à l'éditeur un message qu'il ne verra jamais
+  // sous ces mots. ⏳ À demander au CC italien.
+  '<b>« a un numéro de rue invalide »</b>'
+];
+const aTraduire = x => !DICO[x] && !IDENTIQUES.includes(x);
+const resteBlocs = [...tousBlocs].filter(aTraduire);
+const resteTitres = [...tousTitres].filter(aTraduire);
 
 console.log('AIDE — a traduire pour couvrir les DEUX referentiels');
 console.log('  titres de section : ' + tousTitres.size + '  (reste ' + resteTitres.length + ')');
@@ -96,7 +126,7 @@ if (process.argv[2] === '--sections') {
   const parSection = {};
   for (const pays of ['FR', 'IT']) {
     for (const s of monter(pays)) {
-      const b = blocsDe(s.corps).filter(x => !DICO[x]);
+      const b = blocsDe(s.corps).filter(aTraduire);
       parSection[s.id] = parSection[s.id] || new Set();
       b.forEach(x => parSection[s.id].add(x));
     }
@@ -114,7 +144,7 @@ if (process.argv[2] === '--section' && process.argv[3]) {
   for (const pays of ['FR', 'IT']) {
     for (const s of monter(pays)) {
       if (s.id !== cible) continue;
-      blocsDe(s.corps).filter(x => !DICO[x]).forEach(x => vus.add(x));
+      blocsDe(s.corps).filter(aTraduire).forEach(x => vus.add(x));
     }
   }
   [...vus].forEach(b => console.log(JSON.stringify(b)));

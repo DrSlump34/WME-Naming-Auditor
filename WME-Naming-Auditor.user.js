@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.47.00
+// @version      2.48.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -5638,6 +5638,167 @@
         '<b>« troppo isolati »</b>',
       'Moins de trois entrées, ou éparpillées : aucune surface déductible. Elles restent affichées en repère pour un tracé à la main.':
         'Meno di tre ingressi, o sparpagliati: nessuna superficie deducibile. Restano mostrati come riferimento per un tracciato a mano.',
+      // ── L'AIDE (09/09) ──────────────────────────────────────────────────
+      // ⭐ Traduite PAR BLOC : dans l'aide une phrase est coupee par ses
+      //    <b>, et l'italien ne remet pas les morceaux dans cet ordre. La
+      //    cle est donc le HTML interne de l'element, et la traduction porte
+      //    son propre balisage (voir `traduireDOM`).
+      // ⚠️ Ces blocs couvrent les DEUX referentiels : un editeur italien qui
+      //    aide en France lit l'aide FRANCAISE en italien.
+      'Deux boutons, sous <b>Analyser la commune</b>, qui <b>ne lancent aucune analyse</b> : ils sélectionnent dans WME, d\'un clic, les segments selon ce que leur <b>nom principal déclare</b>.':
+        'Due pulsanti, sotto <b>Analizza il comune</b>, che <b>non avviano alcuna analisi</b>: selezionano in WME, con un clic, i segmenti secondo ciò che il loro <b>nome principale dichiara</b>.',
+      '<b>🏘 En ville</b>':
+        '<b>🏘 In centro abitato</b>',
+      'Les segments dont le nom principal porte la ville — donc ceux qui <b>se déclarent en agglomération</b>. Le format <b>Village (Commune)</b> compte aussi.':
+        'I segmenti il cui nome principale porta la città — dunque quelli che <b>si dichiarano nel centro abitato</b>. Vale anche il formato <b>Village (Commune)</b>.',
+      '<b>🌾 Hors ville</b>':
+        '<b>🌾 Fuori centro abitato</b>',
+      'Les segments dont le nom principal ne porte <b>aucune</b> ville — donc ceux qui se déclarent hors agglomération.':
+        'I segmenti il cui nome principale non porta <b>alcuna</b> città — dunque quelli che si dichiarano fuori dal centro abitato.',
+      'À quoi ça sert : <b>comparer d\'un coup d\'œil ce que les segments déclarent et où ils sont réellement</b>. Un segment sélectionné par 🏘 mais posé hors de ton polygone d\'agglomération porte une ville de trop ; un segment resté non sélectionné à l\'intérieur du polygone en a probablement une qui manque.':
+        'A cosa serve: <b>confrontare a colpo d\'occhio ciò che i segmenti dichiarano e dove si trovano davvero</b>. Un segmento selezionato da 🏘 ma posato fuori dal tuo poligono di centro abitato porta una città di troppo; un segmento rimasto non selezionato all\'interno del poligono ne ha probabilmente una che manca.',
+      '⚠️⚠️ <b>Ces boutons ne voient que ce qui est affiché</b>, et c\'est une limite de WME, pas du script : la carte ne descend les segments que <b>par vue</b>, et <b>lâche ceux qui en sortent</b> — on ne peut donc même pas cumuler les sélections en déplaçant la carte. <b>Sélectionner toute une commune d\'un coup est impossible</b> (Road Selector a exactement la même limite). Le compte rendu te prévient à chaque fois qu\'<b>il en manque probablement</b>.<br> <b>Ces boutons ne touchent jamais à ta carte</b> — ni au zoom, ni au centrage. À toi de cadrer : un zoom plus large en prend davantage, jusqu\'au <b>zoom 16</b>, dernier niveau où WME charge encore <b>toutes</b> les rues (il y couvre ~2,4 km, contre ~0,6 km au zoom 18). En dessous de 16, WME cesse de descendre les petites rues : tu verrais plus grand en sélectionnant moins. Au-delà, <b>déplace la carte et reclique</b> : secteur par secteur. Les segments des communes voisines sont écartés, et comptés à part. Une ville portée par un nom <b>alternatif</b> ne compte pas : hors agglomération, c\'est justement le nommage attendu.':
+        '⚠️⚠️ <b>Questi pulsanti vedono solo ciò che è visualizzato</b>, ed è un limite di WME, non dello script: la mappa scarica i segmenti <b>per vista</b>, e <b>lascia andare quelli che ne escono</b> — non si possono nemmeno sommare le selezioni spostando la mappa. <b>Selezionare un intero comune in una volta è impossibile</b> (Road Selector ha esattamente lo stesso limite). Il resoconto ti avverte ogni volta che <b>probabilmente ne mancano</b>.<br> <b>Questi pulsanti non toccano mai la tua mappa</b> — né lo zoom, né il centraggio. Sta a te inquadrare: uno zoom più ampio ne prende di più, fino allo <b>zoom 16</b>, ultimo livello in cui WME carica ancora <b>tutte</b> le strade (vi copre ~2,4 km, contro ~0,6 km allo zoom 18). Sotto il 16, WME smette di scaricare le vie minori: vedresti più largo selezionando meno. Oltre, <b>sposta la mappa e riclicca</b>: settore per settore. I segmenti dei comuni vicini sono esclusi, e contati a parte. Una città portata da un nome <b>alternativo</b> non conta: fuori dal centro abitato, è proprio la denominazione attesa.',
+      'Trois choses sont mémorisées : tes <b>polygones d\'agglomération</b>, tes communes déclarées <b>sans agglomération</b>, et tes <b>coches ✓ traité</b>.':
+        'Tre cose vengono memorizzate: i tuoi <b>poligoni di centro abitato</b>, i tuoi comuni dichiarati <b>senza centro abitato</b>, e le tue <b>spunte ✓ trattato</b>.',
+      'Dans le <b>gestionnaire de scripts</b> (Tampermonkey), pas dans le site : ça survit à un « effacer les données de navigation » et ça entre dans ses sauvegardes.':
+        'Nel <b>gestore di script</b> (Tampermonkey), non nel sito: sopravvive a una « cancellazione dei dati di navigazione » ed entra nei suoi backup.',
+      '<b>⬇️ Exporter</b>':
+        '<b>⬇️ Esporta</b>',
+      'Un fichier avec les polygones et les communes sans agglo. ⚠️ <b>Tes coches « traité » n\'y sont jamais</b> : elles sont personnelles.':
+        'Un file con i poligoni e i comuni senza centro abitato. ⚠️ <b>Le tue spunte « trattato » non ci sono mai</b>: sono personali.',
+      '<b>⬆️ Importer un fichier</b>':
+        '<b>⬆️ Importa un file</b>',
+      'Ajoute ce qui manque et <b>ne remplace jamais</b> ce que tu as déjà. Un fichier venu d\'un autre script est refusé.':
+        'Aggiunge ciò che manca e <b>non sostituisce mai</b> quello che hai già. Un file venuto da un altro script viene rifiutato.',
+      '<b>🌐 Importer depuis l\'URL</b>':
+        '<b>🌐 Importa da URL</b>',
+      'Même chose depuis une adresse (https uniquement).':
+        'Stessa cosa da un indirizzo (solo https).',
+      '<b>Transférer ton travail d\'un PC à l\'autre</b> — tout se passe dans <b>☰</b> → <b>Sauvegarde &amp; partage</b> :':
+        '<b>Trasferire il tuo lavoro da un PC all\'altro</b> — tutto avviene in <b>☰</b> → <b>Salvataggio &amp; condivisione</b>:',
+      'Sur le PC de départ, clique <b>⬇️ Exporter (polygones + communes)</b>. Tu obtiens un fichier <b>.json</b> : transfère-le comme tu veux (clé USB, courriel, cloud).':
+        'Sul PC di partenza, clicca <b>⬇️ Esporta (poligoni + comuni)</b>. Ottieni un file <b>.json</b>: trasferiscilo come vuoi (chiavetta USB, e-mail, cloud).',
+      'Sur le PC d\'arrivée, clique <b>⬆️ Importer un fichier</b> et choisis ce .json.':
+        'Sul PC di arrivo, clicca <b>⬆️ Importa un file</b> e scegli quel .json.',
+      '⚠️ <b>L\'import n\'écrase jamais rien</b> : il ajoute seulement les communes qui te manquent. Si une commune existe des deux côtés, c\'est <b>la version du PC d\'arrivée</b> qui est gardée — exporte donc depuis le poste le plus à jour. Et tes <b>coches ✓ traité ne voyagent pas</b> : elles sont personnelles, seuls les polygones et les communes « sans agglomération » sont dans le fichier.<br> Tu peux aussi déposer ce fichier quelque part (GitHub…) et le récupérer avec <b>🌐 Importer depuis l\'URL</b>, pratique pour le reprendre régulièrement sans repasser par une clé.':
+        '⚠️ <b>L\'importazione non sovrascrive mai nulla</b>: aggiunge soltanto i comuni che ti mancano. Se un comune esiste da entrambe le parti, si tiene <b>la versione del PC di arrivo</b> — esporta quindi dalla postazione più aggiornata. E le tue <b>spunte ✓ trattato non viaggiano</b>: sono personali, nel file ci sono solo i poligoni e i comuni « senza centro abitato ».<br> Puoi anche depositare questo file da qualche parte (GitHub…) e recuperarlo con <b>🌐 Importa da URL</b>, comodo per riprenderlo regolarmente senza passare da una chiavetta.',
+      // ── L'AIDE (09/09) ──────────────────────────────────────────────────
+      // ⭐ Traduite PAR BLOC : dans l'aide une phrase est coupee par ses
+      //    <b>, et l'italien ne remet pas les morceaux dans cet ordre. La
+      //    cle est donc le HTML interne de l'element, et la traduction porte
+      //    son propre balisage (voir `traduireDOM`).
+      // ⚠️ Ces blocs couvrent les DEUX referentiels : un editeur italien qui
+      //    aide en France lit l'aide FRANCAISE en italien.
+      'Règle française : <b>en agglomération le numéro est porté par le segment</b> (HN), <b>hors agglomération par un POI résidentiel</b> (RPP). Le script cherche donc les deux situations inverses.':
+        'Regola francese: <b>nel centro abitato il numero è portato dal segmento</b> (HN), <b>fuori dal centro abitato da un luogo residenziale</b> (RPP). Lo script cerca quindi le due situazioni inverse.',
+      '<b>Numéro hors agglo</b>':
+        '<b>Numero fuori dal centro abitato</b>',
+      'Proposé à la conversion en POI résidentiel. Le ⚡ crée le POI à la position du numéro, lui donne l\'adresse, <b>reprend son point d\'entrée</b>, puis retire le numéro — et si l\'une des étapes échoue, il revient en arrière plutôt que de laisser une adresse en double.':
+        'Proposto per la conversione in luogo residenziale. Il ⚡ crea il luogo alla posizione del numero, gli dà l\'indirizzo, <b>riprende il suo punto di accesso</b>, poi toglie il numero — e se una delle fasi fallisce, torna indietro invece di lasciare un indirizzo doppio.',
+      '<b>RPP en agglo</b>':
+        '<b>RPP nel centro abitato</b>',
+      'Souvent <b>légitime</b> : l\'entrée donne sur une autre voie que l\'adresse postale, ce qu\'un numéro porté par le segment ne sait pas exprimer. Le script ne tranche donc pas… sauf quand il peut le prouver.':
+        'Spesso <b>legittimo</b>: l\'accesso dà su una strada diversa dall\'indirizzo postale, cosa che un numero portato dal segmento non sa esprimere. Lo script non decide quindi… salvo quando può dimostrarlo.',
+      '<b>… doublon</b>':
+        '<b>… duplicato</b>',
+      'Le même numéro est déjà posé sur la même rue, tout près : le POI fait double emploi.':
+        'Lo stesso numero è già posato sulla stessa via, molto vicino: il luogo è un doppione.',
+      '<b>… accès sur sa propre voie</b>':
+        '<b>… accesso sulla propria strada</b>',
+      'Le point d\'accès du POI donne sur la voie de son adresse : il n\'exprime aucun décalage.':
+        'Il punto di accesso del luogo dà sulla strada del suo indirizzo: non esprime alcuno scarto.',
+      '<b>… le long de sa rue</b>':
+        '<b>… lungo la propria via</b>',
+      'Faute de point d\'accès, le POI longe la rue qu\'il déclare — un numéro dirait la même chose.':
+        'In mancanza di un punto di accesso, il luogo costeggia la via che dichiara — un numero direbbe la stessa cosa.',
+      '<b>… accès sur une AUTRE voie</b>':
+        '<b>… accesso su un\'ALTRA strada</b>',
+      'La preuve inverse : le POI est à sa place, il n\'est <b>plus signalé du tout</b> — mais il reste compté dans le bilan.':
+        'La prova inversa: il luogo è al suo posto, <b>non viene più segnalato affatto</b> — ma resta contato nel bilancio.',
+      '<b>📷 photo</b>':
+        '<b>📷 foto</b>',
+      'Un RPP photographié a été posé par quelqu\'un venu sur place. Il reste signalé, <b>en fin de liste</b>, avec la mention : regarde-le de près avant de le supprimer.':
+        'Un RPP fotografato è stato posato da qualcuno che è andato sul posto. Resta segnalato, <b>in fondo alla lista</b>, con l\'avvertenza: guardalo da vicino prima di eliminarlo.',
+      '<b>📏 Une mesure, et pas une règle.</b> Un contrôle <b>décoché par défaut</b> compte les numéros posés, <b>en agglomération</b>, sur un segment dont le <b>nom principal est un numéro de route</b> (« D121 ») plutôt qu\'une adresse postale. Il donne aussi combien d\'entre eux gardent un vrai nom de rue <b>en alternatif</b>.':
+        '📏 <b>Una misura, non una regola.</b> Un controllo <b>deselezionato per impostazione predefinita</b> conta i numeri civici posati, <b>nel centro abitato</b>, su un segmento il cui <b>nome principale è un numero di strada</b> (« D121 ») invece di un indirizzo postale. Indica anche quanti di essi conservano un vero nome di via <b>in alternativo</b>.',
+      '⚠️ Ces cas <b>ne sont pas des écarts</b> et n\'ont <b>aucun bouton de correction</b> : à ce jour aucune règle française ne les interdit. Le relevé existe parce qu\'un éditeur a proposé d\'en faire une norme ; il faudra qu\'elle soit validée par les <b>Local Champs</b> et écrite au <b>wiki</b> avant que le script en tire quoi que ce soit. <b>Le script applique les règles, il n\'en crée pas.</b>':
+        '⚠️ Questi casi <b>non sono difformità</b> e non hanno <b>alcun pulsante di correzione</b>: a oggi nessuna regola francese li vieta. Il rilevamento esiste perché un editor ha proposto di farne una norma; dovrà essere convalidata dai <b>Local Champs</b> e scritta nel <b>wiki</b> prima che lo script ne tragga qualcosa. <b>Lo script applica le regole, non le crea.</b>',
+      'La conversion <b>POI → numéro</b> n\'est pas automatisée, volontairement : le script ne sait dire ni sur quel segment ni à quel endroit poser le numéro, et supprimer le POI emporterait son nom, son point d\'entrée et ses photos. Il te guide, tu fais le geste.':
+        'La conversione <b>luogo → numero civico</b> non è automatizzata, volontariamente: lo script non sa dire né su quale segmento né in quale punto posare il numero, ed eliminare il luogo porterebbe via il suo nome, il suo punto di accesso e le sue foto. Ti guida, il gesto lo fai tu.',
+      'Cet onglet ne parle <b>pas</b> des POI résidentiels, mais des commerces, services, bâtiments nommés — et de leur adresse.':
+        'Questa scheda <b>non</b> parla dei luoghi residenziali, ma di negozi, servizi, edifici con un nome — e del loro indirizzo.',
+      '<b>Adresse incomplète</b>':
+        '<b>Indirizzo incompleto</b>',
+      'Rue ou commune manquante. Le script <b>propose une adresse</b> : la voie nommée la plus proche du point d\'accès, et la commune du contour communes INSEE.':
+        'Via o comune mancante. Lo script <b>propone un indirizzo</b>: la strada con nome più vicina al punto di accesso, e il comune del confine (communes INSEE).',
+      'Rue ou commune manquante. Le script <b>propose une adresse</b> : la voie nommée la plus proche du point d\'accès, et la commune du contour comuni ISTAT.':
+        'Via o comune mancante. Lo script <b>propone un indirizzo</b>: la strada con nome più vicina al punto di accesso, e il comune del confine (comuni ISTAT).',
+      '<b>⚡ sur un POI</b>':
+        '<b>⚡ su un luogo</b>',
+      'Applique rue + commune. Si plusieurs noms sont possibles, le clic <b>ouvre une liste</b> : le plus probable en tête, les numéros de route ensuite, et une saisie libre.':
+        'Applica via + comune. Se più nomi sono possibili, il clic <b>apre un elenco</b>: il più probabile in cima, poi i numeri di strada, e un campo libero.',
+      '<b>Le numéro</b>':
+        '<b>Il numero civico</b>',
+      'Proposé, <b>jamais appliqué</b> : à quelques dizaines de mètres, ce peut être celui du voisin. À saisir à la main après vérification.':
+        'Proposto, <b>mai applicato</b>: a qualche decina di metri, potrebbe essere quello del vicino. Da inserire a mano dopo verifica.',
+      '<b>Commune différente</b>':
+        '<b>Comune diverso</b>',
+      'Présenté comme <b>à vérifier</b>, avec la distance à la limite communale : près d\'une frontière, l\'adresse de la voisine peut être la bonne.':
+        'Presentato come <b>da verificare</b>, con la distanza dal confine comunale: vicino a un confine, l\'indirizzo del comune accanto può essere quello giusto.',
+      '<b>Numéro manquant</b>':
+        '<b>Numero civico mancante</b>',
+      'Contrôle <b>décoché par défaut</b> : il concerne environ la moitié des POI et noierait le reste.':
+        'Controllo <b>deselezionato per impostazione predefinita</b>: riguarda circa la metà dei luoghi e sommergerebbe il resto.',
+      '<b>Aires, échangeurs, jonctions, péages</b>':
+        '<b>Aree di servizio, svincoli, caselli</b>',
+      '<b>Leur adresse est le nom de l\'autoroute dont ils dépendent, et AUCUNE ville</b> — c\'est la règle FR (<a href="https://www.waze.com/discuss/t/lieux-particuliers/375608" target="_blank" rel="noopener">Lieux Particuliers</a>, §2.4, 2.12 et 2.13). WNA les reconnaît à leur <b>catégorie</b> (aire de repos, aire de restauration, jonction/échangeur) ou à la <b>rue qu\'ils portent déjà</b> quand c\'est une autoroute — ce second critère couvre aussi la station-service ou le restaurant <b>d\'une aire</b>.<br> ⭐ <b>Corrigé en v2.37 :</b> jusque-là, un de ces POI renseigné <b>exactement comme la règle l\'exige</b> recevait deux écarts — « rue = numéro de route » et « commune absente » — dont l\'application l\'aurait rendu <b>non conforme</b>. Ils sont désormais audités sur cette cible-là, et le bilan les compte (<span class="agn-aide-ex">n sur adresse d\'autoroute</span>).':
+        '<b>Il loro indirizzo è il nome dell\'autostrada da cui dipendono, e NESSUNA città</b> — è la regola FR (<a href="https://www.waze.com/discuss/t/lieux-particuliers/375608" target="_blank" rel="noopener">Lieux Particuliers</a>, §2.4, 2.12 e 2.13). WNA li riconosce dalla loro <b>categoria</b> (area di sosta, area di ristoro, svincolo) o dalla <b>via che già portano</b> quando è un\'autostrada — questo secondo criterio copre anche il distributore o il ristorante <b>di un\'area</b>.<br> ⭐ <b>Corretto nella v2.37:</b> fino ad allora, uno di questi luoghi compilato <b>esattamente come la regola esige</b> riceveva due difformità — « via = numero di strada » e « comune assente » — la cui applicazione lo avrebbe reso <b>non conforme</b>. Ora sono verificati su quell\'obiettivo, e il bilancio li conta (<span class="agn-aide-ex">n sur adresse d\'autoroute</span>).',
+      '<b>Ce qui est écarté volontairement</b> : les éléments du paysage (rivière, forêt, plage…), qui n\'ont pas d\'adresse ; et le <b>bâti sans nom</b> — une zone anonyme sert à dessiner un bâtiment, les commerces qu\'elle abrite sont des POI à part, eux-mêmes audités. Le bilan les compte.':
+        '<b>Ciò che viene escluso volontariamente</b>: gli elementi del paesaggio (fiume, bosco, spiaggia…), che non hanno indirizzo; e l\'<b>edificato senza nome</b> — un\'area anonima serve a disegnare un edificio, i negozi che ospita sono luoghi a parte, verificati a loro volta. Il bilancio li conta.',
+      '⚠️ Cet onglet demande la <b>voie rapide</b> : le point d\'accès et les catégories n\'existent pas en mode balayage. Le script le dit au lieu de paraître vide.<br> ⚠️⚠️ <b>Ce qu\'il ne dit pas :</b> une aire ou un échangeur qui porte une <b>ville en trop</b> n\'est <b>pas</b> signalé. La règle l\'interdit pourtant — mais c\'est un contrôle qui reste à écrire, et un contrôle absent est invisible : autant le dire.':
+        '⚠️ Questa scheda richiede la <b>via rapida</b>: il punto di accesso e le categorie non esistono in modalità scansione. Lo script lo dice invece di sembrare vuoto.<br> ⚠️⚠️ <b>Ciò che non dice:</b> un\'area o uno svincolo che porta una <b>città di troppo</b> <b>non</b> viene segnalato. La regola lo vieta, eppure — ma è un controllo ancora da scrivere, e un controllo assente è invisibile: tanto vale dirlo.',
+      // ── L'AIDE (09/09) ──────────────────────────────────────────────────
+      // ⭐ Traduite PAR BLOC : dans l'aide une phrase est coupee par ses
+      //    <b>, et l'italien ne remet pas les morceaux dans cet ordre. La
+      //    cle est donc le HTML interne de l'element, et la traduction porte
+      //    son propre balisage (voir `traduireDOM`).
+      // ⚠️ Ces blocs couvrent les DEUX referentiels : un editeur italien qui
+      //    aide en France lit l'aide FRANCAISE en italien.
+      '<b>Territoire indéterminé</b>':
+        '<b>Territorio indeterminato</b>',
+      'Le script attend d\'être sûr du <b>pays regardé</b> avant d\'appliquer ses règles — les appliquer ailleurs abîmerait la carte. <b>Choisis une commune</b> : cela suffit. Sinon, zoome à 14 ou plus.':
+        'Lo script aspetta di essere sicuro del <b>paese guardato</b> prima di applicarne le regole — applicarle altrove rovinerebbe la mappa. <b>Scegli un comune</b>: basta questo. Altrimenti, ingrandisci a 14 o più.',
+      '<b>Numéros non chargés</b>':
+        '<b>Numeri civici non caricati</b>',
+      'WME ne descend les numéros de rue qu\'<b>à partir du zoom 18</b>. La conversion cadre elle-même la carte pour les faire venir.':
+        'WME scarica i numeri civici solo <b>a partire dallo zoom 18</b>. La conversione inquadra da sé la mappa per farli arrivare.',
+      '<b>POI résidentiels absents</b>':
+        '<b>Luoghi residenziali assenti</b>',
+      'Ils ne sont servis qu\'à partir du <b>zoom 17</b> — d\'où la voie rapide, qui ne dépend pas du zoom.':
+        'Vengono serviti solo a partire dallo <b>zoom 17</b> — da cui la via rapida, che non dipende dallo zoom.',
+      '<b>Ce n\'est pas un doublon d\'adresse</b>, malgré ce que le message laisse croire. Refus de WME sur <b>un numéro précis</b>, qui persiste <b>même après avoir supprimé et enregistré</b> le numéro de rue du même nom — et le numéro de rue, lui, reste acceptable : seul le lieu est bloqué. C\'est un <b>résidu côté serveur Waze</b>, invisible dans l\'éditeur. Rien à corriger sur la carte : annule, et signale l\'adresse exacte au staff, qui sait la purger. Le script <b>recopie ce message et l\'explique</b> dans un bandeau, car l\'alerte de WME s\'affiche derrière sa fenêtre.':
+        '<b>Non è un indirizzo duplicato</b>, malgrado ciò che il messaggio lascia credere. È un rifiuto di WME su <b>un numero preciso</b>, che persiste <b>anche dopo aver eliminato e salvato</b> il numero civico con lo stesso nome — e il numero civico, di suo, resta accettabile: solo il luogo è bloccato. È un <b>residuo lato server Waze</b>, invisibile nell\'editor. Nulla da correggere sulla mappa: annulla, e segnala l\'indirizzo esatto allo staff, che sa ripulirlo. Lo script <b>ricopia questo messaggio e lo spiega</b> in un banner, perché l\'avviso di WME si apre dietro la sua finestra.',
+      '<b>Deux infobulles superposées</b>':
+        '<b>Due suggerimenti sovrapposti</b>',
+      'D\'autres scripts posent aussi leur bulle au survol de la carte, et les deux se recouvrent — le script <b>ne peut pas arbitrer chez le voisin</b>. Décoche <b>Infobulle au survol</b> dans <b>☰ → Surlignage sur la carte</b> : le reste de l\'affichage (surlignage, couleurs) est conservé. Pour savoir quel script pose l\'autre bulle : clic droit dessus → <b>Inspecter</b>, son identifiant nomme presque toujours le script.':
+        'Anche altri script mostrano il loro riquadro al passaggio del mouse, e i due si sovrappongono — lo script <b>non può decidere a casa del vicino</b>. Deseleziona <b>Suggerimento al passaggio</b> in <b>☰ → Evidenziazione sulla mappa</b>: il resto della visualizzazione (evidenziazione, colori) è conservato. Per sapere quale script mostra l\'altro riquadro: tasto destro sopra → <b>Ispeziona</b>, il suo identificatore nomina quasi sempre lo script.',
+      '<b>Analyse interrompue</b>':
+        '<b>Analisi interrotta</b>',
+      'Les constats qui supposent d\'avoir tout vu (villes sans polygone, cartouches d\'une voie entière) sont alors présentés comme <b>non fiables</b>, pas cachés.':
+        'Le constatazioni che presuppongono di aver visto tutto (città senza poligono, scudetti di un\'intera strada) sono allora presentate come <b>non affidabili</b>, non nascoste.',
+      '<b>Rien n\'est enregistré</b>':
+        '<b>Nulla viene salvato</b>',
+      'Le compteur de la fenêtre rappelle combien de modifications attendent dans WME. <b>C\'est toi qui enregistres.</b>':
+        'Il contatore della finestra ricorda quante modifiche attendono in WME. <b>Sei tu a salvare.</b>',
+      '<b>Pastille rouge ⟳ dans l\'en-tête</b>':
+        '<b>Pallino rosso ⟳ nell\'intestazione</b>',
+      'Une <b>version plus récente est publiée</b> sur GreasyFork : le clic ouvre sa page, et c\'est ton gestionnaire de scripts qui installe. Elle reste éteinte tant que ta version est à jour — <b>et aussi si tu es hors ligne</b> : elle ne s\'allume que sur une réponse claire, jamais par précaution.':
+        'Una <b>versione più recente è pubblicata</b> su GreasyFork: il clic ne apre la pagina, e l\'installazione la fa il tuo gestore di script. Resta spento finché la tua versione è aggiornata — <b>e anche se sei offline</b>: si accende solo su una risposta chiara, mai per precauzione.',
+      '<b>La carte bouge quand je ne veux pas</b>':
+        '<b>La mappa si sposta quando non voglio</b>',
+      'Chaque déplacement de carte fait par le script écrit sa raison dans la <b>console du navigateur</b> (F12), sous la forme <span class="agn-aide-ex">cadrage [choix de la commune X] : zoom 17 → 15 ⚠️ ARRIÈRE</span>. Envoie cette ligne : elle nomme le geste responsable, ce qu\'une capture ne peut pas faire.':
+        'Ogni spostamento di mappa fatto dallo script scrive la sua ragione nella <b>console del browser</b> (F12), nella forma <span class="agn-aide-ex">cadrage [choix de la commune X] : zoom 17 → 15 ⚠️ ARRIÈRE</span>. Manda quella riga: nomina il gesto responsabile, cosa che una schermata non può fare.',
       // ── LES MESSAGES D'ETAT (09/09) ─────────────────────────────────────
       // ⚡ Ce que le panneau dit de lui-meme entre deux analyses. Ils sont
       //    poses par un point de sortie SUR (`textContent = '…'`), donc ils
@@ -12432,7 +12593,7 @@
 
       { id: 'limites', titre: '⚠️ Limites et messages fréquents', corps: `
         <table class="agn-aide-t">
-          <tr><td><b>Territoire indéterminé</b></td><td>Le script attend d'être sûr d'être en France avant d'appliquer des règles françaises. <b>Choisis une commune</b> : cela suffit. Sinon, zoome à 14 ou plus.</td></tr>
+          <tr><td><b>Territoire indéterminé</b></td><td>Le script attend d'être sûr du <b>pays regardé</b> avant d'appliquer ses règles — les appliquer ailleurs abîmerait la carte. <b>Choisis une commune</b> : cela suffit. Sinon, zoome à 14 ou plus.</td></tr>
           <tr><td><b>Numéros non chargés</b></td><td>WME ne descend les numéros de rue qu'<b>à partir du zoom 18</b>. La conversion cadre elle-même la carte pour les faire venir.</td></tr>
           <tr><td><b>POI résidentiels absents</b></td><td>Ils ne sont servis qu'à partir du <b>zoom 17</b> — d'où la voie rapide, qui ne dépend pas du zoom.</td></tr>
           <tr><td><b>« a un numéro de rue invalide »</b></td><td><b>Ce n'est pas un doublon d'adresse</b>, malgré ce que le message laisse croire. Refus de WME sur <b>un numéro précis</b>, qui persiste <b>même après avoir supprimé et enregistré</b> le numéro de rue du même nom — et le numéro de rue, lui, reste acceptable : seul le lieu est bloqué. C'est un <b>résidu côté serveur Waze</b>, invisible dans l'éditeur. Rien à corriger sur la carte : annule, et signale l'adresse exacte au staff, qui sait la purger. Le script <b>recopie ce message et l'explique</b> dans un bandeau, car l'alerte de WME s'affiche derrière sa fenêtre.</td></tr>

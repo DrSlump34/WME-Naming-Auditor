@@ -368,6 +368,7 @@ titre('Geometries « Multi » : eclatees en features simples');
         try { return new Function('return ' + m[1])(); } catch (e) { return ''; }
       })(),
       libelleCode: chaine('libelleCode'),
+      libelleDecoupage: chaine('libelleDecoupage'),
       formatVillage: pays === 'IT' ? (v, c) => v + ', ' + c : (v, c) => v + ' (' + c + ')',
       aideReglesTitre: chaine('aideReglesTitre'),
       aideRegles: () => tpl('aideRegles'),
@@ -449,6 +450,23 @@ titre('Geometries « Multi » : eclatees en features simples');
       /centro abitato/i.test(corpsIT) && /ISTAT/.test(corpsIT), true);
     verifier('24. ⭐ [IT] et elle dit que le trace se fait A LA MAIN',
       /à la main/i.test(corpsIT), true);
+
+    // 🔴🔴 AUCUN « undefined » DANS L'AIDE — le garde-fou qui manquait.
+    // Il a fallu qu'une clé de traduction sorte avec « la commune du contour
+    // undefined » pour s'apercevoir que le montage ne fournissait pas
+    // `libelleDecoupage`. C'est arrivé TROIS FOIS sous des formes différentes :
+    // une constante à 0 (« moins de 0 m »), une concaténation tronquée (« via
+    // geo.api.gouv.fr, . »), et cette propriété absente. Chaque fois, le texte
+    // rendu servait ensuite de CLÉ, et la traduction n'aurait jamais mordu.
+    // ⚠️ Ce contrôle protège donc autant le montage que l'aide elle-même : si
+    //    demain une interpolation nouvelle n'est pas alimentée, il tombe.
+    for (const pays of ['FR', 'IT']) {
+      const corps = corpsDe(true, pays);
+      verifier('21 bis. [' + pays + '] 🔴 aucune interpolation ne rend « undefined »',
+        /undefined/.test(corps), false);
+      verifier('21 bis. [' + pays + '] 🔴 ni une valeur vide entre deux ponctuations',
+        /,\s*\.|:\s*\.|\(\s*\)/.test(corps), false);
+    }
 
     // ⭐⭐⭐⭐ ET LE CONTROLE QUI EMPECHE L'OUBLI : chaque controle declare par un
     // referentiel doit avoir SA ligne dans l'aide de ce pays. On BALAIE les
