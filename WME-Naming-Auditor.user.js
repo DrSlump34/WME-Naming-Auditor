@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.48.00
+// @version      2.48.01
 // @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies selon les règles du pays regardé (agglomération / centro abitato, contours communaux INSEE / ISTAT). Interface et aide en français et en italien. ⚠️ Le portage italien est en phase de TEST.
 // @author       DrSlump34
 // @license      MIT
