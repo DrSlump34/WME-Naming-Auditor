@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.40.00
+// @version      2.40.01
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -1858,7 +1858,10 @@
     const out = []; let sansNom = 0;
     for (const f of feats) {
       if (!f || !f.geometry) continue;
-      const nom = litPropriete(f.properties, REF.clesNom);
+      // ⚠️ `nomCommune` est FACULTATIF : un referentiel qui n'a rien a
+      //    normaliser (la France) ne la declare pas, et le nom passe tel quel.
+      const brut = litPropriete(f.properties, REF.clesNom);
+      const nom = (brut && REF.nomCommune) ? REF.nomCommune(brut) : brut;
       const code = litPropriete(f.properties, REF.clesCode);
       if (!nom) { sansNom++; continue; }
       // ⚠️ `mairie` n'existe que sur les contours telecharges depuis la v2.23 :
@@ -1907,7 +1910,22 @@
   async function restaurerContours() {
     try {
       const c = await idbGet('communes'), m = await idbGet('meta');
-      if (Array.isArray(c) && c.length) { communes = c; metaContours = m || null; return true; }
+      if (Array.isArray(c) && c.length) {
+        // ⚠️⚠️ LES CONTOURS DEJA EN BASE PORTENT LE NOM D'AVANT (v2.40.01).
+        // On les normalise ici, sinon le correctif ne vaudrait que pour les
+        // prochains telechargements — et personne ne recharge une province
+        // qu'il a deja.
+        // 🔴 AVEC LE REFERENTIEL DE **CE** CONTOUR, jamais avec le courant :
+        // c'est exactement le defaut commis deux fois le 08/09 (faire dependre
+        // du referentiel ACTIF ce qui appartient a la DONNEE).
+        // `referentielDeCommune` sait deja le dire, y compris pour les contours
+        // enregistres avant que `pays` existe.
+        for (const com of c) {
+          const ref = referentielDeCommune(com);
+          if (ref && ref.nomCommune && com.nom) com.nom = ref.nomCommune(com.nom);
+        }
+        communes = c; metaContours = m || null; return true;
+      }
     } catch (e) { log('restauration des contours impossible', e); }
     return false;
   }
@@ -2392,6 +2410,67 @@
 {"code":"118","nom":"Cagliari (CA)","b":[8.699,38.875,9.66,39.852]},
 {"code":"119","nom":"Sulcis Iglesiente (CI)","b":[8.207,38.859,8.854,39.484]}
   ];
+
+  // ── Les comuni a DOUBLE NOM ────────────────────────────────────────────────
+  //
+  // 🔴 DEFAUT MESURE LE 09/09, ET QUI N'AURAIT PAS SURVECU A UN ESSAI EN LIVE.
+  //    openpolis nomme 124 comuni dans les DEUX langues, la ou WME n'en porte
+  //    qu'UNE : l'auteur a releve « Bolzano » dans l'editeur, openpolis sert
+  //    « Bolzano/Bozen ». Or le nom du contour EST la ville que le script
+  //    propose (`villeAgglo` puis `etatCible`) et le temoin de
+  //    `poiVilleCommune`. Sans normalisation, les 116 comuni de la province de
+  //    Bolzano partaient tous en ecart, et le bouton de correction offrait une
+  //    ville QUI N'EXISTE PAS dans WME. Un pays entier de faux positifs, sur
+  //    une province ou personne de l'equipe n'edite.
+  //
+  // ⚡ ETALON : « Comuni ISTAT al 08.09.2026 » — 7 894 comuni, colonnes
+  //    « Denominazione in italiano » et « Denominazione altra lingua » —
+  //    fourni par Silvio (CC IT) le 09/09. C'est la liste qui fait foi, celle
+  //    que le wiki italien datait encore du 05.05.2017.
+  //
+  // ⚠️⚠️ DEUX SEPARATEURS, ET UN SEUL SE RECONNAIT A SA FORME :
+  //    • 116 comuni avec une BARRE OBLIQUE, TOUS en province de Bolzano
+  //      (« Bolzano/Bozen », « Badia/Abtei »). Mesure sur les 7 896 noms
+  //      servis : aucun autre comune italien ne porte de slash. La coupe est
+  //      donc sure, et se passe de liste.
+  //    • 8 comuni avec un TIRET (Trente, Gorizia, Trieste). 🔴 CELLES-LA NE SE
+  //      DEVINENT PAS : 60 comuni portent un tiret LEGITIME (« Gattico-Veruno »,
+  //      « Pont-Saint-Martin », « Rhemes-Notre-Dame »). Couper au tiret en
+  //      casserait 60 pour en reparer 8 — elles sont donc NOMMEES UNE A UNE.
+  //      ⭐ Et cinq noms MIXTES le confirment :
+  //      « Castelbello-Ciardes/Kastelbell-Tschars » porte un tiret DANS son nom
+  //      italien. La coupe se fait au SLASH, jamais au tiret.
+  //
+  // ⚡ `tools/comuni-double-nom.js` REGENERE cette table et rejoue le controle
+  //    des deux sources — a relancer quand le CC annonce une liste plus
+  //    recente. « Savogna d'Isonzo-Sovodnje ob Soči » ne se retape pas a la
+  //    main sans faute.
+  const COMUNI_DOUBLE_NOM = {
+    "Doberdò del Lago-Doberdob": "Doberdò del Lago",
+    "Duino Aurisina-Devin Nabrežina": "Duino Aurisina",
+    "Monrupino-Repentabor": "Monrupino",
+    "San Dorligo della Valle-Dolina": "San Dorligo della Valle",
+    "San Floriano del Collio-Števerjan": "San Floriano del Collio",
+    "San Giovanni di Fassa-Sèn Jan": "San Giovanni di Fassa",
+    "Savogna d'Isonzo-Sovodnje ob Soči": "Savogna d'Isonzo",
+    "Sgonico-Zgonik": "Sgonico"
+  };
+
+  /**
+   * Le nom du comune tel que WME l'ecrit, a partir du nom servi par openpolis.
+   *
+   * ⚠️ APPLIQUEE AU CHARGEMENT **ET** A LA RESTAURATION : les contours deja en
+   *    base portent l'ancien nom, et rien ne les rechargerait tout seuls. Un
+   *    correctif qui ne vaudrait que pour les prochains telechargements
+   *    laisserait le defaut en place chez qui a deja charge sa province.
+   */
+  function nomComuneIT(nom) {
+    if (!nom) return nom;
+    const nomme = COMUNI_DOUBLE_NOM[nom];
+    if (nomme) return nomme;
+    const i = nom.indexOf('/');
+    return i > 0 ? nom.slice(0, i).trim() : nom;
+  }
 
   // Les 101 departements, pour le selecteur integre a la fenetre.
   const DEPARTEMENTS = [
@@ -5693,8 +5772,9 @@
       signTypeRocade: null,
 
       // ── Decoupage administratif ────────────────────────────────────────────
-      // ⚠️ ISTAT publie les 7 899 comuni en FICHIER, pas en service
-      //    interrogeable : c'est le chemin « charger un GeoJSON » qui sert,
+      // ⚠️ ISTAT publie ses 7 894 comuni en FICHIER, pas en service
+      //    interrogeable (liste du 08.09.2026, fournie par Silvio le 09/09) :
+      //    c'est le chemin « charger un GeoJSON » qui sert,
       //    celui-la meme qu'utilise `Recuperer-Communes.html`.
       // ── D'ou viennent les contours ─────────────────────────────────────────
       // ⚡ SOURCE MESUREE le 08/09 (voir ANALYSE-ITALIE.md § 3 bis) :
@@ -5769,6 +5849,8 @@
       //    chargement italien aurait echoue faute de code de commune.
       clesNom: ['name', 'nome', 'NOME', 'COMUNE', 'comune', 'nom',
                 'DEN_UTS', 'den_uts', 'NOME_COM', 'denominazione'],
+      // ⚠️ Le nom SERVI n'est pas le nom que WME PORTE : voir COMUNI_DOUBLE_NOM.
+      nomCommune: nomComuneIT,
       clesCode: ['com_istat_code', 'com_istat_code_num', 'code',
                  'PRO_COM_T', 'pro_com_t', 'PRO_COM', 'pro_com',
                  'COD_ISTAT', 'cod_istat', 'istat', 'codice', 'COD_COM'],

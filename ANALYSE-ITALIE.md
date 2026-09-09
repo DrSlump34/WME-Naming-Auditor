@@ -2,6 +2,87 @@
 
 **Date** : 2026-09-08 · **Demandeur** : Silvio, Country Coordinator IT
 
+## 🆕 09/09 — LA LISTE DES COMUNI EST ARRIVÉE, ET ELLE A FAIT TOMBER UN DÉFAUT
+
+Silvio a répondu à la **question 1**, celle qui bloquait tout le zonage : **« Comuni ISTAT al
+08.09.2026 »**, 7 894 comuni — [le Sheets qu'il
+partage](https://docs.google.com/spreadsheets/d/1Lf7gwU6Tpw_H_iQOSOBb7NSwdKg7g7ADGP2F46oBpWc/edit).
+Le wiki italien datait encore sa liste du **05.05.2017**. Colonnes : *Regione* · *Unità
+territoriale* · *Sigla automobilistica* · **Denominazione in italiano** · **Denominazione altra
+lingua**.
+
+⚠️ **ELLE NE PORTE AUCUN CODE ISTAT.** Elle ne peut donc pas *remplacer* openpolis, qui apparie
+par `com_istat_code` : elle sert d'**ÉTALON** pour le contrôler. C'est ce qui a été fait, et c'est
+ce qui a payé.
+
+### 🔴 Le défaut : le nom SERVI n'est pas le nom que WME PORTE
+
+openpolis nomme **124 comuni dans les deux langues** ; WME n'en porte qu'une — relevé dans
+l'éditeur par l'auteur : **WME écrit « Bolzano », openpolis sert « Bolzano/Bozen »**.
+
+Or le nom du contour **est** la ville que WNA propose (`villeAgglo` → `etatCible`) et le témoin de
+`poiVilleCommune`. Sans normalisation, **les 116 comuni de la province de Bolzano partaient en
+écart**, et le bouton de correction offrait une ville *qui n'existe pas dans WME*. Un pays entier
+de faux positifs, sur une province où personne de l'équipe n'édite — donc invisible jusqu'au jour
+où un éditeur du Haut-Adige installe le script.
+
+⚠️⚠️ **DEUX SÉPARATEURS, ET UN SEUL SE RECONNAÎT À SA FORME** — c'est tout l'enjeu :
+
+| | Combien | Reconnaissable ? |
+|---|---|---|
+| **Barre oblique** (`Bolzano/Bozen`) | 116, **toutes** en province de Bolzano | ✅ oui — sur les 7 896 noms servis, **aucun autre comune n'a de slash** |
+| **Tiret** (`Sgonico-Zgonik`) | 8 — Trente, Gorizia, Trieste | 🔴 **non** — **60 comuni portent un tiret légitime** (`Gattico-Veruno`, `Pont-Saint-Martin`) |
+
+⇒ Les 8 sont **nommées une à une** (`COMUNI_DOUBLE_NOM`). Une règle de forme « couper au tiret »
+aurait réparé 8 comuni et **cassé 60**. ⭐ Et cinq noms **mixtes** —
+`Castelbello-Ciardes/Kastelbell-Tschars` — prouvent que la coupe se fait au **slash**, jamais au
+tiret : le nom italien contient lui-même un tiret.
+
+⚠️ **La normalisation s'applique au CHARGEMENT *et* à la RESTAURATION.** Les contours déjà en base
+portent l'ancien nom, et **personne ne recharge une province qu'il a déjà** : un correctif limité
+au téléchargement aurait laissé le défaut chez tous ceux qui l'avaient rencontré. 🔴 Et à la
+restauration, avec le référentiel **de ce contour-là** (`referentielDeCommune`), jamais avec le
+référentiel courant — c'est le défaut commis deux fois le 08/09.
+
+### ✅ Le contrôle des deux sources, et ce qu'il dit d'openpolis
+
+| | |
+|---|---|
+| comuni ISTAT au 08.09.2026 | **7 894** |
+| comuni servis par openpolis (110 provinces) | **7 896** |
+| codes à 6 chiffres | **7 896 / 7 896** |
+
+**openpolis a deux fusions de retard** : `Castegnero` + `Nanto` (VI) y sont encore séparées alors
+qu'ISTAT les donne fusionnées en **Castegnero Nanto**, et **Lirio** (PV) a disparu d'ISTAT sans
+disparaître des contours. **Rien n'est codé pour ça** : c'est une limite de la source, pas un
+défaut du script, et elle touche 3 comuni sur 7 894. À revérifier au prochain passage.
+
+⚡ **`tools/comuni-double-nom.js` régénère la table ET rejoue ce contrôle** — à relancer quand le
+CC annonce une liste plus récente. Rien n'a été retapé à la main : `Savogna d'Isonzo-Sovodnje ob
+Soči` ne se recopie pas sans faute.
+
+📌 **v2.40.01**, toujours **non publiée**. `tools/test-nom-comune.js` — **74 vérifications**, dont
+les 60 tirets légitimes qui doivent rester intacts. Éprouvé par **mutation** : supprimer la coupe,
+couper au tiret, brancher la normalisation sur la France, ou l'ôter de la restauration — **les
+quatre font tomber le harnais**.
+
+### ⚠️ CE QUE LE CORRECTIF SUPPOSE — et qui n'est vérifié que sur UN cas
+
+La normalisation retient **le nom italien**, parce que c'est lui qu'openpolis place en premier et
+que WME écrit « Bolzano ». **Ce relevé porte sur un comune, pas sur les 124.** Le Haut-Adige est
+majoritairement germanophone et le val Gardena ladin : rien ne garantit que WME écrive *Ortisei*
+plutôt que *St. Ulrich*, ni *Sgonico* plutôt que *Zgonik*.
+
+⇒ **Si WME portait l'autre nom quelque part, le script signalerait un écart** — visible et refusable
+par l'éditeur, pas une dégradation silencieuse. Mais c'est un faux positif de plus, et il se lève
+en regardant **un segment dans chacune de ces zones** : Bolzano ✅, le val Gardena, le Frioul
+slovène, le val di Fassa. À faire au prochain essai réel, avec la province 21 chargée.
+
+⏳ **Ce qui reste ouvert chez Silvio** : les *cartelli bianchi* (recherche en cours de son côté),
+les grandes places qui portent nom de rue et HN (les trois solutions lui ont été proposées, à lui
+de trancher), et — la mesure du jour la rend concrète — **la question 7 : dans les régions
+bilingues, quel nom la règle italienne attend-elle sur le segment ?**
+
 ## ⏸️ ÉTAT AU 08/09 AU SOIR — v2.40.00, non publiée
 
 | | |
@@ -280,6 +361,11 @@ outil `Recuperer-Communes.html`).
 | Propriétés | **`name`** et **`com_istat_code`** |
 | Codes | **100 % à 6 chiffres** sur 620 communes vérifiées, zéros de tête compris |
 
+🔴 **MAIS SES NOMS NE SONT PAS CEUX DE WME** — mesuré le 09/09 contre la liste ISTAT : **124
+comuni y sont nommés dans les deux langues** (`Bolzano/Bozen`), là où WME n'en porte qu'un. Voir le
+bloc du 09/09 en tête et `nomComuneIT` : le nom servi passe par une normalisation **avant** de
+devenir la ville que le script propose.
+
 ⚠️ **La licence était éliminatoire.** L'auteur a écarté `api.wazefrance.com` pour ses contours
 parce qu'ils dérivent d'OpenStreetMap (**ODbL, virale**). CC-BY-4.0 est du même ordre que la
 Licence Ouverte d'Admin Express : compatible.
@@ -344,9 +430,11 @@ liste de catégorie :
 
 ### 🔴 Les 3 à poser maintenant (elles bloquent)
 
-1. **Le fichier des communes.** Le wiki renvoie à « Denominazione dei comuni ISTAT **05.05.2017** ».
-   Les fusions de communes sont nombreuses depuis. **Quelle liste fait foi aujourd'hui ?**
-   ⇒ Sans elle, rien ne fonctionne : c'est la base de tout le zonage.
+1. ~~**Le fichier des communes.**~~ ✅ **RÉPONDU LE 09/09** — « Comuni ISTAT al 08.09.2026 »,
+   7 894 comuni, [Sheets partagé par
+   Silvio](https://docs.google.com/spreadsheets/d/1Lf7gwU6Tpw_H_iQOSOBb7NSwdKg7g7ADGP2F46oBpWc/edit).
+   Le wiki renvoyait à la liste du **05.05.2017**. Voir le bloc du 09/09 en tête : elle a servi
+   d'étalon et a fait tomber le défaut des comuni à double nom.
 2. **Les giratoires.** Le guide *Rotatorie* ne traite que du tracé, jamais du nom. En France un
    giratoire est **sans nom**. **Et en Italie ?**
 3. **Les panneaux de *centro abitato*.** Existe-t-il un jeu de données ouvert qui les recense ?
