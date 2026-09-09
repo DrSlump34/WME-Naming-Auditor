@@ -341,7 +341,17 @@ titre('Geometries « Multi » : eclatees en features simples');
       sourceContours: { libelle: scChaine('libelle'), uniteLabel: scChaine('uniteLabel'),
                         unitesLabel: scChaine('unitesLabel'),
                         uniteAvecArticle: scChaine('uniteAvecArticle') },
-      provenanceContours: (b.match(/provenanceContours: "([^"]*)"/) || [, ''])[1],
+      // ⚠️ LA VALEUR EST UNE CONCATENATION ("…" + '…') : ne lire que la
+      //    premiere chaine tronquait la phrase, et le releve des blocs a
+      //    traduire rendait « … via geo.api.gouv.fr, . » — une CLE FAUSSE, qui
+      //    n'aurait jamais correspondu a ce que le navigateur affiche.
+      provenanceContours: (() => {
+        // La valeur peut tenir sur deux lignes et se terminer par une virgule
+        // en fin de ligne : on prend tout jusque-là, puis on ÉVALUE.
+        const m = b.match(/provenanceContours:\s*([\s\S]*?),\s*\n/);
+        if (!m) return '';
+        try { return new Function('return ' + m[1])(); } catch (e) { return ''; }
+      })(),
       libelleCode: chaine('libelleCode'),
       formatVillage: pays === 'IT' ? (v, c) => v + ', ' + c : (v, c) => v + ' (' + c + ')',
       aideReglesTitre: chaine('aideReglesTitre'),

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.46.00
+// @version      2.46.01
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -12095,12 +12095,12 @@
         <p>Le script compare le nommage à la <b>vraie limite communale</b>, pas à ce que
           Waze en dit. Ces contours viennent de ${REF.provenanceContours}.</p>
         <table class="agn-aide-t">
-          <tr><td><b>${REF.sourceContours ? REF.sourceContours.libelle : 'Télécharger et charger'}</b></td><td>Choisis une ou plusieurs ${motUnite(true)}, le script les récupère et les garde. <b>Les contours se cumulent</b> : en charger une seconde n'efface pas la première.</td></tr>
+          <tr><td><b>${REF.sourceContours ? REF.sourceContours.libelle : 'Télécharger et charger'}</b></td><td>Coche ce que tu veux dans la liste des ${motUnite(true)}, le script les récupère et les garde. <b>Les contours se cumulent</b> : en charger un second n'efface pas le premier.</td></tr>
           <tr><td><b>Choisir un fichier GeoJSON</b></td><td>Pour charger des contours depuis un fichier local. ⚠️ Celui-là <b>remplace</b> ce qui est en place.</td></tr>
           <tr><td><b>Champ de filtre</b></td><td>Cherche par <b>nom</b> ou par <b>${REF.libelleCode}</b>, sans se soucier des accents ni de la casse.</td></tr>
           <tr><td><b>📍 Sous les yeux</b></td><td>Quand il y a beaucoup de communes, celles qui occupent la vue passent en tête de liste.</td></tr>
-          <tr><td><b>Le poids de chaque ${motUnite()}</b></td><td>Les contours restent en mémoire et sont rechargés à chaque démarrage : la liste dit ce que <b>chacune pèse</b>, la plus lourde en tête, et le <b>✕</b> la retire. Une ${motUnite()} retirée <b>se recharge toute seule</b> si tu y reviens — rien n'est perdu. Celles qui portent un <b>🔒</b> sont gardées : tu les as sous les yeux, ou la commune en cours s'y trouve.</td></tr>
-          <tr><td><b>Décharger les ${motUnite(true)} éloignées</b></td><td>Fait le ménage tout seul quand tu quittes une zone. <b>Décoché par défaut</b> : le cumul est le comportement normal, et on ne retire pas ce que tu as chargé sans que tu l'aies demandé. Coché, il garde toujours ce que tu regardes, la commune en cours, et les dernières ${motUnite(true)} utilisées (3 par défaut).</td></tr>
+          <tr><td><b>Le poids de chaque ${motUnite()}</b></td><td>Les contours restent en mémoire et sont rechargés à chaque démarrage : la liste dit <b>le poids de chaque entrée</b>, la plus lourde en tête, et le <b>✕</b> la retire. Ce qui est retiré <b>se recharge tout seul</b> si tu y reviens — rien n'est perdu. Les entrées qui portent un <b>🔒</b> sont gardées : tu les as sous les yeux, ou la commune en cours s'y trouve.</td></tr>
+          <tr><td><b>Décharger ce qui est éloigné</b></td><td>Fait le ménage tout seul quand tu quittes une zone. <b>Décoché par défaut</b> : le cumul est le comportement normal, et on ne retire pas ce que tu as chargé sans que tu l'aies demandé. Coché, il garde toujours ce que tu regardes, la commune en cours, et les 3 dernières entrées utilisées.</td></tr>
           <tr><td><b>tout vider</b></td><td>Oublie les contours chargés. Tes polygones d'agglomération, eux, sont conservés.</td></tr>
         </table>
         <p>Les contours sont volumineux : ils sont rangés dans le navigateur (IndexedDB) et
@@ -12112,7 +12112,7 @@
           ${siPanneaux('Trois façons de la poser.')}${siPasDePanneaux(`<b>Ici, elle se trace à la
           main.</b> Les panneaux existent sur le terrain, mais <b>aucun relevé officiel ouvert
           ne les recense dans ce pays</b> : le script ne propose donc ni le relevé, ni le
-          pré-tracé, plutôt qu'un bouton qui ne rendrait rien. C'est aussi le quotidien de la
+          pré-tracé, plutôt qu'un bouton qui ne rendrait rien. Le tracé à la main est ici le
           chemin normal, pas un repli.`)}</p>
         <p class="agn-aide-video">🎬 <b><a href="https://drive.google.com/file/d/1f1zLZQvBatKcZv9dQ6dCtRN-VDXAiq6_/view" target="_blank" rel="noopener">Voir
           en vidéo</a></b> — ce qu'on trace, pourquoi il peut y en avoir plusieurs, et à quoi sert
