@@ -105,6 +105,36 @@ verifier('11. le référentiel italien déclare des libellés', libellesIT.lengt
 const nonTraduits = libellesIT.filter(l => !TEXTES.it[l]);
 verifier('12. ⭐⭐ aucun libellé italien laissé en français', nonTraduits, []);
 
+titre('⭐⭐ … ET CEUX DU RÉFÉRENTIEL FRANÇAIS AUSSI (09/09)');
+// 🔴 LE TROU QUE CE CAS BOUCHE : le 11 et le 12 ne regardaient que l'Italie,
+// et 13 libellés FRANÇAIS restaient donc en français dans un panneau italien —
+// sans qu'aucun test ne bronche. « La LANGUE n'est pas le PAYS » : un Italien
+// qui aide en France applique les règles FRANÇAISES, et il les lit dans SA
+// langue. Le référentiel qu'il regarde ne dit rien de la langue qu'il parle.
+//
+// ⚠️ ON NE LES ÉNUMÈRE PAS, ON BALAIE TOUS LES RÉFÉRENTIELS : un contrôle qui
+// cite les pays qu'il connaît ne protégera jamais le troisième. Le jour où un
+// `REFERENTIELS.ES` arrive, ce cas tombe tout seul s'il n'est pas traduit.
+const iRef = src.indexOf('const REFERENTIELS = {');
+const finRef = src.indexOf('\n  };', iRef);
+const blocRef = src.slice(iRef, finRef);
+const pays = [...blocRef.matchAll(/^    ([A-Z]{2}): \{$/gm)].map(m => ({ code: m[1], pos: m.index }));
+verifier('15. le balayage trouve au moins deux référentiels', pays.length >= 2, true);
+const manquants = [];
+pays.forEach((p, n) => {
+  const bloc = blocRef.slice(p.pos, n + 1 < pays.length ? pays[n + 1].pos : blocRef.length);
+  const iCtrl = bloc.indexOf('controles: [');
+  if (iCtrl < 0) return;                       // un référentiel sans contrôles
+  // Le tableau s'arrête à la première clé de même niveau qui suit.
+  const fin = bloc.indexOf('\n      ],', iCtrl);
+  const tableau = bloc.slice(iCtrl, fin < 0 ? bloc.length : fin);
+  [...tableau.matchAll(/libelle:\s*\n?\s*'((?:[^'\\]|\\.)*)'/g)]
+    .map(m => m[1].replace(/\\'/g, "'"))
+    .forEach(l => { if (!TEXTES.it[l]) manquants.push(p.code + ' — ' + l); });
+});
+verifier('16. ⭐⭐ aucun libellé de contrôle sans traduction italienne, TOUS pays confondus',
+  manquants, []);
+
 titre('⚠️ Le mécanisme est BRANCHÉ — pas seulement écrit');
 // « Compiler n'est pas démarrer » : une mécanique de langue que personne
 // n'appelle laisse LANGUE à 'fr', et l'italien ne s'affiche jamais. Le

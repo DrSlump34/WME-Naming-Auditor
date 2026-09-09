@@ -5220,7 +5220,62 @@
       'POI : commune différente du contour ISTAT (à vérifier)':
         'Luoghi: comune diverso dal confine ISTAT (da verificare)',
       'POI : numéro de rue manquant':
-        'Luoghi: numero civico mancante'
+        'Luoghi: numero civico mancante',
+
+      // ── Les controles FRANCAIS, en italien (09/09) ──────────────────────
+      'Nommage agglo / hors agglo (cœur)':
+        'Denominazione dentro / fuori il centro abitato (nucleo)',
+      'Cartouches des Dxxx / Nxxx / Cxxx':
+        'Scudetti delle Dxxx / Nxxx / Cxxx',
+      'Bretelles : jamais de ville':
+        'Rampe: mai la città',
+      'Rocades et périphériques : jamais de ville':
+        'Tangenziali e circonvallazioni: mai la città',
+      'Abréviations interdites (Av., Bd., Rte...)':
+        'Abbreviazioni vietate (Av., Bd., Rte...)',
+      'Contractions interdites (St-, R. Poincaré)':
+        'Contrazioni vietate (St-, R. Poincaré)',
+      'Fonction ou direction dans le nom':
+        'Funzione o direzione nel nome',
+      // ⭐⭐ CE N'EST PAS UNE ERREUR DE PERIMETRE : « la LANGUE n'est pas le
+      //    PAYS ». Un Italien qui aide en France applique les regles
+      //    FRANCAISES, et il doit les lire dans SA langue — c'est la doctrine
+      //    posee le 08/09, et sans ces cles il voyait 13 lignes francaises au
+      //    milieu d'un panneau italien.
+      // ⚠️ Les termes propres a la France ne se traduisent PAS : « D980 »,
+      //    « C6 », INSEE, geo.api.gouv.fr, « Voie Communale » et le nom du
+      //    script WME Check Road Name designent des choses qui n'existent
+      //    qu'en France. Les rendre en italien ferait chercher a l'editeur une
+      //    notion qui n'existe pas.
+      // ⚡ Le vocabulaire WME italien est repris partout ou il dit la MEME
+      //    chose : « Luoghi », « Rampe », « numeri civici », « centro
+      //    abitato » — cette derniere etant la notion italienne exactement
+      //    equivalente a l'agglomeration francaise (mesure du 08/09).
+      'API Découpage administratif (geo.api.gouv.fr)':
+        'API suddivisione amministrativa (geo.api.gouv.fr)',
+      'api.wazefrance.com — à ÉCARTER pour les contours':
+        'api.wazefrance.com — da ESCLUDERE per i confini',
+      'Télécharger (geo.api.gouv.fr)': 'Scarica (geo.api.gouv.fr)',
+      'Voies ferrées, pistes, ferries : jamais de ville (et règles de nom propres)':
+        'Ferrovie, piste, traghetti: mai la città (e regole di nome specifiche)',
+      'Numéro collé au nom (« D980 - Route de… », interdit)':
+        'Numero unito al nome (« D980 - Route de… », vietato)',
+      'Bretelles : format du nom (numéro, direction)':
+        'Rampe: formato del nome (numero, direzione)',
+      'Bretelles : le nom suit-il « A6a: Paris » ou « > Orsay » ?':
+        'Rampe: il nome segue « A6a: Paris » o « > Orsay »?',
+      'Voies communales : forme abrégée (C6, pas « Voie Communale n°6 »)':
+        'Strade comunali: forma abbreviata (C6, non « Voie Communale n°6 »)',
+      'Rédaction : dictionnaire communautaire FR (WME Check Road Name)':
+        'Redazione: dizionario della comunità FR (WME Check Road Name)',
+      'Numéros de rue (HN) hors agglomération':
+        'Numeri civici (HN) fuori dal centro abitato',
+      'Mesure : numéros posés sur une voie nommée « D/N/C… » (pas une règle)':
+        'Misura: numeri civici su una strada denominata « D/N/C… » (non è una regola)',
+      'POI résidentiels en agglomération (à vérifier)':
+        'Luoghi residenziali nel centro abitato (da verificare)',
+      'POI : commune différente du contour INSEE (à vérifier)':
+        'Luoghi: comune diverso dal confine INSEE (da verificare)'
     }
   };
 
