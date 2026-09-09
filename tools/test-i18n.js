@@ -78,9 +78,31 @@ const horsDico = src.slice(0, iT) + src.slice(jT + 1);
 // les espaces. Un contrôle plus strict que la fonction qu'il surveille ne
 // protège de rien : il force à écrire des clés dépendantes de la mise en forme
 // du fichier, c'est-à-dire exactement ce qu'on voulait éviter.
+// ⚠️ ET L'APOSTROPHE PEUT ÊTRE ÉCHAPPÉE DANS LE SOURCE. « limite d'agglo »
+// s'y écrit `champ: 'limite d\'agglo'` : comparer la valeur DÉCODÉE à un
+// source ENCODÉ ne trouve rien. Le contrôle refusait une clé parfaitement
+// servie — et c'est lui qui l'a signalé, pas une relecture.
 const detendu = k => new RegExp(k.split(/\s+/)
-  .map(m => m.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+'));
-const orphelines = clesIt.filter(k => horsDico.indexOf(k) < 0 && !detendu(k).test(horsDico));
+  .map(m => m.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/'/g, "\\\\?'"))
+  .join('\\s+'));
+// ⚠️ ET LES LIBELLÉS COMPOSÉS. Le code écrit `champ: 'abreviation' + ou`, où
+// `ou` vaut `''` ou `' (alt)'` — et `'ville interdite (' + ou + ')'`, où `ou`
+// vaut `principal` ou `alt`. Le texte qui ARRIVE À L'ÉCRAN est donc
+// « abreviation (alt) », qui ne figure nulle part littéralement. Traduire à la
+// sortie oblige à mettre cette forme-là dans le dictionnaire : on autorise
+// donc une clé dont le reste, une fois ôté son dernier groupe entre
+// parenthèses, se retrouve dans le code.
+// 🔴 ON NE TRADUIT PAS `champ` À LA SOURCE, et ce n'est pas un détail de
+// style : `e.champ` est comparé à des valeurs FRANÇAISES en six endroits du
+// moteur de correction (« principal », « alt manquant », « rédaction
+// (dictionnaire FR) »…). Un `tr()` pose là aurait laissé l'italien s'afficher
+// correctement pendant que les boutons de correction cessaient de mordre — en
+// silence, et seulement pour les éditeurs italiens.
+const sansSuffixe = k => k.replace(/\s*\([^()]*\)\s*$/, '').trim();
+const connue = k => horsDico.indexOf(k) >= 0 || detendu(k).test(horsDico) ||
+  (sansSuffixe(k) !== k && sansSuffixe(k) &&
+   (horsDico.indexOf(sansSuffixe(k)) >= 0 || detendu(sansSuffixe(k)).test(horsDico)));
+const orphelines = clesIt.filter(k => !connue(k));
 verifier('4. ⭐ toute clé italienne se retrouve AILLEURS que dans le dictionnaire',
   orphelines, []);
 

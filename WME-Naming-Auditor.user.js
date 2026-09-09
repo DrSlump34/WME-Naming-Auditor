@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.40.02
+// @version      2.41.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -5222,6 +5222,141 @@
       'POI : numéro de rue manquant':
         'Luoghi: numero civico mancante',
 
+      // ── LES MESSAGES D'ETAT (09/09) ─────────────────────────────────────
+      // ⚡ Ce que le panneau dit de lui-meme entre deux analyses. Ils sont
+      //    poses par un point de sortie SUR (`textContent = '…'`), donc ils
+      //    arrivent tels quels dans le DOM.
+      // ⚠️ Les messages COMPOSES avec une valeur — « Sélection impossible : »
+      //    + la cause, « Mise à jour disponible : v » + le numero — ne sont
+      //    PAS ici : leur texte final change a chaque appel, aucune cle ne
+      //    peut le designer. Ils restent en francais, et c'est visible.
+      'Analyse en cours…':
+        'Analisi in corso…',
+      'Cadrer la carte sur ce secteur pour le tracer':
+        'Inquadra la mappa su questa zona per tracciarla',
+      'Glisser pour déplacer cette fenêtre':
+        'Trascina per spostare questa finestra',
+      'Relance une analyse pour appliquer.':
+        'Rilancia un\'analisi per applicare.',
+      'Tracé en cours… (double-clic pour fermer)':
+        'Tracciato in corso… (doppio clic per chiudere)',
+      '🏷️ Dictionnaire de rédaction : chargement…':
+        '🏷️ Dizionario di redazione: caricamento…',
+      '— choisir une commune —':
+        '— scegli un comune —',
+      'Interruption…':
+        'Interruzione…',
+      'Termine d\'abord l\'édition du tracé en cours ':
+        'Termina prima la modifica del tracciato in corso',
+      // ── LES LIBELLES D'ECART (09/09) ────────────────────────────────────
+      // ⚡ Ce que l'editeur lit a CHAQUE anomalie : la colonne de gauche de
+      //    chaque ligne de resultat.
+      // 🔴 ILS NE SONT PAS TRADUITS A LA SOURCE, ET C'EST VITAL : `e.champ`
+      //    est compare a des valeurs FRANCAISES en six endroits du moteur de
+      //    correction (« principal », « alt manquant », « rédaction
+      //    (dictionnaire FR) »…). Un `tr()` pose sur `champ:` aurait laisse
+      //    l'italien s'afficher pendant que les boutons de correction
+      //    cessaient de mordre — en silence, et pour les seuls Italiens.
+      //    Traduire A LA SORTIE ne touche que le DOM : l'objet garde sa cle.
+      // ⚠️ D'ou les formes en « (alt) » : le code ecrit `'abreviation' + ou`,
+      //    ou `ou` vaut '' ou ' (alt)'. C'est le texte COMPOSE qui arrive a
+      //    l'ecran, donc c'est lui qui doit etre au dictionnaire.
+      'adresse absente':
+        'indirizzo assente',
+      'alt en trop':
+        'alt di troppo',
+      'alt manquant':
+        'alt mancante',
+      'cartouche (alt)':
+        'scudetto (alt)',
+      'cartouche (principal)':
+        'scudetto (principale)',
+      'cartouche':
+        'scudetto',
+      'commune absente':
+        'comune assente',
+      'commune à vérifier':
+        'comune da verificare',
+      'feux obligatoires (hors centro abitato)':
+        'obbligo fari (fuori dal centro abitato)',
+      'limite communale':
+        'confine comunale',
+      'limite d\'agglo':
+        'confine del centro abitato',
+      'mesure (pas un écart)':
+        'misura (non è una difformità)',
+      'nom alternatif interdit':
+        'nome alternativo vietato',
+      'nom en capitales':
+        'nome tutto maiuscolo',
+      'nom interdit (giratoire)':
+        'nome vietato (rotatoria)',
+      'nom principal interdit':
+        'nome principale vietato',
+      'numéro absent':
+        'numero civico assente',
+      'numéro hors agglo':
+        'numero civico fuori dal centro abitato',
+      'principal':
+        'principale',
+      'rue = numéro de route':
+        'via = numero di strada',
+      'rue absente':
+        'via assente',
+      'rédaction (dictionnaire FR)':
+        'redazione (dizionario FR)',
+      'ville du giratoire':
+        'città della rotatoria',
+      'ville en trop (hors agglomération)':
+        'città di troppo (fuori dal centro abitato)',
+      'abreviation':
+        'abbreviazione',
+      'abreviation (alt)':
+        'abbreviazione (alt)',
+      'contraction':
+        'contrazione',
+      'contraction (alt)':
+        'contrazione (alt)',
+      'majuscule':
+        'maiuscola',
+      'majuscule (alt)':
+        'maiuscola (alt)',
+      'fonction dans le nom':
+        'funzione nel nome',
+      'fonction dans le nom (alt)':
+        'funzione nel nome (alt)',
+      'direction dans le nom':
+        'direzione nel nome',
+      'direction dans le nom (alt)':
+        'direzione nel nome (alt)',
+      'numéro collé au nom':
+        'numero unito al nome',
+      'numéro collé au nom (alt)':
+        'numero unito al nome (alt)',
+      'voie communale en toutes lettres':
+        'strada comunale per esteso',
+      'voie communale en toutes lettres (alt)':
+        'strada comunale per esteso (alt)',
+      'bretelle : direction = numéro de route':
+        'rampa: direzione = numero di strada',
+      'bretelle : direction = numéro de route (alt)':
+        'rampa: direzione = numero di strada (alt)',
+      'bretelle : deux numéros de route':
+        'rampa: due numeri di strada',
+      'bretelle : deux numéros de route (alt)':
+        'rampa: due numeri di strada (alt)',
+      'bretelle : nom hors format':
+        'rampa: nome fuori formato',
+      'bretelle : nom hors format (alt)':
+        'rampa: nome fuori formato (alt)',
+      'bretelle : espacement du « : »':
+        'rampa: spaziatura dei « : »',
+      'bretelle : espacement du « : » (alt)':
+        'rampa: spaziatura dei « : » (alt)',
+      'ville interdite (principal)':
+        'città vietata (principale)',
+      'ville interdite (alt)':
+        'città vietata (alt)',
       // ── L'OSSATURE DU PANNEAU (09/09) ───────────────────────────────────
       // ⚡ Premier lot de la traduction A LA SORTIE : ce qu'un editeur voit
       //    en PERMANENCE — onglets, boutons, titres du volet, infobulles.
