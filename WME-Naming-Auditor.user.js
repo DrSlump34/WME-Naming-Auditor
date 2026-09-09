@@ -5222,6 +5222,98 @@
       'POI : numéro de rue manquant':
         'Luoghi: numero civico mancante',
 
+      // ── L'OSSATURE DU PANNEAU (09/09) ───────────────────────────────────
+      // ⚡ Premier lot de la traduction A LA SORTIE : ce qu'un editeur voit
+      //    en PERMANENCE — onglets, boutons, titres du volet, infobulles.
+      //    L'aide et le guidage restent en francais pour l'instant : le lot
+      //    doit rester RELISIBLE par Silvio, et 1 100 chaines ne se relisent
+      //    pas.
+      // ⚠️ Deux textes ne sont PAS traduits, et c'est voulu :
+      //    « 🏷️ Naming Auditor » (le nom du script) et « api.wazefrance.com »
+      //    (un nom de domaine).
+      // ⚠️ Les cles s'ecrivent sur UNE ligne meme quand le HTML les coupe :
+      //    `traduireDOM` normalise les espaces avant de chercher, sinon la
+      //    traduction dependrait de l'indentation du fichier.
+      'Segments':
+        'Segmenti',
+      'Numérotation':
+        'Numerazione',
+      'POI':
+        'Luoghi',
+      'Analyser la commune':
+        'Analizza il comune',
+      '🏘 En ville':
+        '🏘 In centro abitato',
+      '🌾 Hors ville':
+        '🌾 Fuori centro abitato',
+      'Données de référence':
+        'Dati di riferimento',
+      '1. Contours communaux':
+        '1. Confini comunali',
+      'Charger un fichier GeoJSON':
+        'Carica un file GeoJSON',
+      'Télécharger et charger':
+        'Scarica e carica',
+      'Choisir un fichier GeoJSON':
+        'Scegli un file GeoJSON',
+      '2. Commune à traiter':
+        '2. Comune da trattare',
+      '— charger d\'abord les contours —':
+        '— carica prima i confini —',
+      '3. Agglomération':
+        '3. Centro abitato',
+      'Délimite la':
+        'Delimita il',
+      'zone bâtie':
+        'centro abitato',
+      '— entre les panneaux d’entrée et de sortie d’agglo, pas la limite de commune. Relève les panneaux, tires-en un tracé, ou dessine à la main.':
+        '— tra i cartelli di ingresso e di uscita, non il confine comunale. Rileva i cartelli, ricavane un tracciato, o disegna a mano.',
+      '🪧 Panneaux d\'agglomération':
+        '🪧 Cartelli di centro abitato',
+      '✏️ Proposer un tracé':
+        '✏️ Proponi un tracciato',
+      '＋ Tracer l\'agglomération':
+        '＋ Traccia il centro abitato',
+      'Terminer et replier':
+        'Chiudi e ripiega',
+      'Réduire':
+        'Riduci',
+      'Fermer':
+        'Chiudi',
+      'Contours, commune, agglomération':
+        'Confini, comune, centro abitato',
+      'Les écarts de nommage des segments (agglomération, cartouches, rédaction)':
+        'Le difformità di denominazione dei segmenti (centro abitato, scudetti, redazione)',
+      'Les écarts de numérotation : numéros de rue et POI résidentiels':
+        'Le difformità di numerazione: numeri civici e luoghi residenziali',
+      'Les écarts d\'adresse sur les vrais POI (hors POI résidentiels)':
+        'Le difformità di indirizzo sui veri luoghi (esclusi i luoghi residenziali)',
+      'Mode d\'emploi : à quoi sert chaque bouton, ce que chaque contrôle vérifie, et les limites connues':
+        'Istruzioni: a cosa serve ogni pulsante, cosa verifica ogni controllo, e i limiti noti',
+      'Analyse le nommage et l\'adressage de toute la commune choisie. Rien n\'est enregistré : tu reliras chaque correction dans WME.':
+        'Analizza la denominazione e l\'indirizzamento di tutto il comune scelto. Nulla viene salvato: rileggerai ogni correzione in WME.',
+      'D\'où viennent les contours communaux à charger':
+        'Da dove provengono i confini comunali da caricare',
+      'Filtre la liste par numéro ou par nom de département':
+        'Filtra l\'elenco per numero o per nome di dipartimento',
+      'Filtrer un département…':
+        'Filtra un dipartimento…',
+      'Télécharge les contours des départements cochés (~3 Mo et ~10 s chacun) et les AJOUTE à ta base, sans effacer les autres':
+        'Scarica i confini dei dipartimenti selezionati (~3 MB e ~10 s ciascuno) e li AGGIUNGE al tuo archivio, senza cancellare gli altri',
+      'Charge un fichier GeoJSON de contours communaux. ⚠️ Remplace les contours en base ; les agglomérations tracées sont conservées':
+        'Carica un file GeoJSON di confini comunali. ⚠️ Sostituisce i confini in archivio; i centri abitati tracciati vengono conservati',
+      'filtrer par nom ou code INSEE…':
+        'filtra per nome o codice INSEE…',
+      'La commune sur laquelle porte l\'analyse. Celle qui est sous le centre de la carte est remontée en tête de liste.':
+        'Il comune su cui verte l\'analisi. Quello sotto il centro della mappa è portato in cima all\'elenco.',
+      'Récupère les panneaux EB10 / EB20 (entrée et sortie d\'agglomération) et les confronte aux polygones traces.':
+        'Recupera i cartelli EB10 / EB20 (ingresso e uscita del centro abitato) e li confronta con i poligoni tracciati.',
+      'Fabrique un polygone par groupe d\'entrées d\'agglomération. Tracé grossier, à ajuster aux poignées.':
+        'Crea un poligono per ogni gruppo di ingressi del centro abitato. Tracciato approssimativo, da regolare con le maniglie.',
+      'Entoure à la main, sur la carte, la zone bâtie — celle entre les panneaux d\'entrée et de sortie d\'agglomération, PAS la limite de commune (double-clic pour fermer le tracé)':
+        'Delimita a mano, sulla mappa, il centro abitato — quello tra i cartelli di ingresso e di uscita, NON il confine comunale (doppio clic per chiudere il tracciato)',
+      'Referme ce volet et rend la place à la fenêtre de travail':
+        'Chiude questo pannello e restituisce spazio alla finestra di lavoro',
       // ── Les controles FRANCAIS, en italien (09/09) ──────────────────────
       'Nommage agglo / hors agglo (cœur)':
         'Denominazione dentro / fuori il centro abitato (nucleo)',
@@ -5348,9 +5440,18 @@
       if (n.nodeType === 3) {
         const brut = n.nodeValue || '';
         const cle = brut.trim();
-        // ⚠️ On garde les espaces d'origine : « Segments <span> » perdrait son
-        //    espace, et deux mots se colleraient.
-        if (cle && d[cle]) n.nodeValue = brut.replace(cle, d[cle]);
+        if (!cle) return;
+        // ⚠️⚠️ DEUX TENTATIVES, ET LA SECONDE N'EST PAS UN CONFORT. Une phrase
+        //    ecrite dans un template HTML porte l'INDENTATION DU SOURCE :
+        //    « — entre les panneaux\n                d'entree… ». Ecrire une
+        //    telle cle dans le dictionnaire la rendrait dependante de la mise
+        //    en forme du fichier — un jour ou quelqu'un reindente ce bloc, la
+        //    traduction tombe en silence. On cherche donc aussi la version aux
+        //    espaces normalises, qui est celle qu'un humain sait ecrire.
+        const trad = d[cle] || d[cle.replace(/\s+/g, ' ')];
+        // ⚠️ On remplace DANS le texte brut : « Segments <span> » perdrait son
+        //    espace de fin, et deux mots se colleraient.
+        if (trad) n.nodeValue = brut.replace(cle, trad);
         return;
       }
       if (n.nodeType !== 1) return;            // ni element, ni texte : rien a faire
@@ -10659,7 +10760,7 @@
           </div>
 
           <div class="agn-sect" data-s="commune">
-            <div class="agn-sect-t"><span class="agn-chev">▾</span><b>1. Commune à traiter</b>
+            <div class="agn-sect-t"><span class="agn-chev">▾</span><b>2. Commune à traiter</b>
               <span class="agn-sect-r"></span></div>
             <div class="agn-sect-c">
               <!-- Filtre (v2.03) : au zoom 12 la vue peut contenir 80 communes,
@@ -10672,7 +10773,7 @@
           </div>
 
           <div class="agn-sect" data-s="agglo">
-            <div class="agn-sect-t"><span class="agn-chev">▾</span><b>2. Agglomération</b>
+            <div class="agn-sect-t"><span class="agn-chev">▾</span><b>3. Agglomération</b>
               <span class="agn-sect-r"></span></div>
             <div class="agn-sect-c">
               <!-- ⚠️ ORDRE = PROGRESSION (auteur, 27/07) : on relève les

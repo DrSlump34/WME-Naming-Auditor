@@ -121,6 +121,19 @@ const trFr = monter(DICO, 'fr');
   trIt(n);
   v('3. ⭐ les espaces autour sont preserves', textes(n), ['  Segmenti  ']);
 }
+// 3 bis. ⭐ Une phrase coupee par l'indentation du TEMPLATE se retrouve quand
+//        meme : la cle du dictionnaire s'ecrit sur une ligne, le HTML non.
+{
+  const DICO2 = { it: { 'Délimite la zone bâtie — entre les panneaux d’entrée et de sortie.':
+                        'Delimita il centro abitato — tra i cartelli di ingresso e di uscita.' } };
+  const n = elem('div', {}, [texte('\n      Délimite la zone bâtie — entre les panneaux\n' +
+                                   '                d’entrée et de sortie.\n    ')]);
+  monter(DICO2, 'it')(n);
+  v('3 bis. ⭐ une clé sur une ligne traduit un texte indenté sur plusieurs',
+    textes(n)[0].trim(),
+    'Delimita il centro abitato — tra i cartelli di ingresso e di uscita.');
+}
+
 // 4. Les attributs qui s'affichent.
 {
   const n = elem('input', { title: 'Réduire', placeholder: 'Filtrer une province…',

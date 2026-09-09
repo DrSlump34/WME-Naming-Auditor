@@ -71,7 +71,16 @@ for (; jT < src.length; jT++) {
   else if (src[jT] === '}') { profT--; if (!profT) break; }
 }
 const horsDico = src.slice(0, iT) + src.slice(jT + 1);
-const orphelines = clesIt.filter(k => horsDico.indexOf(k) < 0);
+// ⚠️ ON CHERCHE COMME `traduireDOM` CHERCHE, sinon le contrôle refuserait des
+// clés parfaitement servies. Une phrase écrite dans un template HTML porte
+// l'indentation du source (« … les panneaux\n                d'entrée … ») ;
+// la clé, elle, s'écrit sur une ligne, et `traduireDOM` compare en normalisant
+// les espaces. Un contrôle plus strict que la fonction qu'il surveille ne
+// protège de rien : il force à écrire des clés dépendantes de la mise en forme
+// du fichier, c'est-à-dire exactement ce qu'on voulait éviter.
+const detendu = k => new RegExp(k.split(/\s+/)
+  .map(m => m.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+'));
+const orphelines = clesIt.filter(k => horsDico.indexOf(k) < 0 && !detendu(k).test(horsDico));
 verifier('4. ⭐ toute clé italienne se retrouve AILLEURS que dans le dictionnaire',
   orphelines, []);
 
