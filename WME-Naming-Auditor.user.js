@@ -5960,6 +5960,23 @@
         // ⚠️ `verifierGiratoire` ne couvre que le NOM ; l'interdiction des
         //    numéros civiques sur un giratoire n'est PAS contrôlée, ni ici ni
         //    en France. Ne pas le laisser croire.
+        //
+        // ⚡⚡ LES GRANDES PLACES : SILVIO A TRANCHÉ LE 09/09 — « on a choosy la
+        //    suggestion : 1 ». Il avait signalé le cas des *piazze* des grandes
+        //    villes, tracées en anneau : elles ressemblent à un giratoire mais
+        //    portent légitimement un nom de voie et des numéros civiques. Trois
+        //    voies lui avaient été proposées :
+        //      1. le script signale TOUJOURS, l'éditeur ignore le cas ;
+        //      2. exception sur le préfixe « Piazza » — mais à écrire d'abord
+        //         dans la Wazeopedia, sinon chacun ferait autrement ;
+        //      3. contrôle décoché par défaut en Italie.
+        //    ⇒ **RETENUE : la 1. Il n'y a donc RIEN à coder** — et c'est ce qui
+        //    doit être écrit ici, sinon quelqu'un « corrigera » un jour ce bruit
+        //    en le prenant pour un défaut. Un giratoire nommé reste un écart
+        //    SIGNALÉ ; c'est l'éditeur qui sait si c'est une piazza.
+        //    ⚠️ Ne PAS ajouter d'exception sur « Piazza » sans que le wiki
+        //    italien la porte : ce serait le script qui créerait la norme, et
+        //    la doctrine du projet est l'inverse.
         { cle: 'giratoires', portee: 'type',
           libelle: 'Giratoires : sans nom (ville selon la zone)' },
         { cle: 'abreviations', portee: 'forme',

@@ -90,9 +90,17 @@ comune à **double nom**. Il faut que `nomComuneIT` ramène le comune à « San 
 juste. C'est désormais le cas **59 bis / 59 ter de `tools/test-italie.js`** — un relevé de terrain
 vaut mieux qu'un exemple de wiki.
 
-⏳ **Ce qui reste ouvert chez Silvio** : les *cartelli bianchi* (recherche en cours de son côté)
-et les grandes places qui portent nom de rue et HN (les trois solutions lui ont été proposées, à
-lui de trancher).
+✅ **LES GRANDES PLACES — TRANCHÉ PAR SILVIO LE 09/09** : *« Pour rotatorie on a choosy la
+suggestion : 1 »*. Les *piazze* tracées en anneau ressemblent à un giratoire mais portent
+légitimement un nom et des numéros civiques ; sur les trois voies proposées, il retient celle où
+**le script signale toujours et l'éditeur ignore le cas**.
+⇒ **Il n'y a rien à coder** — mais il fallait l'ÉCRIRE, dans le code comme ici, sinon ce bruit
+finira par être « corrigé » par quelqu'un qui le prendra pour un défaut. ⚠️ Et surtout : **ne pas
+ajouter d'exception sur le préfixe « Piazza »** tant que la Wazeopedia italienne ne la porte pas —
+c'était la condition explicite de la solution 2, et la doctrine du projet est que le script
+applique la norme, il ne la crée pas.
+
+⏳ **Ce qui reste ouvert chez Silvio** : les *cartelli bianchi* (recherche en cours de son côté).
 ✅ **La question 7 — le nom en région bilingue — n'a plus besoin de lui** : l'éditeur a tranché à
 sa place, WME porte l'italien dans les quatre zones.
 
@@ -448,8 +456,10 @@ liste de catégorie :
    Silvio](https://docs.google.com/spreadsheets/d/1Lf7gwU6Tpw_H_iQOSOBb7NSwdKg7g7ADGP2F46oBpWc/edit).
    Le wiki renvoyait à la liste du **05.05.2017**. Voir le bloc du 09/09 en tête : elle a servi
    d'étalon et a fait tomber le défaut des comuni à double nom.
-2. **Les giratoires.** Le guide *Rotatorie* ne traite que du tracé, jamais du nom. En France un
-   giratoire est **sans nom**. **Et en Italie ?**
+2. ~~**Les giratoires.**~~ ✅ **RÉPONDU** — 08/09 : *« Chez nous on n'ajoute ni nom de la rue ni
+   HN »*, **même règle qu'en France**, d'où une clé de traduction unique. Puis 09/09, sur le cas
+   des grandes places qu'il avait soulevé : **suggestion 1 retenue**, le script signale toujours
+   et l'éditeur ignore. Rien à coder. Voir le bloc du 09/09 en tête.
 3. **Les panneaux de *centro abitato*.** Existe-t-il un jeu de données ouvert qui les recense ?
    ⇒ Il a mentionné de lui-même un script italien de HN « *basé sur des données officielles* » :
    la question est donc naturelle, et la réponse décide du pré-tracé automatique.
