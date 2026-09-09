@@ -100,6 +100,45 @@ ajouter d'exception sur le préfixe « Piazza »** tant que la Wazeopedia italie
 c'était la condition explicite de la solution 2, et la doctrine du projet est que le script
 applique la norme, il ne la crée pas.
 
+## 🌍 09/09 — LES QUATRE COMBINAISONS, ET OÙ EN EST LA TRADUCTION
+
+Objectif posé par l'auteur : **Silvio doit pouvoir utiliser WNA en Italie en italien avec les
+règles italiennes, en France en italien avec les règles françaises — et un Français en France avec
+les règles françaises, en Italie en français avec les règles italiennes.** Les quatre cases, pas
+deux.
+
+| | Règles FR | Règles IT |
+|---|---|---|
+| **En français** | ✅ d'origine | ✅ depuis la v2.42 — l'aide suit le référentiel |
+| **En italien** | 🚧 interface ✅, aide en cours | 🚧 interface ✅, aide en cours |
+
+**Ce qui est acquis** : le référentiel et la langue sont deux axes séparés (v2.42), la traduction
+par bloc fonctionne (v2.43), l'interface courante est traduite (138 clés), et l'aide **dit le vrai
+pour chaque pays**, quelle que soit la langue.
+
+**Ce qui reste** : les mots de l'aide. Mesure du 09/09 par `tools/couverture-i18n.js` —
+**206 blocs sur 229**, soit ~30 Ko :
+
+| Section | Blocs | Caractères |
+|---|---|---|
+| `regles` (les deux pays) | 67 | 9 476 |
+| `controles` | 29 | 4 083 |
+| `contours` | 22 | 2 722 |
+| `agglo` | 18 | 3 292 |
+| `limites` | 18 | 2 515 |
+| `numerotation` · `poi` | 30 | 4 583 |
+| `partage` · `selzone` | 18 | 3 425 |
+| `resultats` · `analyse` · `pays` | 9 | 179 |
+| **`demarrage`** | **0** | ✅ fait |
+
+⚠️ **Le compte porte sur les DEUX référentiels** : un éditeur italien qui aide en France lit l'aide
+**française** en italien. Les 124 blocs communs ne sont comptés qu'une fois.
+
+🔴 **Une section mentait depuis la v2.40** : « Pourquoi la France uniquement » disait encore
+*« le script se ferme hors de France »* — la première chose qu'un testeur italien serait allé lire.
+Elle est devenue « Les pays pris en charge », construite à partir de `paysServis()`, et elle
+explique la distinction référentiel / langue qui fonde tout le portage.
+
 ## 🗣️ 09/09 — L'i18n : traduire À LA SORTIE, et non 1 100 fois
 
 **Le constat qui a tout décidé** : la mécanique de langue existait depuis la v2.40, mais elle
