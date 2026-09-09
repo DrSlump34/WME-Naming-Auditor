@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.44.00
+// @version      2.45.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -5301,6 +5301,159 @@
         'Le due cose si combinano liberamente: un editor italiano che aiuta in Francia legge le <b>regole francesi in italiano</b>; un editor francese che aiuta in Italia legge le <b>regole italiane in francese</b>. È voluto — confonderle farebbe applicare le regole di un paese alla mappa di un altro.',
       '⚠️ <b>Ce qu\'il faut vérifier si le script semble se tromper de règles :</b> le pays affiché en tête du panneau. Il se déduit de la carte, pas de ton compte.':
         '⚠️ <b>Cosa controllare se lo script sembra sbagliare regole:</b> il paese indicato in cima al pannello. Si deduce dalla mappa, non dal tuo account.',
+      // ── L'AIDE (09/09) ──────────────────────────────────────────────────
+      // ⭐ Traduite PAR BLOC : dans l'aide une phrase est coupee par ses
+      //    <b>, et l'italien ne remet pas les morceaux dans cet ordre. La
+      //    cle est donc le HTML interne de l'element, et la traduction porte
+      //    son propre balisage (voir `traduireDOM`).
+      // ⚠️ Ces blocs couvrent les DEUX referentiels : un editeur italien qui
+      //    aide en France lit l'aide FRANCAISE en italien.
+      '📖 <b>La source, et elle fait foi :</b> <a href="https://www.waze.com/discuss/t/nommage-des-segments-des-rues-des-routes/375658" target="_blank" rel="noopener">Nommage des segments, des rues, des routes</a> — le guide France sur Waze Discuss.<br> ⚠️ <b>Les règles ci-dessous n\'appartiennent pas à WNA</b> : il ne fait que les appliquer. En cas de désaccord entre cette aide et le guide, <b>c\'est le guide qui a raison</b> — et un message serait bienvenu pour qu\'on corrige le script.':
+        '📖 <b>La fonte, e fa fede:</b> <a href="https://www.waze.com/discuss/t/nommage-des-segments-des-rues-des-routes/375658" target="_blank" rel="noopener">Nommage des segments, des rues, des routes</a> — la guida Francia su Waze Discuss.<br> ⚠️ <b>Le regole qui sotto non appartengono a WNA</b>: lo script si limita ad applicarle. In caso di disaccordo tra questa guida e il documento ufficiale, <b>è il documento ad avere ragione</b> — e un messaggio sarebbe gradito per correggere lo script.',
+      '<b>Le cœur de la règle française :</b> la zone décide de tout.':
+        '<b>Il cuore della regola francese:</b> è la zona a decidere tutto.',
+      '<b>En agglomération</b>':
+        '<b>Nel centro abitato</b>',
+      'Le nom <b>principal</b> porte le nom de rue <b>et la ville</b>. Le numéro de route (Dxxx…) passe en <b>alternatif</b>.':
+        'Il nome <b>principale</b> porta il nome della via <b>e la città</b>. Il numero di strada (Dxxx…) passa in <b>alternativo</b>.',
+      '<b>Hors agglomération</b>':
+        '<b>Fuori dal centro abitato</b>',
+      'Le nom <b>principal</b> porte le numéro de route, <b>sans ville</b>. Le nom de rue et la ville vivent en <b>alternatif</b>.':
+        'Il nome <b>principale</b> porta il numero di strada, <b>senza città</b>. Il nome della via e la città vivono in <b>alternativo</b>.',
+      'Panneaux d\'entrée (EB10) et de sortie (EB20) d\'agglomération. Une commune peut contenir plusieurs agglomérations.':
+        'Cartelli di ingresso (EB10) e di uscita (EB20) del centro abitato. Un comune può contenerne diversi.',
+      'Format <span class="agn-aide-ex">Village (Commune)</span>. ⚠️ Village rattaché ou hameau : cela se tranche avec le <b>State</b> ou <b>Regional Manager</b>.':
+        'Formato <span class="agn-aide-ex">Village (Commune)</span>. ⚠️ Frazione o borgata: si decide con lo <b>State</b> o il <b>Regional Manager</b>.',
+      '<b>Écrire le nom :</b>':
+        '<b>Scrivere il nome:</b>',
+      'Le nom <b>officiel et complet</b>. En cas de désaccord entre sources, <b>le panneau de signalisation prime</b> sur le cadastre et les plans ; les autres noms officiels peuvent aller en alternatif.':
+        'Il nome <b>ufficiale e completo</b>. In caso di disaccordo tra fonti, <b>il cartello stradale prevale</b> sul catasto e sulle mappe; gli altri nomi ufficiali possono andare in alternativo.',
+      '<b>Majuscules, accents</b>':
+        '<b>Maiuscole, accenti</b>',
+      '<span class="agn-aide-ex">Rue de la République</span>, jamais <span class="agn-aide-ex">rue de la republique</span>.':
+        '<span class="agn-aide-ex">Rue de la République</span>, mai <span class="agn-aide-ex">rue de la republique</span>.',
+      '<b>Interdites</b> (« Av. », « Bd »…), <b>sauf</b> un sigle officiel porté par la plaque : alors en majuscules <b>avec un point après chaque lettre</b> — <span class="agn-aide-ex">Rue du T.I.V.</span>, <span class="agn-aide-ex">Rue de la Deuxième D.B.</span>, le nom complet allant en alternatif.':
+        '<b>Vietate</b> (« Av. », « Bd »…), <b>salvo</b> una sigla ufficiale riportata sulla targa: in tal caso in maiuscolo <b>con un punto dopo ogni lettera</b> — <span class="agn-aide-ex">Rue du T.I.V.</span>, <span class="agn-aide-ex">Rue de la Deuxième D.B.</span>, con il nome completo in alternativo.',
+      'Interdites : ni <span class="agn-aide-ex">Rue R. Poincaré</span>, ni <span class="agn-aide-ex">Route de St-Fargeau</span>.':
+        'Vietate: né <span class="agn-aide-ex">Rue R. Poincaré</span>, né <span class="agn-aide-ex">Route de St-Fargeau</span>.',
+      '<b>Nombres</b>':
+        '<b>Numeri</b>',
+      'En chiffres ou en lettres <b>selon le panneau</b> : <span class="agn-aide-ex">Rue du 11 Novembre</span> comme <span class="agn-aide-ex">Rue du Onze Novembre</span>.':
+        'In cifre o in lettere <b>secondo il cartello</b>: <span class="agn-aide-ex">Rue du 11 Novembre</span> come <span class="agn-aide-ex">Rue du Onze Novembre</span>.',
+      '<b>Jamais dans un nom</b>':
+        '<b>Mai in un nome</b>',
+      'La <b>fonction</b> du segment (« Voie de bus », « Parking »), la <b>nature</b> d\'un lieu, et la <b>direction</b> — sauf sur les bretelles, où elle est la règle.':
+        'La <b>funzione</b> del segmento (« Voie de bus », « Parking »), la <b>natura</b> di un luogo, e la <b>direzione</b> — salvo sulle rampe, dove è la regola.',
+      '<b>Voies à règle propre :</b>':
+        '<b>Strade con regole proprie:</b>',
+      '<b>Autoroutes</b>':
+        '<b>Autostrade</b>',
+      '<b>Jamais de ville</b>, ni en principal ni en alternatif, <b>quelle que soit la zone traversée</b> — c\'est une règle systématique, sans exception.<br> ⭐ <b>Conséquence, depuis la v2.37 :</b> une autoroute à cheval sur une limite <b>n\'est plus signalée « à couper »</b>, ni sur la limite communale, ni au panneau d\'agglomération. On coupe pour que chaque moitié porte le nommage de <b>sa</b> commune ; ici les deux moitiés seraient identiques à l\'originale. Le bilan les compte à part (<span class="agn-aide-ex">n autoroute(s) sans coupe</span>), et <b>leur nom reste audité</b>.':
+        '<b>Mai la città</b>, né in principale né in alternativo, <b>qualunque sia la zona attraversata</b> — è una regola sistematica, senza eccezioni.<br> ⭐ <b>Conseguenza, dalla v2.37:</b> un\'autostrada a cavallo di un confine <b>non viene più segnalata « da tagliare »</b>, né sul confine comunale, né al cartello di centro abitato. Si taglia perché ogni metà porti la denominazione del <b>suo</b> comune; qui le due metà sarebbero identiche all\'originale. Il bilancio le conta a parte (<span class="agn-aide-ex">n autoroute(s) sans coupe</span>), e <b>il loro nome resta verificato</b>.',
+      '<b>Rocades, périphériques</b>':
+        '<b>Tangenziali, circonvallazioni</b>',
+      '<b>Hors agglomération par nature</b> : jamais de ville, ni en principal ni en alternatif. Nommage comme les autoroutes, avec un suffixe <b>uniquement si la voie s\'appelle ainsi</b> — intérieure/extérieure ou orientation — séparé par <b>espace tiret espace</b> : <span class="agn-aide-ex">A86 - Intérieure</span>, <span class="agn-aide-ex">N136 - Rocade Ouest</span>. Seule exception : le périphérique parisien (<span class="agn-aide-ex">Périphérique Intérieur</span>).<br> ⭐ <b>Ce qui identifie une rocade pour WNA, c\'est le cartouche « Rocade »</b>, pas son nom. À défaut, il se rabat sur le nom ou le format — et <b>affiche le doute</b>.':
+        '<b>Fuori dal centro abitato per natura</b>: mai la città, né in principale né in alternativo. Denominazione come le autostrade, con un suffisso <b>solo se la strada si chiama davvero così</b> — interna/esterna o orientamento — separato da <b>spazio trattino spazio</b>: <span class="agn-aide-ex">A86 - Intérieure</span>, <span class="agn-aide-ex">N136 - Rocade Ouest</span>. Unica eccezione: la circonvallazione di Parigi (<span class="agn-aide-ex">Périphérique Intérieur</span>).<br> ⭐ <b>Ciò che identifica una tangenziale per WNA è lo scudetto « Rocade »</b>, non il suo nome. In mancanza, ripiega sul nome o sul formato — e <b>mostra il dubbio</b>.',
+      '<b>Bretelles</b>':
+        '<b>Rampe</b>',
+      '<b>Jamais de ville.</b> Entrée d\'autoroute : <span class="agn-aide-ex">A4: Reims</span> — deux-points <b>collé au numéro, espacé de la direction</b>, et <b>une seule</b> direction, la première du panneau. Entrée de rocade : le nom de route seul (<span class="agn-aide-ex">Périphérique Ouest</span>). Sortie numérotée : <span class="agn-aide-ex">Sortie 18: Valensole</span>, ou <span class="agn-aide-ex">Sortie 47</span> seule ; <b>le nom de l\'échangeur s\'ignore</b>. Sortie sans numéro de route : <span class="agn-aide-ex">&gt; Orsay</span>. Une <b>seconde direction</b> ne s\'ajoute qu\'en cas d\'ambiguïté sur le panneau : <span class="agn-aide-ex">D118: Chartres / Villejust</span>.<br>⚠️ Une bretelle <b>sans nom</b> est <b>correcte</b> : elle hérite du segment suivant.<br> <b>Ce que WNA contrôle ici :</b> l\'espacement du « : », une direction qui serait un numéro de route, un double numéro — et, depuis la v2.32, <b>les règles d\'écriture ordinaires</b> (majuscule, abréviations, dictionnaire), auxquelles une bretelle n\'échappe pas.':
+        '<b>Mai la città.</b> Ingresso autostradale: <span class="agn-aide-ex">A4: Reims</span> — due punti <b>attaccati al numero, staccati dalla direzione</b>, e <b>una sola</b> direzione, la prima del cartello. Ingresso di tangenziale: il nome della strada da solo (<span class="agn-aide-ex">Périphérique Ouest</span>). Uscita numerata: <span class="agn-aide-ex">Sortie 18: Valensole</span>, oppure <span class="agn-aide-ex">Sortie 47</span> da sola; <b>il nome dello svincolo si ignora</b>. Uscita senza numero di strada: <span class="agn-aide-ex">&gt; Orsay</span>. Una <b>seconda direzione</b> si aggiunge solo in caso di ambiguità sul cartello: <span class="agn-aide-ex">D118: Chartres / Villejust</span>.<br>⚠️ Una rampa <b>senza nome</b> è <b>corretta</b>: eredita dal segmento successivo.<br> <b>Ciò che WNA controlla qui:</b> la spaziatura dei « : », una direzione che sarebbe un numero di strada, un doppio numero — e, dalla v2.32, <b>le regole di scrittura ordinarie</b> (maiuscola, abbreviazioni, dizionario), alle quali una rampa non sfugge.',
+      '<b>Voies communales</b>':
+        '<b>Strade comunali</b>',
+      // ── L'AIDE (09/09) ──────────────────────────────────────────────────
+      // ⭐ Traduite PAR BLOC : dans l'aide une phrase est coupee par ses
+      //    <b>, et l'italien ne remet pas les morceaux dans cet ordre. La
+      //    cle est donc le HTML interne de l'element, et la traduction porte
+      //    son propre balisage (voir `traduireDOM`).
+      // ⚠️ Ces blocs couvrent les DEUX referentiels : un editeur italien qui
+      //    aide en France lit l'aide FRANCAISE en italien.
+      '<b>Limites</b>':
+        '<b>Limiti</b>',
+      '<b>Village rattaché</b>':
+        '<b>Frazione</b>',
+      '<b>Source</b>':
+        '<b>Fonte</b>',
+      '<b>Abréviations</b>':
+        '<b>Abbreviazioni</b>',
+      '<b>Contractions</b>':
+        '<b>Contrazioni</b>',
+      'La <b>forme abrégée du panneau</b> : <span class="agn-aide-ex">C6</span>, <span class="agn-aide-ex">VC6</span>, <span class="agn-aide-ex">CR12</span>… et <b>pas</b> « Voie Communale n°6 », qui serait tronqué en guidage. <b>WNA le signale et propose la forme courte.</b>':
+        'La <b>forma abbreviata del cartello</b>: <span class="agn-aide-ex">C6</span>, <span class="agn-aide-ex">VC6</span>, <span class="agn-aide-ex">CR12</span>… e <b>non</b> « Voie Communale n°6 », che verrebbe troncato nella navigazione. <b>WNA lo segnala e propone la forma breve.</b>',
+      '<b>Voie sur deux communes</b>':
+        '<b>Strada su due comuni</b>',
+      'Le <b>même nom de rue</b> en alternatif, avec la seconde ville.':
+        'Lo <b>stesso nome di via</b> in alternativo, con la seconda città.',
+      '<b>Voies ferrées</b>':
+        '<b>Ferrovie</b>',
+      'Ni nom de rue, ni ville — et <b>ni en principal, ni en alternatif</b>. ⚠️ WNA signale donc aussi un nom porté en alternatif ; il ne peut pas le retirer lui-même (l\'éditeur de Waze ne sait pas supprimer un alternatif), c\'est un geste manuel.':
+        'Né nome di via, né città — e <b>né in principale, né in alternativo</b>. ⚠️ WNA segnala quindi anche un nome portato in alternativo; non può toglierlo da solo (l\'editor di Waze non sa eliminare un alternativo), è un gesto manuale.',
+      '<b>Pistes d\'aéroport</b>':
+        '<b>Piste aeroportuali</b>',
+      'Jamais de ville. Le <b>code OACI</b> de l\'aéroport <b>peut</b> être mis en nom de rue — WNA ne le réclame donc plus.':
+        'Mai la città. Il <b>codice ICAO</b> dell\'aeroporto <b>può</b> essere messo come nome di via — WNA non lo richiede più.',
+      '<b>Giratoires</b>':
+        '<b>Rotatorie</b>',
+      'Sans nom ; la ville suit la zone.':
+        'Senza nome; la città segue la zona.',
+      '⚠️⚠️ <b>Ce que WNA ne vérifie PAS — mesuré, pas supposé.</b> Un contrôle absent est invisible : autant le dire.<br> • WNA <b>ne voit pas les panneaux</b>. Il ne peut donc <b>jamais</b> juger si un mot est le nom d\'un <b>échangeur</b> (<span class="agn-aide-ex">Sortie 23 Remoulins: Avignon</span>), ni si une <b>seconde direction</b> est justifiée (<span class="agn-aide-ex">Sortie 18: Valensole / Gréoux</span> — elle n\'est admise qu\'en cas d\'ambiguïté sur le panneau). Il se tait sur ces cas, volontairement : le guide dit lui-même « ne tentez pas d\'improviser ».<br> • <b>Une rocade sans cartouche</b> n\'est reconnue qu\'à son nom ou à son format. WNA le fait, mais il <b>affiche alors le doute</b> au lieu de trancher : le seul élément certain est le <b>cartouche « Rocade »</b>. Poser ce cartouche lève l\'ambiguïté — pour WNA comme pour les autres éditeurs.':
+        '⚠️⚠️ <b>Ciò che WNA NON verifica — misurato, non supposto.</b> Un controllo assente è invisibile: tanto vale dirlo.<br> • WNA <b>non vede i cartelli</b>. Non può quindi <b>mai</b> giudicare se una parola è il nome di uno <b>svincolo</b> (<span class="agn-aide-ex">Sortie 23 Remoulins: Avignon</span>), né se una <b>seconda direzione</b> è giustificata (<span class="agn-aide-ex">Sortie 18: Valensole / Gréoux</span> — è ammessa solo in caso di ambiguità sul cartello). Su questi casi tace, volontariamente: la guida stessa dice « non tentate di improvvisare ».<br> • <b>Una tangenziale senza scudetto</b> è riconosciuta solo dal nome o dal formato. WNA lo fa, ma <b>mostra allora il dubbio</b> invece di decidere: l\'unico elemento certo è lo <b>scudetto « Rocade »</b>. Mettere quello scudetto toglie l\'ambiguità — per WNA come per gli altri editor.',
+      '📖 <b>Les sources, et elles font foi :</b> <a href="https://www.waze.com/discuss/t/denominazione-delle-strade/376292" target="_blank" rel="noopener">Denominazione delle strade</a> et <a href="https://www.waze.com/discuss/t/centro-abitato-city-boundary/376277" target="_blank" rel="noopener">Centro abitato &amp; City Boundary</a> — la Wazeopedia italienne.<br> ⚠️ <b>Les règles ci-dessous n\'appartiennent pas à WNA</b> : il ne fait que les appliquer. En cas de désaccord entre cette aide et la Wazeopedia, <b>c\'est la Wazeopedia qui a raison</b>.':
+        '📖 <b>Le fonti, e fanno fede:</b> <a href="https://www.waze.com/discuss/t/denominazione-delle-strade/376292" target="_blank" rel="noopener">Denominazione delle strade</a> e <a href="https://www.waze.com/discuss/t/centro-abitato-city-boundary/376277" target="_blank" rel="noopener">Centro abitato &amp; City Boundary</a> — la Wazeopedia italiana.<br> ⚠️ <b>Le regole qui sotto non appartengono a WNA</b>: lo script si limita ad applicarle. In caso di disaccordo tra questa guida e la Wazeopedia, <b>è la Wazeopedia ad avere ragione</b>.',
+      '<b>Le cœur de la règle italienne :</b> la zone décide de tout — et c\'est le même raisonnement qu\'en France, avec un autre vocabulaire.':
+        '<b>Il cuore della regola italiana:</b> è la zona a decidere tutto — ed è lo stesso ragionamento che in Francia, con un altro vocabolario.',
+      '<b>Dans le centro abitato</b>':
+        '<b>Nel centro abitato</b>',
+      'Le nom <b>principal</b> porte le nom de la voie <b>et la ville</b>. Le numéro de route (SS, SR, SP) passe en <b>alternatif</b>.':
+        'Il nome <b>principale</b> porta il nome della via <b>e la città</b>. Il numero di strada (SS, SR, SP) passa in <b>alternativo</b>.',
+      '<b>Hors du centro abitato</b>':
+        '<b>Fuori dal centro abitato</b>',
+      'Le nom <b>principal</b> porte le numéro de route, <b>sans ville</b>. Le nom de la voie et la ville vivent en <b>alternatif</b>.':
+        'Il nome <b>principale</b> porta il numero di strada, <b>senza città</b>. Il nome della via e la città vivono in <b>alternativo</b>.',
+      'Les panneaux d\'entrée et de sortie de <i>centro abitato</i>. Un comune peut en contenir plusieurs.':
+        'I cartelli di ingresso e di uscita del <i>centro abitato</i>. Un comune può contenerne diversi.',
+      // ── L'AIDE (09/09) ──────────────────────────────────────────────────
+      // ⭐ Traduite PAR BLOC : dans l'aide une phrase est coupee par ses
+      //    <b>, et l'italien ne remet pas les morceaux dans cet ordre. La
+      //    cle est donc le HTML interne de l'element, et la traduction porte
+      //    son propre balisage (voir `traduireDOM`).
+      // ⚠️ Ces blocs couvrent les DEUX referentiels : un editeur italien qui
+      //    aide en France lit l'aide FRANCAISE en italien.
+      'Format <span class="agn-aide-ex">nomefrazione, nomecomune</span> — <b>une virgule suivie d\'un espace</b>, jamais de parenthèses.':
+        'Formato <span class="agn-aide-ex">nomefrazione, nomecomune</span> — <b>una virgola seguita da uno spazio</b>, mai le parentesi.',
+      '🔴 <b>Le City Boundary de WME ne peut pas servir de référence.</b> Il est <i>formé</i> par les segments eux-mêmes : s\'en servir pour auditer ces mêmes segments serait circulaire — un segment portant une ville à tort élargirait la zone qui le déclarerait ensuite conforme. Le <i>centro abitato</i> reste donc un polygone à tracer.':
+        '🔴 <b>Il City Boundary di WME non può servire da riferimento.</b> È <i>formato</i> dai segmenti stessi: usarlo per verificare quegli stessi segmenti sarebbe circolare — un segmento che porta una città a torto allargherebbe la zona che poi lo dichiarerebbe conforme. Il <i>centro abitato</i> resta quindi un poligono da tracciare.',
+      '<b>Interdites</b> : <span class="agn-aide-ex">V.le</span>, <span class="agn-aide-ex">C.so</span>, <span class="agn-aide-ex">P.zza</span> s\'écrivent <span class="agn-aide-ex">Viale</span>, <span class="agn-aide-ex">Corso</span>, <span class="agn-aide-ex">Piazza</span>.':
+        '<b>Vietate</b>: <span class="agn-aide-ex">V.le</span>, <span class="agn-aide-ex">C.so</span>, <span class="agn-aide-ex">P.zza</span> si scrivono <span class="agn-aide-ex">Viale</span>, <span class="agn-aide-ex">Corso</span>, <span class="agn-aide-ex">Piazza</span>.',
+      '<b>Lettres pointées</b>':
+        '<b>Lettere puntate</b>',
+      'Interdites : <span class="agn-aide-ex">Via G. Garibaldi</span> s\'écrit <span class="agn-aide-ex">Via Giuseppe Garibaldi</span>.':
+        'Vietate: <span class="agn-aide-ex">Via G. Garibaldi</span> si scrive <span class="agn-aide-ex">Via Giuseppe Garibaldi</span>.',
+      '<b>Majuscule</b>':
+        '<b>Maiuscola</b>',
+      'Le nom ne commence jamais par une minuscule.':
+        'Il nome non inizia mai con una lettera minuscola.',
+      '<b>Sigles de route</b>':
+        '<b>Sigle di strada</b>',
+      '<b>Sans espace</b> : <span class="agn-aide-ex">SS12</span>, jamais <span class="agn-aide-ex">SS 12</span>.':
+        '<b>Senza spazio</b>: <span class="agn-aide-ex">SS12</span>, mai <span class="agn-aide-ex">SS 12</span>.',
+      '<b>Dates</b>':
+        '<b>Date</b>',
+      'En chiffres, pas en romains : <span class="agn-aide-ex">Via 4 Novembre</span>. ⚠️ Cela ne vaut que pour les <b>dates</b> — les papes et les rois gardent les leurs (<span class="agn-aide-ex">Papa Giovanni XXIII</span>).':
+        'In cifre, non in numeri romani: <span class="agn-aide-ex">Via 4 Novembre</span>. ⚠️ Vale solo per le <b>date</b> — i papi e i re mantengono i loro (<span class="agn-aide-ex">Papa Giovanni XXIII</span>).',
+      '<b>Les cas particuliers :</b>':
+        '<b>I casi particolari:</b>',
+      'Les cartouches <b>SS / SR / SP</b> portent le numéro de la route.':
+        'Gli scudetti <b>SS / SR / SP</b> portano il numero della strada.',
+      'Jamais de ville. Le nom suit <span class="agn-aide-ex">&gt; Verona</span> ou <span class="agn-aide-ex">Uscita 17: Jesi Centro</span> (376306).':
+        'Mai la città. Il nome segue <span class="agn-aide-ex">&gt; Verona</span> o <span class="agn-aide-ex">Uscita 17: Jesi Centro</span> (376306).',
+      'Ni nom de voie, ni numéro civique — <b>réponse écrite de Silvio, CC IT</b> : c\'est la même règle qu\'en France.':
+        'Né nome di via, né numero civico — <b>risposta scritta di Silvio, CC IT</b>: è la stessa regola che in Francia.',
+      'L\'attribut <i>obbligo di accensione dei fari</i> s\'applique <b>hors du centro abitato</b>.':
+        'L\'attributo <i>obbligo di accensione dei fari</i> si applica <b>fuori dal centro abitato</b>.',
+      'L\'attribut <i>obbligo di accensione dei fari</i> doit être posé <b>hors du centro abitato</b>, et retiré à l\'intérieur. Le script compare l\'attribut à la zone.':
+        'L\'attributo <i>obbligo di accensione dei fari</i> va impostato <b>fuori dal centro abitato</b>, e tolto all\'interno. Lo script confronta l\'attributo con la zona.',
+      '⚠️ <b>Les grandes places tracées en anneau.</b> Une <i>piazza</i> ressemble à une rotatoria mais porte légitimement un nom et des numéros civiques. Le script <b>la signale quand même</b> — c\'est le choix retenu par le CC italien : il vaut mieux un signalement que l\'éditeur écarte, qu\'une exception qui laisserait passer de vraies rotatoires nommées. <b>Ignore la ligne, ce n\'est pas une erreur du script.</b>':
+        '⚠️ <b>Le grandi piazze tracciate ad anello.</b> Una <i>piazza</i> assomiglia a una rotatoria ma porta legittimamente un nome e dei numeri civici. Lo script <b>la segnala comunque</b> — è la scelta del CC italiano: meglio una segnalazione che l\'editor scarta, che un\'eccezione capace di lasciar passare vere rotatorie con un nome. <b>Ignora la riga, non è un errore dello script.</b>',
       // ── LES MESSAGES D'ETAT (09/09) ─────────────────────────────────────
       // ⚡ Ce que le panneau dit de lui-meme entre deux analyses. Ils sont
       //    poses par un point de sortie SUR (`textContent = '…'`), donc ils

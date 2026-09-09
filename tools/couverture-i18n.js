@@ -58,8 +58,12 @@ function blocsDe(html) {
   const out = [];
   for (const m of html.matchAll(/<(td|p|li|div)\b[^>]*>([\s\S]*?)<\/\1>/g)) {
     const dedans = m[2].trim().replace(/\s+/g, ' ');
-    if (!dedans || !/<[a-z]/i.test(dedans)) continue;   // sans balise : c'est un simple texte
-    if (!/[A-Za-zÀ-ÿ]{3}/.test(dedans)) continue;
+    if (!dedans || !/[A-Za-zÀ-ÿ]{3}/.test(dedans)) continue;
+    // ⚠️ ON GARDE AUSSI LES CELLULES SANS BALISE. Premiere version : elles
+    //    etaient ecartees comme « simple texte » — or elles s'affichent, et
+    //    `traduireDOM` les traduit par la voie des nœuds texte. Les ignorer
+    //    faisait SOUS-ESTIMER le travail restant : une mesure fausse dans le
+    //    sens rassurant.
     out.push(dedans);
   }
   return out;
