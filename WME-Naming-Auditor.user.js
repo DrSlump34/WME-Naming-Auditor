@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.41.00
+// @version      2.42.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -5989,6 +5989,74 @@
       // Le departement : deux caracteres, trois en outre-mer (971...).
       uniteDuCode: s => /^9[78]/.test(s) ? s.slice(0, 3) : s.slice(0, 2).toUpperCase(),
       libelleDecoupage: 'communes INSEE',
+      // ⚠️⚠️ L'AIDE SUIT LE REFERENTIEL (v2.42). Ce texte decrit les regles
+      //    FRANCAISES : il appartient donc au referentiel francais, pas a la
+      //    fonction d'aide. Un editeur qui regarde l'Italie lit celui d'a
+      //    cote — dans SA langue, qui est un autre axe.
+      aideReglesTitre: "📖 Les règles officielles françaises",
+      aideRegles: () => `
+        <div class="agn-aide-src">📖 <b>La source, et elle fait foi :</b>
+          <a href="https://www.waze.com/discuss/t/nommage-des-segments-des-rues-des-routes/375658"
+             target="_blank" rel="noopener">Nommage des segments, des rues, des routes</a>
+          — le guide France sur Waze Discuss.<br>
+          ⚠️ <b>Les règles ci-dessous n'appartiennent pas à WNA</b> : il ne fait que les
+          appliquer. En cas de désaccord entre cette aide et le guide, <b>c'est le guide qui
+          a raison</b> — et un message serait bienvenu pour qu'on corrige le script.</div>
+
+        <p><b>Le cœur de la règle française :</b> la zone décide de tout.</p>
+        <table class="agn-aide-t">
+          <tr><td><b>En agglomération</b></td><td>Le nom <b>principal</b> porte le nom de rue <b>et la ville</b>. Le numéro de route (Dxxx…) passe en <b>alternatif</b>.</td></tr>
+          <tr><td><b>Hors agglomération</b></td><td>Le nom <b>principal</b> porte le numéro de route, <b>sans ville</b>. Le nom de rue et la ville vivent en <b>alternatif</b>.</td></tr>
+          <tr><td><b>Limites</b></td><td>Panneaux d'entrée (EB10) et de sortie (EB20) d'agglomération. Une commune peut contenir plusieurs agglomérations.</td></tr>
+          <tr><td><b>Village rattaché</b></td><td>Format <span class="agn-aide-ex">Village (Commune)</span>. ⚠️ Village rattaché ou hameau : cela se tranche avec le <b>State</b> ou <b>Regional Manager</b>.</td></tr>
+        </table>
+
+        <p><b>Écrire le nom :</b></p>
+        <table class="agn-aide-t">
+          <tr><td><b>Source</b></td><td>Le nom <b>officiel et complet</b>. En cas de désaccord entre sources, <b>le panneau de signalisation prime</b> sur le cadastre et les plans ; les autres noms officiels peuvent aller en alternatif.</td></tr>
+          <tr><td><b>Majuscules, accents</b></td><td><span class="agn-aide-ex">Rue de la République</span>, jamais <span class="agn-aide-ex">rue de la republique</span>.</td></tr>
+          <tr><td><b>Abréviations</b></td><td><b>Interdites</b> (« Av. », « Bd »…), <b>sauf</b> un sigle officiel porté par la plaque : alors en majuscules <b>avec un point après chaque lettre</b> — <span class="agn-aide-ex">Rue du T.I.V.</span>, <span class="agn-aide-ex">Rue de la Deuxième D.B.</span>, le nom complet allant en alternatif.</td></tr>
+          <tr><td><b>Contractions</b></td><td>Interdites : ni <span class="agn-aide-ex">Rue R. Poincaré</span>, ni <span class="agn-aide-ex">Route de St-Fargeau</span>.</td></tr>
+          <tr><td><b>Nombres</b></td><td>En chiffres ou en lettres <b>selon le panneau</b> : <span class="agn-aide-ex">Rue du 11 Novembre</span> comme <span class="agn-aide-ex">Rue du Onze Novembre</span>.</td></tr>
+          <tr><td><b>Jamais dans un nom</b></td><td>La <b>fonction</b> du segment (« Voie de bus », « Parking »), la <b>nature</b> d'un lieu, et la <b>direction</b> — sauf sur les bretelles, où elle est la règle.</td></tr>
+        </table>
+
+        <p><b>Voies à règle propre :</b></p>
+        <table class="agn-aide-t">
+          <tr><td><b>Autoroutes</b></td><td><b>Jamais de ville</b>, ni en principal ni en alternatif, <b>quelle que soit la zone traversée</b> — c'est une règle systématique, sans exception.<br>
+          ⭐ <b>Conséquence, depuis la v2.37 :</b> une autoroute à cheval sur une limite <b>n'est plus signalée « à couper »</b>, ni sur la limite communale, ni au panneau d'agglomération. On coupe pour que chaque moitié porte le nommage de <b>sa</b> commune ; ici les deux moitiés seraient identiques à l'originale. Le bilan les compte à part (<span class="agn-aide-ex">n autoroute(s) sans coupe</span>), et <b>leur nom reste audité</b>.</td></tr>
+          <tr><td><b>Rocades, périphériques</b></td><td><b>Hors agglomération par nature</b> : jamais de ville, ni en principal ni en alternatif. Nommage comme les autoroutes, avec un suffixe <b>uniquement si la voie s'appelle ainsi</b> — intérieure/extérieure ou orientation — séparé par <b>espace tiret espace</b> : <span class="agn-aide-ex">A86 - Intérieure</span>, <span class="agn-aide-ex">N136 - Rocade Ouest</span>. Seule exception : le périphérique parisien (<span class="agn-aide-ex">Périphérique Intérieur</span>).<br>
+          ⭐ <b>Ce qui identifie une rocade pour WNA, c'est le cartouche « Rocade »</b>, pas son
+          nom. À défaut, il se rabat sur le nom ou le format — et <b>affiche le doute</b>.</td></tr>
+          <tr><td><b>Bretelles</b></td><td><b>Jamais de ville.</b> Entrée d'autoroute : <span class="agn-aide-ex">A4: Reims</span> — deux-points <b>collé au numéro, espacé de la direction</b>, et <b>une seule</b> direction, la première du panneau. Entrée de rocade : le nom de route seul (<span class="agn-aide-ex">Périphérique Ouest</span>). Sortie numérotée : <span class="agn-aide-ex">Sortie 18: Valensole</span>, ou <span class="agn-aide-ex">Sortie 47</span> seule ; <b>le nom de l'échangeur s'ignore</b>. Sortie sans numéro de route : <span class="agn-aide-ex">&gt; Orsay</span>. Une <b>seconde direction</b> ne s'ajoute qu'en cas d'ambiguïté sur le panneau : <span class="agn-aide-ex">D118: Chartres / Villejust</span>.<br>⚠️ Une bretelle <b>sans nom</b> est <b>correcte</b> : elle hérite du segment suivant.<br>
+          <b>Ce que WNA contrôle ici :</b> l'espacement du « : », une direction qui serait un
+          numéro de route, un double numéro — et, depuis la v2.32, <b>les règles d'écriture
+          ordinaires</b> (majuscule, abréviations, dictionnaire), auxquelles une bretelle
+          n'échappe pas.</td></tr>
+          <tr><td><b>Voies communales</b></td><td>La <b>forme abrégée du panneau</b> : <span class="agn-aide-ex">C6</span>, <span class="agn-aide-ex">VC6</span>, <span class="agn-aide-ex">CR12</span>… et <b>pas</b> « Voie Communale n°6 », qui serait tronqué en guidage. <b>WNA le signale et propose la forme courte.</b></td></tr>
+          <tr><td><b>Voie sur deux communes</b></td><td>Le <b>même nom de rue</b> en alternatif, avec la seconde ville.</td></tr>
+          <tr><td><b>Voies ferrées</b></td><td>Ni nom de rue, ni ville — et <b>ni en principal, ni en alternatif</b>. ⚠️ WNA signale donc aussi un nom porté en alternatif ; il ne peut pas le retirer lui-même (l'éditeur de Waze ne sait pas supprimer un alternatif), c'est un geste manuel.</td></tr>
+          <tr><td><b>Pistes d'aéroport</b></td><td>Jamais de ville. Le <b>code OACI</b> de l'aéroport <b>peut</b> être mis en nom de rue — WNA ne le réclame donc plus.</td></tr>
+          <tr><td><b>Giratoires</b></td><td>Sans nom ; la ville suit la zone.</td></tr>
+        </table>
+
+        <div class="agn-aide-note">⚠️⚠️ <b>Ce que WNA ne vérifie PAS — mesuré, pas supposé.</b>
+          Un contrôle absent est invisible : autant le dire.<br>
+          • WNA <b>ne voit pas les panneaux</b>. Il ne peut donc <b>jamais</b> juger si un mot
+          est le nom d'un <b>échangeur</b> (<span class="agn-aide-ex">Sortie 23 Remoulins: Avignon</span>),
+          ni si une <b>seconde direction</b> est justifiée
+          (<span class="agn-aide-ex">Sortie 18: Valensole / Gréoux</span> — elle n'est admise
+          qu'en cas d'ambiguïté sur le panneau). Il se tait sur ces cas, volontairement :
+          le guide dit lui-même « ne tentez pas d'improviser ».<br>
+          • <b>Une rocade sans cartouche</b> n'est reconnue qu'à son nom ou à son format. WNA
+          le fait, mais il <b>affiche alors le doute</b> au lieu de trancher : le seul élément
+          certain est le <b>cartouche « Rocade »</b>. Poser ce cartouche lève l'ambiguïté —
+          pour WNA comme pour les autres éditeurs.</div>`,
+      // ⚠️ LU PAR L'AIDE, qui suit le referentiel : sans ces deux cles, elle
+      //    parlait d'INSEE et de l'IGN a un editeur italien.
+      libelleCode: 'code INSEE',
+      provenanceContours: "l'<b>IGN (Admin Express)</b> via <b>geo.api.gouv.fr</b>, "
+        + 'sous <b>Licence Ouverte</b>',
       clesNom: CLES_NOM,
       clesCode: CLES_CODE,
 
@@ -6234,6 +6302,67 @@
       //    et s'ecrit sans zero de tete : « 016024 » (Bergamo) => « 16 ».
       uniteDuCode: s => String(Number(String(s).slice(0, 3)) || ''),
       libelleDecoupage: 'comuni ISTAT',
+      libelleCode: 'codice ISTAT',
+      // ⚠️⚠️ ECRITE D'APRES LES TEXTES ITALIENS, PAS TRADUITE DU FRANCAIS.
+      //    Chaque regle ci-dessous est adossee a un sujet de la Wazeopedia
+      //    italienne (376292 « Denominazione delle strade », 376277 « Centro
+      //    abitato & City Boundary », 376306 « Indicazioni di guida sulle
+      //    svolte ») ou a une reponse ecrite de Silvio, CC IT. Rien n'y est
+      //    deduit du guide francais.
+      // ⚠️ Elle est redigee en FRANCAIS parce que le francais est la CLE de
+      //    traduction de tout le script : c'est le dictionnaire qui la rend en
+      //    italien. Le contenu suit le pays REGARDE, la langue suit l'editeur.
+      aideReglesTitre: '📖 Le regole ufficiali italiane',
+      aideRegles: () => `
+        <div class="agn-aide-src">📖 <b>Les sources, et elles font foi :</b>
+          <a href="https://www.waze.com/discuss/t/denominazione-delle-strade/376292"
+             target="_blank" rel="noopener">Denominazione delle strade</a> et
+          <a href="https://www.waze.com/discuss/t/centro-abitato-city-boundary/376277"
+             target="_blank" rel="noopener">Centro abitato &amp; City Boundary</a>
+          — la Wazeopedia italienne.<br>
+          ⚠️ <b>Les règles ci-dessous n'appartiennent pas à WNA</b> : il ne fait que les
+          appliquer. En cas de désaccord entre cette aide et la Wazeopedia, <b>c'est la
+          Wazeopedia qui a raison</b>.</div>
+
+        <p><b>Le cœur de la règle italienne :</b> la zone décide de tout — et c'est le même
+          raisonnement qu'en France, avec un autre vocabulaire.</p>
+        <table class="agn-aide-t">
+          <tr><td><b>Dans le centro abitato</b></td><td>Le nom <b>principal</b> porte le nom de la voie <b>et la ville</b>. Le numéro de route (SS, SR, SP) passe en <b>alternatif</b>.</td></tr>
+          <tr><td><b>Hors du centro abitato</b></td><td>Le nom <b>principal</b> porte le numéro de route, <b>sans ville</b>. Le nom de la voie et la ville vivent en <b>alternatif</b>.</td></tr>
+          <tr><td><b>Limites</b></td><td>Les panneaux d'entrée et de sortie de <i>centro abitato</i>. Un comune peut en contenir plusieurs.</td></tr>
+          <tr><td><b>Frazione</b></td><td>Format <span class="agn-aide-ex">nomefrazione, nomecomune</span> — <b>une virgule suivie d'un espace</b>, jamais de parenthèses.</td></tr>
+        </table>
+        <div class="agn-aide-note">🔴 <b>Le City Boundary de WME ne peut pas servir de
+          référence.</b> Il est <i>formé</i> par les segments eux-mêmes : s'en servir pour auditer
+          ces mêmes segments serait circulaire — un segment portant une ville à tort élargirait la
+          zone qui le déclarerait ensuite conforme. Le <i>centro abitato</i> reste donc un polygone
+          à tracer.</div>
+
+        <p><b>Écrire le nom :</b></p>
+        <table class="agn-aide-t">
+          <tr><td><b>Abréviations</b></td><td><b>Interdites</b> : <span class="agn-aide-ex">V.le</span>, <span class="agn-aide-ex">C.so</span>, <span class="agn-aide-ex">P.zza</span> s'écrivent <span class="agn-aide-ex">Viale</span>, <span class="agn-aide-ex">Corso</span>, <span class="agn-aide-ex">Piazza</span>.</td></tr>
+          <tr><td><b>Lettres pointées</b></td><td>Interdites : <span class="agn-aide-ex">Via G. Garibaldi</span> s'écrit <span class="agn-aide-ex">Via Giuseppe Garibaldi</span>.</td></tr>
+          <tr><td><b>Majuscule</b></td><td>Le nom ne commence jamais par une minuscule.</td></tr>
+          <tr><td><b>Sigles de route</b></td><td><b>Sans espace</b> : <span class="agn-aide-ex">SS12</span>, jamais <span class="agn-aide-ex">SS 12</span>.</td></tr>
+          <tr><td><b>Dates</b></td><td>En chiffres, pas en romains : <span class="agn-aide-ex">Via 4 Novembre</span>. ⚠️ Cela ne vaut que pour les <b>dates</b> — les papes et les rois gardent les leurs (<span class="agn-aide-ex">Papa Giovanni XXIII</span>).</td></tr>
+        </table>
+
+        <p><b>Les cas particuliers :</b></p>
+        <table class="agn-aide-t">
+          <tr><td><b>Scudetti</b></td><td>Les cartouches <b>SS / SR / SP</b> portent le numéro de la route.</td></tr>
+          <tr><td><b>Rampe</b></td><td>Jamais de ville. Le nom suit <span class="agn-aide-ex">&gt; Verona</span> ou <span class="agn-aide-ex">Uscita 17: Jesi Centro</span> (376306).</td></tr>
+          <tr><td><b>Rotatorie</b></td><td>Ni nom de voie, ni numéro civique — <b>réponse écrite de Silvio, CC IT</b> : c'est la même règle qu'en France.</td></tr>
+          <tr><td><b>Fari</b></td><td>L'attribut <i>obbligo di accensione dei fari</i> s'applique <b>hors du centro abitato</b>.</td></tr>
+        </table>
+        <div class="agn-aide-note">⚠️ <b>Les grandes places tracées en anneau.</b> Une <i>piazza</i>
+          ressemble à une rotatoria mais porte légitimement un nom et des numéros civiques. Le
+          script <b>la signale quand même</b> — c'est le choix retenu par le CC italien : il vaut
+          mieux un signalement que l'éditeur écarte, qu'une exception qui laisserait passer de
+          vraies rotatoires nommées. <b>Ignore la ligne, ce n'est pas une erreur du script.</b></div>`,
+      // ⚡ Mesuree le 08/09 : CC-BY-4.0, permissive et NON virale — c'est ce
+      //    critere qui avait fait ecarter les contours derives d'OpenStreetMap.
+      provenanceContours: "<b>openpolis/geojson-italy</b>, d'après les limites "
+        + '<b>ISTAT</b>, sous <b>CC BY 4.0</b>',
       // ⚡ MESURE DU 08/09 sur la source reelle (openpolis/geojson-italy, voir
       //    ANALYSE-ITALIE.md § 3) : les proprietes servies sont `name` et
       //    `com_istat_code`. Verifie sur 620 communes — Bergamo (243) et
@@ -11512,18 +11641,73 @@
    */
   const siCorrecteur = html => (droits().autorise ? html : '');
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // L'AIDE SUIT LE REFERENTIEL, PAS LA LANGUE (v2.42)
+  //
+  // ⭐⭐⭐⭐ LA DECOUPE QUI PARAISSAIT EVIDENTE ETAIT LA MAUVAISE. « Ecrire une
+  // aide italienne » aurait reconduit la confusion que tout le portage s'est
+  // employe a defaire : la LANGUE dit dans quels mots on parle, le REFERENTIEL
+  // dit DE QUOI on parle. Un Francais qui audite l'Italie doit lire le mode
+  // d'emploi ITALIEN — en francais. Une aide rangee par langue ne saurait pas
+  // le lui servir.
+  //
+  // 🔴 MESURE DU 09/09 : 110 mentions franco-specifiques dans les 37 Ko d'aide,
+  // dont CINQ sur les panneaux EB10/EB20 — un chemin qui n'existe pas en
+  // Italie, ou `sourcePanneaux` vaut `null` et ou le bouton n'est meme pas
+  // construit. Traduite mot a mot, l'aide aurait explique a un editeur italien
+  // comment se servir d'un bouton absent de son ecran. Ce n'etait donc pas un
+  // travail de traduction.
+  //
+  // ⇒ Ce qui depend du pays passe par ces trois helpers, jamais par une phrase
+  // ecrite en dur. Ils lisent `REF`, donc ils suivent le territoire REGARDE.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * ⭐⭐ Le bloc n'apparait que si le pays regarde DECLARE ce controle.
+   *
+   * 🔴 Sans lui, l'aide italienne expliquait « Rocades », « Voies communales
+   * (C6) » et le dictionnaire francais de WME Check Road Name — trois controles
+   * que `REFERENTIELS.IT` ne declare PAS, donc trois cases que l'editeur
+   * cherchait en vain dans son panneau. Et symetriquement, elle ne disait rien
+   * de `fari`, `sigleEspace` ni `dateRomaine`, qui n'existent qu'en Italie.
+   * ⚠️ Le harnais exige desormais qu'AUCUN controle declare ne soit sans ligne
+   *    d'aide, dans aucun pays : c'est le seul moyen que le prochain controle
+   *    ajoute ne soit pas oublie ici.
+   */
+  const siControle = (cle, html) =>
+    ((REF.controles || []).some(c => c.cle === cle) ? html : '');
+
+  /** Le bloc n'apparait que si le pays regarde a une source de panneaux. */
+  const siPanneaux = html => (REF.sourcePanneaux ? html : '');
+  /** … et son contraire : ce qu'il faut dire quand ce chemin n'existe pas. */
+  const siPasDePanneaux = html => (REF.sourcePanneaux ? '' : html);
+  /**
+   * Le vocabulaire du decoupage, pris dans le referentiel.
+   * ⚠️ `uniteLabel` est deja la (« département » / « provincia ») : c'est celui
+   *    du selecteur de telechargement, donc l'editeur y retrouve LE MEME MOT
+   *    que sur son bouton. Ne pas en inventer un second.
+   */
+  const motUnite = (pluriel) => {
+    const sc = REF.sourceContours || {};
+    return (pluriel ? sc.unitesLabel : sc.uniteLabel) || (pluriel ? 'unités' : 'unité');
+  };
+
   function sectionsAide() {
     return [
       { id: 'demarrage', titre: '🚀 Démarrage rapide', ouvert: true, corps: `
         <p class="agn-aide-video">🎬 <b><a href="https://drive.google.com/file/d/1f1zLZQvBatKcZv9dQ6dCtRN-VDXAiq6_/view" target="_blank" rel="noopener">Voir en vidéo : la zone bâtie, et les villages rattachés</a></b> — 1 minute, sur l'exemple de Gruissan. C'est le point sur lequel on se trompe le plus souvent.</p>
         <ol>
-          <li><b>Charge les contours</b> de ton département : bouton <b>☰</b> puis
-            <b>Contours communaux</b> → <b>Télécharger et charger</b>. Une fois pour toutes.</li>
+          <li><b>Charge les contours</b> de ta ${motUnite()} : bouton <b>☰</b> puis
+            <b>Contours communaux</b> → <b>${REF.sourceContours ? REF.sourceContours.libelle : 'Télécharger et charger'}</b>. Une fois pour toutes.</li>
           <li><b>Choisis la commune</b> dans la liste. Celles qui sont sous tes yeux
             remontent en tête (<b>📍 Sous les yeux</b>).</li>
-          <li><b>Délimite l'agglomération</b> : <b>🪧 Panneaux d'agglomération</b> puis
+          ${siPanneaux(`<li><b>Délimite l'agglomération</b> : <b>🪧 Panneaux d'agglomération</b> puis
             <b>✏️ Proposer un tracé</b> — le script place les polygones d'après les
-            panneaux d'entrée. À défaut, <b>＋ Tracer l'agglomération</b> à la main.</li>
+            panneaux d'entrée. À défaut, <b>＋ Tracer l'agglomération</b> à la main.</li>`)}
+          ${siPasDePanneaux(`<li><b>Délimite la zone bâtie</b> avec <b>＋ Tracer l'agglomération</b>.
+            ⚠️ <b>À la main : il n'existe pas de relevé officiel des panneaux d'entrée dans ce
+            pays</b>, le bouton de tracé automatique n'est donc pas proposé. Le tracé
+            à la main est ici le chemin normal, pas un repli.</li>`)}
           <li><b>Analyser la commune</b>. Rien n'est enregistré : le script lit, compare,
             et propose.</li>
           <li><b>Traite les écarts</b> onglet par onglet. ${siCorrecteur(
@@ -11536,15 +11720,14 @@
 
       { id: 'contours', titre: '🗺️ Les contours communaux', corps: `
         <p>Le script compare le nommage à la <b>vraie limite communale</b>, pas à ce que
-          Waze en dit. Ces contours viennent de l'<b>IGN (Admin Express)</b> via
-          <b>geo.api.gouv.fr</b>, sous Licence Ouverte.</p>
+          Waze en dit. Ces contours viennent de ${REF.provenanceContours}.</p>
         <table class="agn-aide-t">
-          <tr><td><b>Télécharger et charger</b></td><td>Choisis un ou plusieurs départements, le script les récupère et les garde. <b>Les contours se cumulent</b> : charger le 30 n'efface pas le 11.</td></tr>
+          <tr><td><b>${REF.sourceContours ? REF.sourceContours.libelle : 'Télécharger et charger'}</b></td><td>Choisis une ou plusieurs ${motUnite(true)}, le script les récupère et les garde. <b>Les contours se cumulent</b> : en charger une seconde n'efface pas la première.</td></tr>
           <tr><td><b>Choisir un fichier GeoJSON</b></td><td>Pour charger des contours depuis un fichier local. ⚠️ Celui-là <b>remplace</b> ce qui est en place.</td></tr>
-          <tr><td><b>Champ de filtre</b></td><td>Cherche par <b>nom</b> ou par <b>code INSEE</b>, sans se soucier des accents ni de la casse.</td></tr>
+          <tr><td><b>Champ de filtre</b></td><td>Cherche par <b>nom</b> ou par <b>${REF.libelleCode}</b>, sans se soucier des accents ni de la casse.</td></tr>
           <tr><td><b>📍 Sous les yeux</b></td><td>Quand il y a beaucoup de communes, celles qui occupent la vue passent en tête de liste.</td></tr>
-          <tr><td><b>Le poids de chaque département</b></td><td>Les contours restent en mémoire et sont rechargés à chaque démarrage : la liste dit ce que <b>chacun pèse</b>, le plus lourd en tête, et le <b>✕</b> le retire. Un département retiré <b>se recharge tout seul</b> si tu y reviens — rien n'est perdu. Ceux qui portent un <b>🔒</b> sont gardés : tu les as sous les yeux, ou la commune en cours s'y trouve.</td></tr>
-          <tr><td><b>Décharger les départements éloignés</b></td><td>Fait le ménage tout seul quand tu quittes une zone. <b>Décoché par défaut</b> : le cumul est le comportement normal, et on ne retire pas ce que tu as chargé sans que tu l'aies demandé. Coché, il garde toujours ce que tu regardes, la commune en cours, et les derniers départements utilisés (3 par défaut).</td></tr>
+          <tr><td><b>Le poids de chaque ${motUnite()}</b></td><td>Les contours restent en mémoire et sont rechargés à chaque démarrage : la liste dit ce que <b>chacune pèse</b>, la plus lourde en tête, et le <b>✕</b> la retire. Une ${motUnite()} retirée <b>se recharge toute seule</b> si tu y reviens — rien n'est perdu. Celles qui portent un <b>🔒</b> sont gardées : tu les as sous les yeux, ou la commune en cours s'y trouve.</td></tr>
+          <tr><td><b>Décharger les ${motUnite(true)} éloignées</b></td><td>Fait le ménage tout seul quand tu quittes une zone. <b>Décoché par défaut</b> : le cumul est le comportement normal, et on ne retire pas ce que tu as chargé sans que tu l'aies demandé. Coché, il garde toujours ce que tu regardes, la commune en cours, et les dernières ${motUnite(true)} utilisées (3 par défaut).</td></tr>
           <tr><td><b>tout vider</b></td><td>Oublie les contours chargés. Tes polygones d'agglomération, eux, sont conservés.</td></tr>
         </table>
         <p>Les contours sont volumineux : ils sont rangés dans le navigateur (IndexedDB) et
@@ -11552,23 +11735,29 @@
 
       { id: 'agglo', titre: '✏️ Délimiter l\'agglomération', corps: `
         <p>C'est <b>la</b> donnée que le script ne peut pas deviner : où commence et où finit
-          l'agglomération, au sens des panneaux. Trois façons de la poser.</p>
+          l'agglomération, au sens des panneaux d'entrée.
+          ${siPanneaux('Trois façons de la poser.')}${siPasDePanneaux(`<b>Ici, elle se trace à la
+          main.</b> Les panneaux existent sur le terrain, mais <b>aucun relevé officiel ouvert
+          ne les recense dans ce pays</b> : le script ne propose donc ni le relevé, ni le
+          pré-tracé, plutôt qu'un bouton qui ne rendrait rien. C'est aussi le quotidien de la
+          chemin normal, pas un repli.`)}</p>
         <p class="agn-aide-video">🎬 <b><a href="https://drive.google.com/file/d/1f1zLZQvBatKcZv9dQ6dCtRN-VDXAiq6_/view" target="_blank" rel="noopener">Voir
           en vidéo</a></b> — ce qu'on trace, pourquoi il peut y en avoir plusieurs, et à quoi sert
           « village rattaché ». Exemple : Gruissan et ses trois zones bâties.</p>
         <table class="agn-aide-t">
-          <tr><td><b>🪧 Panneaux d'agglomération</b></td><td><b>À essayer en premier.</b> Relève les panneaux <b>EB10</b> (entrée) et <b>EB20</b> (sortie) de la commune, d'après le jeu officiel de signalisation. Ils s'affichent sur la carte.</td></tr>
-          <tr><td><b>✏️ Proposer un tracé</b></td><td>Transforme ces panneaux en polygones — <b>un par agglomération</b> : le bourg et chaque hameau séparément. Le script te les présente <b>un par un</b> : <b>Créer ce polygone</b>, <b>Passer celui-ci</b>, <b>Tout arrêter</b>.</td></tr>
-          <tr><td><b>＋ Tracer l'agglomération</b></td><td>Tracé à la main, point par point, quand les panneaux manquent ou ne suffisent pas.</td></tr>
+          ${siPanneaux(`<tr><td><b>🪧 Panneaux d'agglomération</b></td><td><b>À essayer en premier.</b> Relève les panneaux <b>EB10</b> (entrée) et <b>EB20</b> (sortie) de la commune, d'après le jeu officiel de signalisation. Ils s'affichent sur la carte.</td></tr>
+          <tr><td><b>✏️ Proposer un tracé</b></td><td>Transforme ces panneaux en polygones — <b>un par agglomération</b> : le bourg et chaque hameau séparément. Le script te les présente <b>un par un</b> : <b>Créer ce polygone</b>, <b>Passer celui-ci</b>, <b>Tout arrêter</b>.</td></tr>`)}
+          <tr><td><b>＋ Tracer l'agglomération</b></td><td>Tracé à la main, point par point${siPanneaux(', quand les panneaux manquent ou ne suffisent pas')}.</td></tr>
           <tr><td><b>sans agglomération</b></td><td>À cocher pour une commune qui n'en a pas. ⚠️ <b>Toute la commune passera alors en hors agglomération</b> : aucune voie ne doit plus porter de ville.</td></tr>
         </table>
         <p><b>Village rattaché.</b> Quand une agglomération porte un nom différent de la commune,
           coche <b>village rattaché</b> et choisis la ville <b>dans la liste de WME</b> : le script
-          attendra alors le format <b>« Village (Commune) »</b> sur ces voies.</p>
+          attendra alors le format <b>« ${REF.formatVillage('Village', 'Commune')} »</b> sur ces
+          voies — <b>c'est le format du pays regardé</b>, et il ne s'écrit pas pareil partout.</p>
         <div class="agn-aide-note">⚠️ Une ville que Waze porte sur des segments <b>sans aucun polygone</b>
           en face déclenche une alerte : il manque presque toujours un polygone, et sans lui le script
           réclamerait le <b>retrait</b> de cette ville — une correction à l'envers.</div>
-        <p><b>Quand le pré-tracé ne propose rien — ou pas grand-chose.</b> Le relevé de panneaux
+        ${siPanneaux(`<p><b>Quand le pré-tracé ne propose rien — ou pas grand-chose.</b> Le relevé de panneaux
           est <b>très inégal, et l'écart se joue au niveau du département</b> : mesuré le 28/08/2026
           sur un échantillon d'une commune sur huit, <b>98 %</b> des communes d'Ille-et-Vilaine ont
           au moins un panneau relevé (41 sur 42), contre <b>28 %</b> dans l'Hérault (12 sur 43) —
@@ -11579,7 +11768,7 @@
           <tr><td><b>« s'aligne le long d'une voie »</b></td><td>Les panneaux forment une ligne, pas une surface (moins de ${LARGEUR_MIN_AGGLO_M} m de large) : c'est une route. Rien n'est tracé — sinon le polygone couvrirait la voie et pas le village.</td></tr>
           <tr><td><b>« couvre N % de la commune »</b></td><td>Le polygone proposé est probablement <b>plusieurs agglomérations soudées</b> : les entrées se sont enchaînées de proche en proche. Vérifie, et passe-le pour les tracer séparément.</td></tr>
           <tr><td><b>« trop isolées »</b></td><td>Moins de trois entrées, ou éparpillées : aucune surface déductible. Elles restent affichées en repère pour un tracé à la main.</td></tr>
-        </table>` },
+        </table>`)}` },
 
       { id: 'analyse', titre: '🔍 Lancer l\'analyse', corps: `
         <p><b>Analyser la commune</b> lit tout le territoire communal — pas seulement ce que
@@ -11631,7 +11820,7 @@
           <tr><td><b>✓</b></td><td>Marque la ligne comme traitée : elle se barre, sort de la carte, et <b>revient cochée à la prochaine analyse</b>. Ces coches sont personnelles, elles ne partent jamais dans un partage.</td></tr>
           <tr><td><b>🔒</b></td><td>Segment verrouillé au-dessus de ton niveau : la correction est refusée, le script ne propose pas de bouton.</td></tr>
           <tr><td><b>‹ Précédent / Suivant ›</b></td><td>Passe d'un écart au suivant en cadrant la carte à chaque fois.</td></tr>
-          <tr><td><b>Le cas (C3, H5, EB10…)</b></td><td>Le code de la situation, repris du logigramme de nommage. Survole une ligne sur la carte pour le revoir.</td></tr>
+          <tr><td><b>Le cas (C3, H5…)</b></td><td>Le code de la situation, repris du logigramme de nommage. Survole une ligne sur la carte pour le revoir.</td></tr>
         </table>` },
 
       // ⭐ SECTION AJOUTEE LE 03/08 A LA DEMANDE DE L'AUTEUR : « il faut integrer
@@ -11655,82 +11844,30 @@
       //
       // ⚠️ `target="_blank"` est OBLIGATOIRE : un lien qui remplace l'onglet
       // ferait quitter WME a l'editeur, avec ses modifications non enregistrees.
-      { id: 'regles', titre: '📖 Les règles officielles françaises', corps: `
-        <div class="agn-aide-src">📖 <b>La source, et elle fait foi :</b>
-          <a href="https://www.waze.com/discuss/t/nommage-des-segments-des-rues-des-routes/375658"
-             target="_blank" rel="noopener">Nommage des segments, des rues, des routes</a>
-          — le guide France sur Waze Discuss.<br>
-          ⚠️ <b>Les règles ci-dessous n'appartiennent pas à WNA</b> : il ne fait que les
-          appliquer. En cas de désaccord entre cette aide et le guide, <b>c'est le guide qui
-          a raison</b> — et un message serait bienvenu pour qu'on corrige le script.</div>
-
-        <p><b>Le cœur de la règle française :</b> la zone décide de tout.</p>
-        <table class="agn-aide-t">
-          <tr><td><b>En agglomération</b></td><td>Le nom <b>principal</b> porte le nom de rue <b>et la ville</b>. Le numéro de route (Dxxx…) passe en <b>alternatif</b>.</td></tr>
-          <tr><td><b>Hors agglomération</b></td><td>Le nom <b>principal</b> porte le numéro de route, <b>sans ville</b>. Le nom de rue et la ville vivent en <b>alternatif</b>.</td></tr>
-          <tr><td><b>Limites</b></td><td>Panneaux d'entrée (EB10) et de sortie (EB20) d'agglomération. Une commune peut contenir plusieurs agglomérations.</td></tr>
-          <tr><td><b>Village rattaché</b></td><td>Format <span class="agn-aide-ex">Village (Commune)</span>. ⚠️ Village rattaché ou hameau : cela se tranche avec le <b>State</b> ou <b>Regional Manager</b>.</td></tr>
-        </table>
-
-        <p><b>Écrire le nom :</b></p>
-        <table class="agn-aide-t">
-          <tr><td><b>Source</b></td><td>Le nom <b>officiel et complet</b>. En cas de désaccord entre sources, <b>le panneau de signalisation prime</b> sur le cadastre et les plans ; les autres noms officiels peuvent aller en alternatif.</td></tr>
-          <tr><td><b>Majuscules, accents</b></td><td><span class="agn-aide-ex">Rue de la République</span>, jamais <span class="agn-aide-ex">rue de la republique</span>.</td></tr>
-          <tr><td><b>Abréviations</b></td><td><b>Interdites</b> (« Av. », « Bd »…), <b>sauf</b> un sigle officiel porté par la plaque : alors en majuscules <b>avec un point après chaque lettre</b> — <span class="agn-aide-ex">Rue du T.I.V.</span>, <span class="agn-aide-ex">Rue de la Deuxième D.B.</span>, le nom complet allant en alternatif.</td></tr>
-          <tr><td><b>Contractions</b></td><td>Interdites : ni <span class="agn-aide-ex">Rue R. Poincaré</span>, ni <span class="agn-aide-ex">Route de St-Fargeau</span>.</td></tr>
-          <tr><td><b>Nombres</b></td><td>En chiffres ou en lettres <b>selon le panneau</b> : <span class="agn-aide-ex">Rue du 11 Novembre</span> comme <span class="agn-aide-ex">Rue du Onze Novembre</span>.</td></tr>
-          <tr><td><b>Jamais dans un nom</b></td><td>La <b>fonction</b> du segment (« Voie de bus », « Parking »), la <b>nature</b> d'un lieu, et la <b>direction</b> — sauf sur les bretelles, où elle est la règle.</td></tr>
-        </table>
-
-        <p><b>Voies à règle propre :</b></p>
-        <table class="agn-aide-t">
-          <tr><td><b>Autoroutes</b></td><td><b>Jamais de ville</b>, ni en principal ni en alternatif, <b>quelle que soit la zone traversée</b> — c'est une règle systématique, sans exception.<br>
-          ⭐ <b>Conséquence, depuis la v2.37 :</b> une autoroute à cheval sur une limite <b>n'est plus signalée « à couper »</b>, ni sur la limite communale, ni au panneau d'agglomération. On coupe pour que chaque moitié porte le nommage de <b>sa</b> commune ; ici les deux moitiés seraient identiques à l'originale. Le bilan les compte à part (<span class="agn-aide-ex">n autoroute(s) sans coupe</span>), et <b>leur nom reste audité</b>.</td></tr>
-          <tr><td><b>Rocades, périphériques</b></td><td><b>Hors agglomération par nature</b> : jamais de ville, ni en principal ni en alternatif. Nommage comme les autoroutes, avec un suffixe <b>uniquement si la voie s'appelle ainsi</b> — intérieure/extérieure ou orientation — séparé par <b>espace tiret espace</b> : <span class="agn-aide-ex">A86 - Intérieure</span>, <span class="agn-aide-ex">N136 - Rocade Ouest</span>. Seule exception : le périphérique parisien (<span class="agn-aide-ex">Périphérique Intérieur</span>).<br>
-          ⭐ <b>Ce qui identifie une rocade pour WNA, c'est le cartouche « Rocade »</b>, pas son
-          nom. À défaut, il se rabat sur le nom ou le format — et <b>affiche le doute</b>.</td></tr>
-          <tr><td><b>Bretelles</b></td><td><b>Jamais de ville.</b> Entrée d'autoroute : <span class="agn-aide-ex">A4: Reims</span> — deux-points <b>collé au numéro, espacé de la direction</b>, et <b>une seule</b> direction, la première du panneau. Entrée de rocade : le nom de route seul (<span class="agn-aide-ex">Périphérique Ouest</span>). Sortie numérotée : <span class="agn-aide-ex">Sortie 18: Valensole</span>, ou <span class="agn-aide-ex">Sortie 47</span> seule ; <b>le nom de l'échangeur s'ignore</b>. Sortie sans numéro de route : <span class="agn-aide-ex">&gt; Orsay</span>. Une <b>seconde direction</b> ne s'ajoute qu'en cas d'ambiguïté sur le panneau : <span class="agn-aide-ex">D118: Chartres / Villejust</span>.<br>⚠️ Une bretelle <b>sans nom</b> est <b>correcte</b> : elle hérite du segment suivant.<br>
-          <b>Ce que WNA contrôle ici :</b> l'espacement du « : », une direction qui serait un
-          numéro de route, un double numéro — et, depuis la v2.32, <b>les règles d'écriture
-          ordinaires</b> (majuscule, abréviations, dictionnaire), auxquelles une bretelle
-          n'échappe pas.</td></tr>
-          <tr><td><b>Voies communales</b></td><td>La <b>forme abrégée du panneau</b> : <span class="agn-aide-ex">C6</span>, <span class="agn-aide-ex">VC6</span>, <span class="agn-aide-ex">CR12</span>… et <b>pas</b> « Voie Communale n°6 », qui serait tronqué en guidage. <b>WNA le signale et propose la forme courte.</b></td></tr>
-          <tr><td><b>Voie sur deux communes</b></td><td>Le <b>même nom de rue</b> en alternatif, avec la seconde ville.</td></tr>
-          <tr><td><b>Voies ferrées</b></td><td>Ni nom de rue, ni ville — et <b>ni en principal, ni en alternatif</b>. ⚠️ WNA signale donc aussi un nom porté en alternatif ; il ne peut pas le retirer lui-même (l'éditeur de Waze ne sait pas supprimer un alternatif), c'est un geste manuel.</td></tr>
-          <tr><td><b>Pistes d'aéroport</b></td><td>Jamais de ville. Le <b>code OACI</b> de l'aéroport <b>peut</b> être mis en nom de rue — WNA ne le réclame donc plus.</td></tr>
-          <tr><td><b>Giratoires</b></td><td>Sans nom ; la ville suit la zone.</td></tr>
-        </table>
-
-        <div class="agn-aide-note">⚠️⚠️ <b>Ce que WNA ne vérifie PAS — mesuré, pas supposé.</b>
-          Un contrôle absent est invisible : autant le dire.<br>
-          • WNA <b>ne voit pas les panneaux</b>. Il ne peut donc <b>jamais</b> juger si un mot
-          est le nom d'un <b>échangeur</b> (<span class="agn-aide-ex">Sortie 23 Remoulins: Avignon</span>),
-          ni si une <b>seconde direction</b> est justifiée
-          (<span class="agn-aide-ex">Sortie 18: Valensole / Gréoux</span> — elle n'est admise
-          qu'en cas d'ambiguïté sur le panneau). Il se tait sur ces cas, volontairement :
-          le guide dit lui-même « ne tentez pas d'improviser ».<br>
-          • <b>Une rocade sans cartouche</b> n'est reconnue qu'à son nom ou à son format. WNA
-          le fait, mais il <b>affiche alors le doute</b> au lieu de trancher : le seul élément
-          certain est le <b>cartouche « Rocade »</b>. Poser ce cartouche lève l'ambiguïté —
-          pour WNA comme pour les autres éditeurs.</div>` },
+      { id: 'regles', titre: REF.aideReglesTitre, corps: REF.aideRegles() },
 
       { id: 'controles', titre: '🏷️ Ce que chaque contrôle vérifie', corps: `
         <p>Tout se décoche, dans <b>☰ → Contrôles</b>. Un contrôle décoché ne signale rien
           et le bilan le rappelle.</p>
         <table class="agn-aide-t">
-          <tr><td><b>Nommage agglo / hors agglo</b></td><td>Le cœur : en agglomération une voie porte la ville, hors agglomération elle ne la porte pas — et le numéro de route passe au principal.<br>⚠️ <b>Y compris sur les parkings et les voies privées</b>, qui sont pourtant exclus du reste de l'audit : leur nom n'est pas jugé (une absence de nom n'y est pas une anomalie), mais une <b>ville en trop hors agglomération</b> y est une faute comme partout ailleurs. Ces reports portent le cas <b>H-VP</b> ; la ville se retire <b>à la main</b>, aucune correction automatique n'est proposée sur ces voies.</td></tr>
-          <tr><td><b>Cartouches</b></td><td>Un numéro de route (Dxxx, Nxxx, Cxxx) doit porter son écusson. ⚠️ En agglomération, <b>aucun cartouche sur un nom de rue en principal</b>.</td></tr>
-          <tr><td><b>Bretelles · Rocades</b></td><td>Ne portent <b>jamais</b> de ville.</td></tr>
-          <tr><td><b>Voies ferrées, pistes, ferries</b></td><td><b>Jamais de ville</b>, dans les trois cas. Le <b>nom</b>, lui, suit trois règles distinctes : une <b>voie ferrée</b> n'en porte <b>ni en principal ni en alternatif</b> ; une <b>piste d'aéroport</b> peut porter son <b>code OACI</b> ; un <b>ferry</b> n'en porte pas en principal.</td></tr>
-          <tr><td><b>Giratoires</b></td><td>Sans nom ; la ville suit la zone (et le format « Village (Commune) » s'il y a lieu).</td></tr>
-          <tr><td><b>Abréviations</b></td><td>« Av. », « Bd », « Rte »… à écrire en toutes lettres.</td></tr>
-          <tr><td><b>Contractions</b></td><td>« St- » pour Saint-, « R. Poincaré »…</td></tr>
-          <tr><td><b>Minuscule initiale</b></td><td>Un nom de voie commence par une majuscule.</td></tr>
-          <tr><td><b>Numéro collé au nom</b></td><td>« D980 - Route de… » est <b>interdit</b> : le numéro va au principal hors agglo, ou en alternatif en agglo, jamais collé au nom.</td></tr>
-          <tr><td><b>Fonction ou direction</b></td><td>« vers X », « accès Y » n'appartiennent pas au nom.</td></tr>
-          <tr><td><b>Rédaction : dictionnaire FR</b></td><td>Confronte le nom au <b>dictionnaire communautaire français</b> (~1 430 règles) et propose le nom corrigé : abréviations que les contrôles ci-dessus ne voient pas (« Che », « Pl », « Imp », « Sq »), titres (« Dr », « Gal », « Cdt », « Mal »), <b>accents manquants</b>, espaces en trop, « St-Jean ».</td></tr>
+          ${siControle("nommageZone", `<tr><td><b>Nommage agglo / hors agglo</b></td><td>Le cœur : en agglomération une voie porte la ville, hors agglomération elle ne la porte pas — et le numéro de route passe au principal.<br>⚠️ <b>Y compris sur les parkings et les voies privées</b>, qui sont pourtant exclus du reste de l'audit : leur nom n'est pas jugé (une absence de nom n'y est pas une anomalie), mais une <b>ville en trop hors agglomération</b> y est une faute comme partout ailleurs. Ces reports portent le cas <b>H-VP</b> ; la ville se retire <b>à la main</b>, aucune correction automatique n'est proposée sur ces voies.</td></tr>`)}
+          ${siControle("cartouches", `<tr><td><b>Cartouches</b></td><td>Un numéro de route (Dxxx, Nxxx, Cxxx) doit porter son écusson. ⚠️ En agglomération, <b>aucun cartouche sur un nom de rue en principal</b>.</td></tr>`)}
+          ${siControle("bretelles", `<tr><td><b>Bretelles${siControle("rocades", ' · Rocades')}</b></td><td>Ne portent <b>jamais</b> de ville.</td></tr>`)}
+          ${siControle("rails", `<tr><td><b>Voies ferrées, pistes, ferries</b></td><td><b>Jamais de ville</b>, dans les trois cas. Le <b>nom</b>, lui, suit trois règles distinctes : une <b>voie ferrée</b> n'en porte <b>ni en principal ni en alternatif</b> ; une <b>piste d'aéroport</b> peut porter son <b>code OACI</b> ; un <b>ferry</b> n'en porte pas en principal.</td></tr>`)}
+          ${siControle("giratoires", `<tr><td><b>Giratoires</b></td><td>Sans nom ; la ville suit la zone (et le format « Village (Commune) » s'il y a lieu).</td></tr>`)}
+          ${siControle("abreviations", `<tr><td><b>Abréviations</b></td><td>« Av. », « Bd », « Rte »… à écrire en toutes lettres.</td></tr>`)}
+          ${siControle("contractions", `<tr><td><b>Contractions</b></td><td>« St- » pour Saint-, « R. Poincaré »…</td></tr>`)}
+          ${siControle("majuscule", `<tr><td><b>Minuscule initiale</b></td><td>Un nom de voie commence par une majuscule.</td></tr>`)}
+          ${siControle("nomComposite", `<tr><td><b>Numéro collé au nom</b></td><td>« D980 - Route de… » est <b>interdit</b> : le numéro va au principal hors agglo, ou en alternatif en agglo, jamais collé au nom.</td></tr>`)}
+          ${siControle("fonctionDirection", `<tr><td><b>Fonction ou direction</b></td><td>« vers X », « accès Y » n'appartiennent pas au nom.</td></tr>`)}
+          ${siControle("redactionDico", `<tr><td><b>Rédaction : dictionnaire FR</b></td><td>Confronte le nom au <b>dictionnaire communautaire français</b> (~1 430 règles) et propose le nom corrigé : abréviations que les contrôles ci-dessus ne voient pas (« Che », « Pl », « Imp », « Sq »), titres (« Dr », « Gal », « Cdt », « Mal »), <b>accents manquants</b>, espaces en trop, « St-Jean ».</td></tr>`)}
+          ${siControle("fari", `<tr><td><b>Feux obligatoires</b></td><td>L'attribut <i>obbligo di accensione dei fari</i> doit être posé <b>hors du centro abitato</b>, et retiré à l'intérieur. Le script compare l'attribut à la zone.</td></tr>`)}
+          ${siControle("sigleEspace", `<tr><td><b>Sigles avec un espace</b></td><td>Un numéro de route s'écrit <b>collé</b> : <span class="agn-aide-ex">SS12</span>, jamais <span class="agn-aide-ex">SS 12</span>.</td></tr>`)}
+          ${siControle("dateRomaine", `<tr><td><b>Dates en chiffres romains</b></td><td><span class="agn-aide-ex">Via IV Novembre</span> s'écrit <span class="agn-aide-ex">Via 4 Novembre</span>. ⚠️ Ne vise que les <b>dates</b> : les papes et les rois gardent leurs chiffres romains.</td></tr>`)}
+          ${siControle("formatBretelle", `<tr><td><b>Bretelles : format du nom</b></td><td>Le nom doit suivre le format du pays regardé — et le script dit lequel dans son infobulle.</td></tr>`)}
+          ${siControle("voieCommunale", `<tr><td><b>Voies communales</b></td><td>Forme abrégée obligatoire : <span class="agn-aide-ex">C6</span>, pas <span class="agn-aide-ex">Voie Communale n°6</span>.</td></tr>`)}
         </table>
-        <div class="agn-aide-note">🏷️ <b>D'où viennent ces règles.</b> Elles ne sont pas de nous :
+        ${siControle("redactionDico", `<div class="agn-aide-note">🏷️ <b>D'où viennent ces règles.</b> Elles ne sont pas de nous :
           c'est le dictionnaire de <b>WME Check Road Name</b> (buchet37), maintenu par la
           communauté française depuis 2015 dans deux classeurs partagés, et employé ici
           <b>avec l'accord de son auteur</b>. WNA les <b>lit</b>, il n'en garde pas de copie —
@@ -11750,7 +11887,7 @@
           casse déjà à peu près correcte : il ne sait <b>pas</b> redresser un nom écrit
           entièrement en majuscules (« RUE DES ECOLES » lui fait produire « RUE DES ÉcolES »).
           Dans ce cas précis, WNA <b>signale la capitale sans proposer de nom</b> — mieux vaut
-          te laisser écrire le bon que t'en suggérer un faux.</div>` },
+          te laisser écrire le bon que t'en suggérer un faux.</div>`)}` },
 
       { id: 'numerotation', titre: '🔢 Numérotation : numéros et POI résidentiels', corps: `
         <p>Règle française : <b>en agglomération le numéro est porté par le segment</b> (HN),
@@ -11782,7 +11919,7 @@
         <p>Cet onglet ne parle <b>pas</b> des POI résidentiels, mais des commerces, services,
           bâtiments nommés — et de leur adresse.</p>
         <table class="agn-aide-t">
-          <tr><td><b>Adresse incomplète</b></td><td>Rue ou commune manquante. Le script <b>propose une adresse</b> : la voie nommée la plus proche du point d'accès, et la commune du contour INSEE.</td></tr>
+          <tr><td><b>Adresse incomplète</b></td><td>Rue ou commune manquante. Le script <b>propose une adresse</b> : la voie nommée la plus proche du point d'accès, et la commune du contour ${REF.libelleDecoupage}.</td></tr>
           ${siCorrecteur('<tr><td><b>⚡ sur un POI</b></td><td>Applique rue + commune. Si plusieurs noms sont possibles, le clic <b>ouvre une liste</b> : le plus probable en tête, les numéros de route ensuite, et une saisie libre.</td></tr>')}
           <tr><td><b>Le numéro</b></td><td>Proposé, <b>jamais appliqué</b> : à quelques dizaines de mètres, ce peut être celui du voisin. À saisir à la main après vérification.</td></tr>
           <tr><td><b>Commune différente</b></td><td>Présenté comme <b>à vérifier</b>, avec la distance à la limite communale : près d'une frontière, l'adresse de la voisine peut être la bonne.</td></tr>

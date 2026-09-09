@@ -239,12 +239,12 @@ titre('Geometries « Multi » : eclatees en features simples');
 {
   const LIEN = 'waze.com/discuss/t/nommage-des-segments-des-rues-des-routes/375658';
   verifier('15. la section des regles officielles existe',
-    /\{ id: 'regles', titre: '📖 Les règles officielles françaises'/.test(src), true);
+    /\{ id: 'regles', titre: REF\.aideReglesTitre, corps: REF\.aideRegles\(\) \}/.test(src), true);
   verifier('15. ⭐ elle PRECEDE « Ce que chaque controle verifie » (la regle avant le controle)',
     src.indexOf("id: 'regles'") < src.indexOf("id: 'controles'"), true);
-  verifier('15. le guide FR est lie depuis la section',
-    src.slice(src.indexOf("id: 'regles'"), src.indexOf("id: 'controles'"))
-       .indexOf(LIEN) !== -1, true);
+  // ⚠️ Le contrôle « le guide du pays est lié depuis la section » a rejoint le
+  //    bloc du bas : il s'exécute maintenant POUR CHAQUE référentiel, et il
+  //    lui faut `sectionsDe`, qui n'existe pas encore ici.
   verifier('15. … et depuis le pied de l\'aide',
     /agn-aide-pied[\s\S]{0,400}nommage-des-segments/.test(src), true);
   // ⚠️⚠️ Un lien qui remplace l'onglet ferait quitter WME a l'editeur, avec ses
@@ -296,19 +296,160 @@ titre('Geometries « Multi » : eclatees en features simples');
   // ne doit pas casser ce test pour une raison sans rapport avec son objet.
   const constantes = new Set();
   bloc.replace(/\$\{([^}]*)\}/g, (m, x) => {
-    (x.match(/\b[A-Z][A-Z0-9_]{2,}\b/g) || []).forEach(k => constantes.add(k));
+    // ⚠️ `REF` est passe en PARAMETRE (le referentiel du pays regarde) : le
+    //    declarer ici en plus le redeclarerait, et rien ne compilerait.
+    (x.match(/\b[A-Z][A-Z0-9_]{2,}\b/g) || [])
+      .filter(k => k !== 'REF').forEach(k => constantes.add(k));
     return m;
   });
-  const sectionsDe = autorise => new Function('autorise', [
+  /**
+   * ⭐⭐⭐⭐ LE REFERENTIEL EST DESORMAIS UN PARAMETRE DE L'AIDE (v2.42), et
+   * c'est ce qui rend le controle du bas possible. On ne fabrique PAS un faux :
+   * chaque valeur est RELEVEE dans le vrai bloc `REFERENTIELS.<pays>` du
+   * script. Un texte d'aide invente ici ne prouverait rien de ce que l'editeur
+   * lira.
+   */
+  function refDeTest(pays) {
+    const iP = src.indexOf('\n    ' + pays + ': {');
+    if (iP < 0) throw new Error('referentiel introuvable : ' + pays);
+    // ⚠️ LA BORNE DE FIN COMPTE. Premiere version : jusqu'a la fin de
+    //    REFERENTIELS — le bloc « FR » avalait donc l'Italie, et le relevé de
+    //    ses controles en rendait 26 au lieu de 21. Un test qui se trompe de
+    //    perimetre ne mesure plus ce qu'il croit.
+    const suivant = src.slice(iP + 1).search(/\n {4}[A-Z]{2}: \{/);
+    const fin = suivant < 0 ? src.indexOf('\n  };', iP) : iP + 1 + suivant;
+    const b = src.slice(iP, fin);
+    const chaine = cle => {
+      const m = b.match(new RegExp(cle + ":\\s*('((?:[^'\\\\]|\\\\.)*)'|\"([^\"]*)\")"));
+      return m ? (m[2] !== undefined ? m[2].replace(/\\'/g, "'") : m[3]) : '';
+    };
+    const tpl = cle => {
+      const d = b.indexOf(cle + ': () => `');
+      if (d < 0) return '';
+      const s = d + (cle + ': () => `').length;
+      return b.slice(s, b.indexOf('`,', s));
+    };
+    const sc = b.slice(b.indexOf('sourceContours: {'));
+    const scChaine = cle => {
+      const m = sc.match(new RegExp(cle + ":\\s*'((?:[^'\\\\]|\\\\.)*)'"));
+      return m ? m[1].replace(/\\'/g, "'") : '';
+    };
+    return {
+      // `sourcePanneaux: null` en Italie : c'est LUI qui fait disparaitre tout
+      // le chemin « relever les panneaux / proposer un trace ».
+      sourcePanneaux: /sourcePanneaux: null/.test(b) ? null : { libelle: 'panneaux' },
+      sourceContours: { libelle: scChaine('libelle'), uniteLabel: scChaine('uniteLabel'),
+                        unitesLabel: scChaine('unitesLabel') },
+      provenanceContours: (b.match(/provenanceContours: "([^"]*)"/) || [, ''])[1],
+      libelleCode: chaine('libelleCode'),
+      formatVillage: pays === 'IT' ? (v, c) => v + ', ' + c : (v, c) => v + ' (' + c + ')',
+      aideReglesTitre: chaine('aideReglesTitre'),
+      aideRegles: () => tpl('aideRegles'),
+      // Les VRAIES cles de controle du pays, relevees dans son referentiel.
+      controles: [...b.matchAll(/\{ cle: '([a-zA-Z]+)'/g)].map(m => ({ cle: m[1] }))
+    };
+  }
+
+  const sectionsDe = (autorise, pays) => new Function('autorise', 'REF', [
     [...constantes].map(k => 'const ' + k + ' = 0;').join('\n'),
     'const droits = () => ({ autorise, niveau: "L5", motifs: [], rangsLus: 1 });',
     'const siCorrecteur = html => (droits().autorise ? html : "");',
+    'const siPanneaux = html => (REF.sourcePanneaux ? html : "");',
+    'const siPasDePanneaux = html => (REF.sourcePanneaux ? "" : html);',
+    'const motUnite = p => { const sc = REF.sourceContours || {};' +
+      ' return (p ? sc.unitesLabel : sc.uniteLabel) || (p ? "unités" : "unité"); };',
+    'const siControle = (cle, html) =>' +
+      ' ((REF.controles || []).some(c => c.cle === cle) ? html : "");',
     bloc,
     'return sectionsAide();'
-  ].join('\n'))(autorise);
-  const corpsDe = autorise =>
-    sectionsDe(autorise).map(s => s.titre + s.corps).join('\n');
+  ].join('\n'))(autorise, refDeTest(pays || 'FR'));
+  const corpsDe = (autorise, pays) =>
+    sectionsDe(autorise, pays).map(s => s.titre + s.corps).join('\n');
   const sans = corpsDe(false), avec = corpsDe(true);
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // ⭐⭐⭐⭐ L'AIDE SUIT LE REFERENTIEL — le controle qui manquait (09/09)
+  //
+  // 🔴 MESURE QUI L'A DECLENCHE : 110 mentions franco-specifiques dans les
+  // 37 Ko d'aide, dont CINQ sur les panneaux EB10/EB20 — un chemin qui n'existe
+  // pas en Italie, ou `sourcePanneaux` vaut `null` et ou le bouton n'est meme
+  // pas construit. L'aide expliquait donc a un editeur italien comment se
+  // servir d'un bouton absent de son ecran, et rien ne le disait.
+  //
+  // ⚠️ ON EXECUTE, ON NE LIT PAS LE CODE : le test monte `sectionsAide()` avec
+  // le referentiel de chaque pays et regarde ce qui SORT. Un test textuel
+  // laisserait passer la prochaine phrase francaise ecrite en dur.
+  // ═════════════════════════════════════════════════════════════════════════
+  {
+    const LIEN_FR = 'waze.com/discuss/t/nommage-des-segments-des-rues-des-routes/375658';
+    for (const pays of ['FR', 'IT']) {
+      const regles = sectionsDe(true, pays).find(s => s.id === 'regles');
+      verifier('22. [' + pays + '] la section des regles a un titre et un corps',
+        !!(regles && regles.titre && regles.corps && regles.corps.length > 500), true);
+      verifier('22. [' + pays + '] ⭐ elle renvoie a la Wazeopedia de CE pays',
+        /waze\.com\/discuss\/t\/[a-z0-9-]+\/\d+/.test(regles.corps), true);
+      verifier('22. [' + pays + '] ⭐ et elle dit que la regle ne lui appartient PAS',
+        /n'appartiennent pas à WNA/.test(regles.corps), true);
+    }
+    verifier('22. le guide FR est lie depuis les regles FRANCAISES',
+      sectionsDe(true, 'FR').find(s => s.id === 'regles').corps.indexOf(LIEN_FR) !== -1, true);
+
+    // 🔴 LE CŒUR : rien de franco-specifique ne doit survivre cote italien.
+    const corpsIT = corpsDe(true, 'IT');
+    const INTERDITS = [
+      ['EB10 / EB20', /EB10|EB20/],
+      ['INSEE', /INSEE/],
+      ['geo.api.gouv.fr', /geo\.api\.gouv\.fr/],
+      ['IGN / Admin Express', /IGN|Admin Express/],
+      ['département', /département/i],
+      ['le guide France', /guide France/i]
+    ];
+    for (const [quoi, re] of INTERDITS) {
+      verifier('23. 🔴 [IT] l\'aide ne parle jamais de « ' + quoi + ' »',
+        re.test(corpsIT), false);
+    }
+    // ⚠️ TEMOIN — sans lui, « 0 occurrence » passerait aussi si l'aide italienne
+    //    ne rendait plus rien du tout. C'est la faute exacte que le bloc ⚡
+    //    ci-dessus s'etait deja faite attraper.
+    verifier('23. ⚠️ temoin : l\'aide italienne existe et est substantielle',
+      corpsIT.length > 15000, true);
+    verifier('23. ⚠️ temoin : la MEME mesure trouve bien ces mots cote francais',
+      INTERDITS.filter(([, re]) => re.test(corpsDe(true, 'FR'))).length, INTERDITS.length);
+    // Et le vocabulaire du pays doit, lui, etre present.
+    verifier('24. ⭐ [IT] l\'aide parle de « centro abitato » et de « comuni ISTAT »',
+      /centro abitato/i.test(corpsIT) && /ISTAT/.test(corpsIT), true);
+    verifier('24. ⭐ [IT] et elle dit que le trace se fait A LA MAIN',
+      /à la main/i.test(corpsIT), true);
+
+    // ⭐⭐⭐⭐ ET LE CONTROLE QUI EMPECHE L'OUBLI : chaque controle declare par un
+    // referentiel doit avoir SA ligne dans l'aide de ce pays. On BALAIE les
+    // referentiels au lieu de citer ceux qu'on connait — le prochain pays sera
+    // couvert sans que personne y pense. Sans lui, l'aide italienne decrivait
+    // « Rocades » et le dictionnaire francais (deux cases absentes de son
+    // panneau) et taisait `fari`, `sigleEspace` et `dateRomaine`.
+    const SANS_LIGNE = new Set([
+      // Ceux-la sont expliques ailleurs, dans leurs sections dediees.
+      'hnHorsAgglo', 'hnSurRoute', 'poiAgglo', 'poiAdresse', 'poiVilleCommune',
+      'poiNumero', 'bretelleForme'
+    ]);
+    // ⚠️ La COUVERTURE se lit dans le source de la section (quels `siControle`
+    //    y sont ecrits), l'ABSENCE de mentions francaises se lit dans le RENDU.
+    //    Compter les lignes rendues ne dirait ni l'un ni l'autre : la section
+    //    porte aussi des lignes qui n'appartiennent a aucun controle.
+    const srcCtrl = src.slice(src.indexOf("{ id: 'controles', titre:"),
+                              src.indexOf("{ id: 'numerotation', titre:"));
+    const enrobes = new Set([...srcCtrl.matchAll(/siControle\("([a-zA-Z]+)"/g)].map(m => m[1]));
+    for (const pays of ['FR', 'IT']) {
+      const declares = refDeTest(pays).controles.map(c => c.cle)
+        .filter(c => !SANS_LIGNE.has(c));
+      verifier('25. [' + pays + '] ⭐⭐ aucun controle declare sans ligne d\'aide',
+        declares.filter(c => !enrobes.has(c)), []);
+    }
+    // ⚠️ TEMOIN : sans lui, « aucun orphelin » passerait aussi si le relevé des
+    //    `siControle` ramenait tout le fichier.
+    verifier('25. ⚠️ temoin : le relevé des lignes enrobees est plausible',
+      enrobes.size >= 10 && enrobes.size <= 30, true);
+  }
 
   // ⚠️ Le TEMOIN d'abord : sans lui, « 0 occurrence » ne prouverait rien — le
   // test passerait aussi si `sectionsAide` ne rendait plus rien du tout.
