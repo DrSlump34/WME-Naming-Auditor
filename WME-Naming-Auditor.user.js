@@ -2,7 +2,7 @@
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
 // @version      2.48.00
-// @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
+// @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies selon les règles du pays regardé (agglomération / centro abitato, contours communaux INSEE / ISTAT). Interface et aide en français et en italien. ⚠️ Le portage italien est en phase de TEST.
 // @author       DrSlump34
 // @license      MIT
 // @icon         https://raw.githubusercontent.com/DrSlump34/WME-Naming-Auditor/master/icon-128.png
