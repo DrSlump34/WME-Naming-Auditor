@@ -5301,6 +5301,111 @@
     return (d && d[fr]) || fr;
   }
 
+  // ⚠️ Les attributs qui S'AFFICHENT. `alt` et `aria-label` n'existent pas dans
+  //    cette interface, mais les ajouter ici ne coute rien le jour ou ils
+  //    arrivent — alors qu'un attribut oublie ne se voit jamais.
+  const ATTRS_VISIBLES = ['title', 'placeholder', 'aria-label', 'alt'];
+
+  /**
+   * TRADUIRE A LA SORTIE — le choix d'architecture du 09/09.
+   *
+   * ⭐⭐⭐⭐ L'ALTERNATIVE ETAIT D'ENVELOPPER ~1 100 CHAINES DANS `tr()`, une par
+   * une, dans des templates HTML. C'est la meme passe mecanique que
+   * l'accentuation de la v2.05, dont `tools/README.md` liste les regressions
+   * SILENCIEUSES : un nom de calque accentue qui casse le surlignage, un
+   * `${etiquette}` transforme en placeholder mort. Et un texte oublie dans la
+   * passe ne se voit jamais — il reste simplement en francais.
+   *
+   * ⇒ Ici, RIEN dans les templates ne bouge. Un seul point lit le DOM produit
+   * et remplace ce que le dictionnaire connait. Consequences :
+   *   • traduire = ajouter UNE ligne au dictionnaire, et elle s'applique
+   *     partout ou la phrase apparait, y compris dans les infobulles ;
+   *   • un texte absent du dictionnaire est laisse INTACT — la fonction ne
+   *     peut donc pas degrader un affichage, seulement le traduire ;
+   *   • et en francais elle ne fait RIEN : `LANGUE === 'fr'` sort tout de
+   *     suite, aucun parcours, aucun cout pour les editeurs francais, qui sont
+   *     l'immense majorite.
+   *
+   * ⚠️ PAS DE `TreeWalker` : la recursion sur `childNodes` fait la meme chose
+   * et se rejoue hors navigateur, ce qui rend la fonction EPROUVABLE
+   * (`tools/test-traduire-dom.js` la fait tourner sur un DOM de papier). Une
+   * fonction d'interface qu'aucun harnais ne peut atteindre se verifie a
+   * l'oeil, c'est-a-dire pas du tout.
+   *
+   * 🔴 ELLE NE CHANGE JAMAIS LA STRUCTURE — que des `nodeValue` et des
+   * attributs. C'est ce qui permet a l'observateur qui l'appelle (voir
+   * `observerTraduction`) de ne pas se declencher lui-meme : aucune mutation
+   * `childList` n'en sort, donc pas de boucle a rompre par un drapeau.
+   */
+  function traduireDOM(racine) {
+    if (LANGUE === 'fr' || !racine) return racine;
+    const d = TEXTES[LANGUE];
+    if (!d) return racine;
+
+    const noeud = n => {
+      if (!n) return;
+      // 3 = nœud texte. C'est le seul qui porte du texte affiche.
+      if (n.nodeType === 3) {
+        const brut = n.nodeValue || '';
+        const cle = brut.trim();
+        // ⚠️ On garde les espaces d'origine : « Segments <span> » perdrait son
+        //    espace, et deux mots se colleraient.
+        if (cle && d[cle]) n.nodeValue = brut.replace(cle, d[cle]);
+        return;
+      }
+      if (n.nodeType !== 1) return;            // ni element, ni texte : rien a faire
+      for (const a of ATTRS_VISIBLES) {
+        const v = n.getAttribute && n.getAttribute(a);
+        if (!v) continue;
+        const t = d[String(v).trim()];
+        if (t) n.setAttribute(a, t);
+      }
+      const enfants = n.childNodes;
+      if (!enfants) return;
+      // ⚠️ Copie : traduire ne modifie pas la liste, mais s'appuyer sur une
+      //    collection VIVANTE est un piege qui ne se voit que le jour ou
+      //    quelqu'un fait autre chose ici.
+      for (const c of Array.prototype.slice.call(enfants)) noeud(c);
+    };
+    noeud(racine);
+    return racine;
+  }
+
+  /**
+   * Traduire CE QUI ARRIVE dans la fenetre, pas seulement ce qui y etait.
+   *
+   * ⚠️⚠️ SANS CECI, LA TRADUCTION NE TIENDRAIT PAS UNE SECONDE. Le panneau se
+   * reecrit sans arret — `renderResults`, `renderAgglos`, `peindreControles`,
+   * le guidage… : 59 `innerHTML =` dans le fichier. Traduire une fois a la
+   * construction laisserait l'italien disparaitre au premier rendu.
+   *
+   * ⭐ Et c'est pour ca que l'observateur bat l'appel manuel : appeler
+   * `traduireDOM` apres chaque rendu supposerait de les CONNAITRE TOUS, et
+   * d'y penser au prochain. « Un controle qui enumere ne protege que ce dont
+   * on s'est souvenu. » Ici, tout ce qui entre dans la fenetre est traduit,
+   * qu'on l'ait prevu ou non.
+   *
+   * 🔴 PAS DE BOUCLE POSSIBLE : on n'observe que `childList`, et `traduireDOM`
+   * ne touche qu'a des `nodeValue` et des attributs. Ses propres ecritures ne
+   * produisent donc AUCUNE mutation observee. C'est une propriete de la
+   * fonction, pas une precaution : si un jour elle se met a creer ou deplacer
+   * des noeuds, il faudra un `disconnect()` autour.
+   */
+  function observerTraduction(racine) {
+    if (LANGUE === 'fr' || !racine) return null;
+    const MO = (hote && hote.MutationObserver) || window.MutationObserver;
+    if (!MO) return null;                      // navigateur trop ancien : tant pis
+    try {
+      const obs = new MO(lots => {
+        for (const lot of lots) {
+          for (const n of lot.addedNodes) traduireDOM(n);
+        }
+      });
+      obs.observe(racine, { childList: true, subtree: true });
+      return obs;
+    } catch (e) { log('traduction : observateur impossible', e); return null; }
+  }
+
   const IT_CODES = new Set(['IT']);
   const IT_NOMS = new Set(['italie', 'italia', 'italy'].map(n => normSansAccent(n)));
 
@@ -10588,6 +10693,10 @@
           <button class="agn-btn" id="agn-volet-ok" title="Referme ce volet et rend la place à la fenêtre de travail">Terminer et replier</button>
       </div></div>`);
     document.body.appendChild(o);
+    // ⚠️ L'ossature d'abord — elle existe DEJA quand l'observateur demarre, et
+    //    aucune mutation ne la signalera jamais.
+    traduireDOM(o);
+    observerTraduction(o);
 
     ui.overlay = o;
     ui.statutContours = o.querySelector('#agn-statut-contours');
