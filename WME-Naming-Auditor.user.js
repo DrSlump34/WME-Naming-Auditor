@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.43.00
+// @version      2.44.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -5222,6 +5222,85 @@
       'POI : numéro de rue manquant':
         'Luoghi: numero civico mancante',
 
+      // ── L'AIDE (09/09) ──────────────────────────────────────────────────
+      // ⭐ Traduite PAR BLOC : dans l'aide une phrase est coupee par ses
+      //    <b>, et l'italien ne remet pas les morceaux dans cet ordre. La
+      //    cle est donc le HTML interne de l'element, et la traduction porte
+      //    son propre balisage (voir `traduireDOM`).
+      // ⚠️ Ces blocs couvrent les DEUX referentiels : un editeur italien qui
+      //    aide en France lit l'aide FRANCAISE en italien.
+      '🚀 Démarrage rapide':
+        '🚀 Avvio rapido',
+      '🗺️ Les contours communaux':
+        '🗺️ I confini comunali',
+      '✏️ Délimiter l\'agglomération':
+        '✏️ Delimitare il centro abitato',
+      '🔍 Lancer l\'analyse':
+        '🔍 Avviare l\'analisi',
+      '🏘 Sélection rapide : en ville / hors ville':
+        '🏘 Selezione rapida: dentro / fuori il centro abitato',
+      '📋 Lire et traiter les résultats':
+        '📋 Leggere e trattare i risultati',
+      '📖 Les règles officielles françaises':
+        '📖 Le regole ufficiali francesi',
+      '🏷️ Ce que chaque contrôle vérifie':
+        '🏷️ Cosa verifica ogni controllo',
+      '🔢 Numérotation : numéros et POI résidentiels':
+        '🔢 Numerazione: numeri civici e luoghi residenziali',
+      '📍 POI : l\'adresse des vrais lieux':
+        '📍 Luoghi: l\'indirizzo dei veri luoghi',
+      '💾 Sauvegarde et partage':
+        '💾 Salvataggio e condivisione',
+      '⚠️ Limites et messages fréquents':
+        '⚠️ Limiti e messaggi frequenti',
+      '🌍 Les pays pris en charge':
+        '🌍 I paesi supportati',
+      '🎬 <b><a href="https://drive.google.com/file/d/1f1zLZQvBatKcZv9dQ6dCtRN-VDXAiq6_/view" target="_blank" rel="noopener">Voir en vidéo : la zone bâtie, et les villages rattachés</a></b> — 1 minute, sur l\'exemple de Gruissan. C\'est le point sur lequel on se trompe le plus souvent.':
+        '🎬 <b><a href="https://drive.google.com/file/d/1f1zLZQvBatKcZv9dQ6dCtRN-VDXAiq6_/view" target="_blank" rel="noopener">Guarda il video: il centro abitato e le frazioni</a></b> — 1 minuto, sull\'esempio di Gruissan (Francia). È il punto su cui ci si sbaglia più spesso.',
+      '<b>Charge les contours</b> de ton département : bouton <b>☰</b> puis <b>Contours communaux</b> → <b>Télécharger (geo.api.gouv.fr)</b>. Une fois pour toutes.':
+        '<b>Carica i confini</b> del tuo dipartimento: pulsante <b>☰</b> poi <b>Confini comunali</b> → <b>Scarica (geo.api.gouv.fr)</b>. Una volta per tutte.',
+      '<b>Charge les contours</b> de ta province : bouton <b>☰</b> puis <b>Contours communaux</b> → <b>Télécharger (openpolis / ISTAT)</b>. Une fois pour toutes.':
+        '<b>Carica i confini</b> della tua provincia: pulsante <b>☰</b> poi <b>Confini comunali</b> → <b>Scarica (openpolis / ISTAT)</b>. Una volta per tutte.',
+      '<b>Choisis la commune</b> dans la liste. Celles qui sont sous tes yeux remontent en tête (<b>📍 Sous les yeux</b>).':
+        '<b>Scegli il comune</b> nell\'elenco. Quelli sotto i tuoi occhi salgono in cima (<b>📍 Sotto gli occhi</b>).',
+      '<b>Délimite l\'agglomération</b> : <b>🪧 Panneaux d\'agglomération</b> puis <b>✏️ Proposer un tracé</b> — le script place les polygones d\'après les panneaux d\'entrée. À défaut, <b>＋ Tracer l\'agglomération</b> à la main.':
+        '<b>Delimita il centro abitato</b>: <b>🪧 Cartelli di centro abitato</b> poi <b>✏️ Proponi un tracciato</b> — lo script posiziona i poligoni in base ai cartelli di ingresso. In mancanza, <b>＋ Traccia il centro abitato</b> a mano.',
+      '<b>Délimite la zone bâtie</b> avec <b>＋ Tracer l\'agglomération</b>. ⚠️ <b>À la main : il n\'existe pas de relevé officiel des panneaux d\'entrée dans ce pays</b>, le bouton de tracé automatique n\'est donc pas proposé. Le tracé à la main est ici le chemin normal, pas un repli.':
+        '<b>Delimita il centro abitato</b> con <b>＋ Traccia il centro abitato</b>. ⚠️ <b>A mano: in questo paese non esiste alcun rilevamento ufficiale dei cartelli di ingresso</b>, quindi il tracciato automatico non viene proposto. Qui il tracciato a mano è la via normale, non un ripiego.',
+      '<b>Analyser la commune</b>. Rien n\'est enregistré : le script lit, compare, et propose.':
+        '<b>Analizza il comune</b>. Nulla viene salvato: lo script legge, confronta e propone.',
+      '<b>Traite les écarts</b> onglet par onglet. <b>⚡</b> applique une correction dans WME (sans enregistrer), <b>✓</b> marque une ligne comme traitée. <b>C\'est toi qui relis et qui enregistres.</b>':
+        '<b>Tratta le difformità</b> scheda per scheda. <b>⚡</b> applica una correzione in WME (senza salvare), <b>✓</b> segna una riga come trattata. <b>Sei tu che rileggi e che salvi.</b>',
+      'Le script <b>ne modifie ni n\'enregistre jamais rien tout seul</b>. Chaque ⚡ dépose une modification dans WME, exactement comme si tu l\'avais faite à la main : tu la relis, tu la gardes ou tu l\'annules (Ctrl+Z), et c\'est toi qui cliques Enregistrer.':
+        'Lo script <b>non modifica né salva mai nulla da solo</b>. Ogni ⚡ deposita una modifica in WME, esattamente come se l\'avessi fatta a mano: la rileggi, la tieni o la annulli (Ctrl+Z), e sei tu a cliccare Salva.',
+      '<b>Analyser la commune</b> lit tout le territoire communal — pas seulement ce que l\'écran montre.':
+        '<b>Analizza il comune</b> legge tutto il territorio comunale — non solo ciò che lo schermo mostra.',
+      'Repli automatique si la voie rapide échoue : la carte est parcourue en damier au zoom 16. Plus lent, et <b>le bandeau te le dit</b> — l\'audit des vrais POI n\'y est pas disponible.':
+        'Ripiego automatico se la via rapida fallisce: la mappa viene percorsa a scacchiera allo zoom 16. Più lento, e <b>il banner te lo dice</b> — l\'audit dei veri luoghi non è disponibile.',
+      'Interrompt l\'analyse. Ce qui a été vu reste affiché, et le script <b>signale que le constat est partiel</b> plutôt que de conclure sur un échantillon.':
+        'Interrompe l\'analisi. Ciò che è stato visto resta visualizzato, e lo script <b>segnala che il quadro è parziale</b> invece di concludere su un campione.',
+      'Ce qui est écarté est <b>compté et dit</b> dans le bilan : hors commune, voies sans adressage, voies à règle propre. Un compteur qui baisse doit toujours s\'expliquer.':
+        'Ciò che viene escluso è <b>contato e dichiarato</b> nel bilancio: fuori comune, strade senza indirizzamento, strade con regole proprie. Un contatore che cala deve sempre spiegarsi.',
+      'Trois onglets, trois sujets : <b>Segments</b> (le nommage), <b>Numérotation</b> (numéros de rue et POI résidentiels), <b>POI</b> (l\'adresse des vrais lieux). Le chiffre sur l\'onglet est son nombre de reports.':
+        'Tre schede, tre argomenti: <b>Segmenti</b> (la denominazione), <b>Numerazione</b> (numeri civici e luoghi residenziali), <b>Luoghi</b> (l\'indirizzo dei veri luoghi). Il numero sulla scheda è il totale delle sue segnalazioni.',
+      'Les écarts sont réunis par <b>famille</b> — la pastille de couleur est celle du surlignage sur la carte. Une thématique <b>entièrement traitée se replie d\'elle-même</b>, compteur au vert.':
+        'Le difformità sono raggruppate per <b>famiglia</b> — il pallino colorato è quello dell\'evidenziazione sulla mappa. Un tema <b>interamente trattato si richiude da solo</b>, con il contatore in verde.',
+      'Applique la correction proposée <b>dans WME, sans enregistrer</b>. Sur un groupe, le ⚡ de l\'en-tête traite d\'un coup tout ce qui est automatisable.':
+        'Applica la correzione proposta <b>in WME, senza salvare</b>. Su un gruppo, il ⚡ dell\'intestazione tratta in un colpo solo tutto ciò che è automatizzabile.',
+      'Marque la ligne comme traitée : elle se barre, sort de la carte, et <b>revient cochée à la prochaine analyse</b>. Ces coches sont personnelles, elles ne partent jamais dans un partage.':
+        'Segna la riga come trattata: viene barrata, esce dalla mappa e <b>torna spuntata alla prossima analisi</b>. Queste spunte sono personali, non finiscono mai in una condivisione.',
+      'Le script sert aujourd\'hui : <b>France</b>, <b>Italia</b>. Il <b>se ferme ailleurs</b> plutôt que d\'appliquer à une carte des règles qui ne sont pas les siennes.':
+        'Lo script serve oggi: <b>France</b>, <b>Italia</b>. <b>Si chiude altrove</b> invece di applicare a una mappa regole che non sono le sue.',
+      '<b>Deux choses différentes, et il faut les distinguer :</b>':
+        '<b>Due cose diverse, e vanno distinte:</b>',
+      'Les <b>règles appliquées</b>. Elles suivent le <b>territoire regardé</b> : la carte est en Italie, ce sont les règles italiennes, quel que soit l\'éditeur. Le pays en cours est affiché en haut du panneau.':
+        'Le <b>regole applicate</b>. Seguono il <b>territorio guardato</b>: se la mappa è in Italia, sono le regole italiane, qualunque sia l\'editor. Il paese in corso è indicato in cima al pannello.',
+      'Les <b>mots employés</b> pour les énoncer. Elle suit <b>ton profil WME</b>, pas la carte.':
+        'Le <b>parole usate</b> per enunciarle. Segue il <b>tuo profilo WME</b>, non la mappa.',
+      'Les deux se combinent librement : un éditeur italien qui aide en France lit les <b>règles françaises en italien</b> ; un éditeur français qui aide en Italie lit les <b>règles italiennes en français</b>. C\'est voulu — confondre les deux ferait appliquer les règles d\'un pays à la carte d\'un autre.':
+        'Le due cose si combinano liberamente: un editor italiano che aiuta in Francia legge le <b>regole francesi in italiano</b>; un editor francese che aiuta in Italia legge le <b>regole italiane in francese</b>. È voluto — confonderle farebbe applicare le regole di un paese alla mappa di un altro.',
+      '⚠️ <b>Ce qu\'il faut vérifier si le script semble se tromper de règles :</b> le pays affiché en tête du panneau. Il se déduit de la carte, pas de ton compte.':
+        '⚠️ <b>Cosa controllare se lo script sembra sbagliare regole:</b> il paese indicato in cima al pannello. Si deduce dalla mappa, non dal tuo account.',
       // ── LES MESSAGES D'ETAT (09/09) ─────────────────────────────────────
       // ⚡ Ce que le panneau dit de lui-meme entre deux analyses. Ils sont
       //    poses par un point de sortie SUR (`textContent = '…'`), donc ils
@@ -6008,6 +6087,10 @@
       sourceContours: {
         libelle: 'Télécharger (geo.api.gouv.fr)',
         uniteLabel: 'département',
+        // ⚠️ LE GENRE NE SE DEDUIT PAS DU LIBELLE. « de ta ${motUnite()} » rendait
+        //    « de ta département » : l'aide se lit aussi en FRANÇAIS sur le
+        //    référentiel italien, c'est donc un accord qui se voit pour de vrai.
+        uniteAvecArticle: 'ton département',
         unitesLabel: 'départements',
         placeholder: 'Filtrer un département…',
         unites: () => DEPARTEMENTS,
@@ -6297,6 +6380,7 @@
       sourceContours: {
         libelle: 'Télécharger (openpolis / ISTAT)',
         uniteLabel: 'province',
+        uniteAvecArticle: 'ta province',
         unitesLabel: 'provinces',
         placeholder: 'Filtrer une province…',
         unites: () => PROVINCES_IT,
@@ -11728,6 +11812,10 @@
    *    du selecteur de telechargement, donc l'editeur y retrouve LE MEME MOT
    *    que sur son bouton. Ne pas en inventer un second.
    */
+  /** Le libelle AVEC son article, parce que le genre ne se devine pas. */
+  const motUniteArticle = () =>
+    (REF.sourceContours || {}).uniteAvecArticle || motUnite();
+
   const motUnite = (pluriel) => {
     const sc = REF.sourceContours || {};
     return (pluriel ? sc.unitesLabel : sc.uniteLabel) || (pluriel ? 'unités' : 'unité');
@@ -11738,7 +11826,7 @@
       { id: 'demarrage', titre: '🚀 Démarrage rapide', ouvert: true, corps: `
         <p class="agn-aide-video">🎬 <b><a href="https://drive.google.com/file/d/1f1zLZQvBatKcZv9dQ6dCtRN-VDXAiq6_/view" target="_blank" rel="noopener">Voir en vidéo : la zone bâtie, et les villages rattachés</a></b> — 1 minute, sur l'exemple de Gruissan. C'est le point sur lequel on se trompe le plus souvent.</p>
         <ol>
-          <li><b>Charge les contours</b> de ta ${motUnite()} : bouton <b>☰</b> puis
+          <li><b>Charge les contours</b> de ${motUniteArticle()} : bouton <b>☰</b> puis
             <b>Contours communaux</b> → <b>${REF.sourceContours ? REF.sourceContours.libelle : 'Télécharger et charger'}</b>. Une fois pour toutes.</li>
           <li><b>Choisis la commune</b> dans la liste. Celles qui sont sous tes yeux
             remontent en tête (<b>📍 Sous les yeux</b>).</li>
@@ -12018,13 +12106,30 @@
           <tr><td><b>La carte bouge quand je ne veux pas</b></td><td>Chaque déplacement de carte fait par le script écrit sa raison dans la <b>console du navigateur</b> (F12), sous la forme <span class="agn-aide-ex">cadrage [choix de la commune X] : zoom 17 → 15 ⚠️ ARRIÈRE</span>. Envoie cette ligne : elle nomme le geste responsable, ce qu'une capture ne peut pas faire.</td></tr>
         </table>` },
 
-      { id: 'france', titre: '🇫🇷 Pourquoi la France uniquement', corps: `
-        <p>Les règles appliquées ici sont <b>françaises</b> : agglomération d'après les panneaux,
-          numéro de route au principal hors agglo, format « Village (Commune) », cartouches.
-          Les appliquer ailleurs abîmerait la carte.</p>
-        <p>Le script <b>se ferme donc hors de France</b> — métropole, Corse et outre-mer sont
-          acceptés. L'architecture est prête à accueillir d'autres pays, mais aucun référentiel
-          de nommage n'est disponible à ce jour.</p>` }
+      // 🔴 CETTE SECTION DISAIT ENCORE « Pourquoi la France uniquement » et
+      //    « le script se ferme hors de France » — FAUX depuis la v2.40, et
+      //    c'est la premiere chose qu'un testeur italien serait alle lire.
+      //    Elle est desormais construite a partir de `paysServis()` : le jour
+      //    ou un pays s'ajoute, elle le dit sans que personne y pense.
+      { id: 'pays', titre: '🌍 Les pays pris en charge', corps: `
+        <p>Le script sert aujourd'hui : <b>${paysServis().join('</b>, <b>')}</b>. Il
+          <b>se ferme ailleurs</b> plutôt que d'appliquer à une carte des règles qui ne sont
+          pas les siennes.</p>
+        <p><b>Deux choses différentes, et il faut les distinguer :</b></p>
+        <table class="agn-aide-t">
+          <tr><td><b>Le référentiel</b></td><td>Les <b>règles appliquées</b>. Elles suivent le
+            <b>territoire regardé</b> : la carte est en Italie, ce sont les règles italiennes,
+            quel que soit l'éditeur. Le pays en cours est affiché en haut du panneau.</td></tr>
+          <tr><td><b>La langue</b></td><td>Les <b>mots employés</b> pour les énoncer. Elle suit
+            <b>ton profil WME</b>, pas la carte.</td></tr>
+        </table>
+        <p>Les deux se combinent librement : un éditeur italien qui aide en France lit les
+          <b>règles françaises en italien</b> ; un éditeur français qui aide en Italie lit les
+          <b>règles italiennes en français</b>. C'est voulu — confondre les deux ferait
+          appliquer les règles d'un pays à la carte d'un autre.</p>
+        <div class="agn-aide-note">⚠️ <b>Ce qu'il faut vérifier si le script semble se tromper
+          de règles :</b> le pays affiché en tête du panneau. Il se déduit de la carte, pas de
+          ton compte.</div>` }
     ];
   }
 

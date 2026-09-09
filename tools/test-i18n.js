@@ -99,9 +99,34 @@ const detendu = k => new RegExp(k.split(/\s+/)
 // correctement pendant que les boutons de correction cessaient de mordre — en
 // silence, et seulement pour les éditeurs italiens.
 const sansSuffixe = k => k.replace(/\s*\([^()]*\)\s*$/, '').trim();
+// ⚠️ ET LES BLOCS D'AIDE, QUI SONT INTERPOLES. La clé est le HTML RENDU d'un
+// élément — « … de ton département : … <b>Télécharger (geo.api.gouv.fr)</b> » —
+// et ce HTML-là n'existe nulle part d'un seul tenant : le script l'assemble
+// avec `${motUniteArticle()}`, `${REF.sourceContours.libelle}`,
+// `${siCorrecteur(…)}`. Exiger la chaîne entière refuserait toutes ces clés.
+// ⇒ On vérifie chaque MORCEAU DE TEXTE un peu long : un bloc inventé de toutes
+//   pièces échoue toujours, un bloc assemblé passe. C'est le même arbitrage que
+//   pour les libellés composés — le contrôle suit la façon dont le texte est
+//   réellement fabriqué, sinon il force à écrire des clés fausses.
+const morceauxConnus = k => {
+  // Les balises deviennent des COUPURES : ce sont elles qui separent les
+  // morceaux que le script ecrit d'un seul tenant. Le separateur est un
+  // caractere qui ne peut pas figurer dans un libelle.
+  const SEP = String.fromCharCode(1);
+  const bouts = k.replace(/<[^>]+>/g, SEP).split(SEP)
+    .map(x => x.trim()).filter(x => x.length >= 20);
+  // ⚠️ AU MOINS UN morceau, pas tous — et c'est un compromis ASSUME. Les
+  //    interpolations coupent aussi le texte : « de ${motUniteArticle()} :
+  //    bouton » ne laisse aucun fragment continu assez long autour d'elles.
+  //    Exiger que TOUS les morceaux soient retrouves refusait deux blocs
+  //    parfaitement servis. Un bloc invente de toutes pieces, lui, n'en a
+  //    AUCUN de reconnu : le controle mord toujours sur ce qui compte.
+  return bouts.length > 0 && bouts.some(x => detendu(x).test(horsDico));
+};
 const connue = k => horsDico.indexOf(k) >= 0 || detendu(k).test(horsDico) ||
   (sansSuffixe(k) !== k && sansSuffixe(k) &&
-   (horsDico.indexOf(sansSuffixe(k)) >= 0 || detendu(sansSuffixe(k)).test(horsDico)));
+   (horsDico.indexOf(sansSuffixe(k)) >= 0 || detendu(sansSuffixe(k)).test(horsDico))) ||
+  (/<[a-z]/i.test(k) && morceauxConnus(k));
 const orphelines = clesIt.filter(k => !connue(k));
 verifier('4. ⭐ toute clé italienne se retrouve AILLEURS que dans le dictionnaire',
   orphelines, []);

@@ -339,7 +339,8 @@ titre('Geometries « Multi » : eclatees en features simples');
       // le chemin « relever les panneaux / proposer un trace ».
       sourcePanneaux: /sourcePanneaux: null/.test(b) ? null : { libelle: 'panneaux' },
       sourceContours: { libelle: scChaine('libelle'), uniteLabel: scChaine('uniteLabel'),
-                        unitesLabel: scChaine('unitesLabel') },
+                        unitesLabel: scChaine('unitesLabel'),
+                        uniteAvecArticle: scChaine('uniteAvecArticle') },
       provenanceContours: (b.match(/provenanceContours: "([^"]*)"/) || [, ''])[1],
       libelleCode: chaine('libelleCode'),
       formatVillage: pays === 'IT' ? (v, c) => v + ', ' + c : (v, c) => v + ' (' + c + ')',
@@ -358,8 +359,11 @@ titre('Geometries « Multi » : eclatees en features simples');
     'const siPasDePanneaux = html => (REF.sourcePanneaux ? "" : html);',
     'const motUnite = p => { const sc = REF.sourceContours || {};' +
       ' return (p ? sc.unitesLabel : sc.uniteLabel) || (p ? "unités" : "unité"); };',
+    'const motUniteArticle = () =>' +
+      ' (REF.sourceContours || {}).uniteAvecArticle || motUnite();',
     'const siControle = (cle, html) =>' +
       ' ((REF.controles || []).some(c => c.cle === cle) ? html : "");',
+    'const paysServis = () => ["France", "Italia"];',
     bloc,
     'return sectionsAide();'
   ].join('\n'))(autorise, refDeTest(pays || 'FR'));
