@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.46.01
+// @version      2.47.00
 // @description  FRANCE UNIQUEMENT (pour l'instant) : audit du nommage et de l'adressage des voies selon les règles d'édition françaises (agglomération / hors agglomération, contours communaux INSEE). D'autres pays sont prévus par l'architecture, mais AUCUN n'est encore pris en charge.
 // @author       DrSlump34
 // @license      MIT
@@ -5545,6 +5545,99 @@
         '<b>Il riferimento</b>',
       '<b>La langue</b>':
         '<b>La lingua</b>',
+      // ── L'AIDE (09/09) ──────────────────────────────────────────────────
+      // ⭐ Traduite PAR BLOC : dans l'aide une phrase est coupee par ses
+      //    <b>, et l'italien ne remet pas les morceaux dans cet ordre. La
+      //    cle est donc le HTML interne de l'element, et la traduction porte
+      //    son propre balisage (voir `traduireDOM`).
+      // ⚠️ Ces blocs couvrent les DEUX referentiels : un editeur italien qui
+      //    aide en France lit l'aide FRANCAISE en italien.
+      'Le script compare le nommage à la <b>vraie limite communale</b>, pas à ce que Waze en dit. Ces contours viennent de l\'<b>IGN (Admin Express)</b> via <b>geo.api.gouv.fr</b>, sous <b>Licence Ouverte</b>.':
+        'Lo script confronta la denominazione con il <b>vero confine comunale</b>, non con quello che Waze ne dice. Questi confini vengono dall\'<b>IGN (Admin Express)</b> tramite <b>geo.api.gouv.fr</b>, sotto <b>Licence Ouverte</b>.',
+      'Le script compare le nommage à la <b>vraie limite communale</b>, pas à ce que Waze en dit. Ces contours viennent de <b>openpolis/geojson-italy</b>, d\'après les limites <b>ISTAT</b>, sous <b>CC BY 4.0</b>.':
+        'Lo script confronta la denominazione con il <b>vero confine comunale</b>, non con quello che Waze ne dice. Questi confini vengono da <b>openpolis/geojson-italy</b>, secondo i limiti <b>ISTAT</b>, sotto <b>CC BY 4.0</b>.',
+      '<b>Télécharger (geo.api.gouv.fr)</b>':
+        '<b>Scarica (geo.api.gouv.fr)</b>',
+      '<b>Télécharger (openpolis / ISTAT)</b>':
+        '<b>Scarica (openpolis / ISTAT)</b>',
+      'Coche ce que tu veux dans la liste des départements, le script les récupère et les garde. <b>Les contours se cumulent</b> : en charger un second n\'efface pas le premier.':
+        'Spunta ciò che vuoi nell\'elenco dei dipartimenti, lo script li scarica e li conserva. <b>I confini si sommano</b>: caricarne un secondo non cancella il primo.',
+      'Coche ce que tu veux dans la liste des provinces, le script les récupère et les garde. <b>Les contours se cumulent</b> : en charger un second n\'efface pas le premier.':
+        'Spunta ciò che vuoi nell\'elenco delle province, lo script li scarica e li conserva. <b>I confini si sommano</b>: caricarne un secondo non cancella il primo.',
+      '<b>Choisir un fichier GeoJSON</b>':
+        '<b>Scegliere un file GeoJSON</b>',
+      'Pour charger des contours depuis un fichier local. ⚠️ Celui-là <b>remplace</b> ce qui est en place.':
+        'Per caricare confini da un file locale. ⚠️ Questo <b>sostituisce</b> ciò che è già presente.',
+      '<b>Champ de filtre</b>':
+        '<b>Campo di filtro</b>',
+      'Cherche par <b>nom</b> ou par <b>code INSEE</b>, sans se soucier des accents ni de la casse.':
+        'Cerca per <b>nome</b> o per <b>code INSEE</b>, senza badare ad accenti né maiuscole.',
+      'Cherche par <b>nom</b> ou par <b>codice ISTAT</b>, sans se soucier des accents ni de la casse.':
+        'Cerca per <b>nome</b> o per <b>codice ISTAT</b>, senza badare ad accenti né maiuscole.',
+      '<b>📍 Sous les yeux</b>':
+        '<b>📍 Sotto gli occhi</b>',
+      'Quand il y a beaucoup de communes, celles qui occupent la vue passent en tête de liste.':
+        'Quando i comuni sono molti, quelli che occupano la vista salgono in cima all\'elenco.',
+      '<b>Le poids de chaque département</b>':
+        '<b>Il peso di ogni dipartimento</b>',
+      '<b>Le poids de chaque province</b>':
+        '<b>Il peso di ogni provincia</b>',
+      'Les contours restent en mémoire et sont rechargés à chaque démarrage : la liste dit <b>le poids de chaque entrée</b>, la plus lourde en tête, et le <b>✕</b> la retire. Ce qui est retiré <b>se recharge tout seul</b> si tu y reviens — rien n\'est perdu. Les entrées qui portent un <b>🔒</b> sont gardées : tu les as sous les yeux, ou la commune en cours s\'y trouve.':
+        'I confini restano in memoria e vengono ricaricati a ogni avvio: l\'elenco indica <b>il peso di ogni voce</b>, la più pesante in cima, e la <b>✕</b> la toglie. Ciò che è tolto <b>si ricarica da solo</b> se ci torni — nulla è perduto. Le voci che portano un <b>🔒</b> sono conservate: le hai sotto gli occhi, oppure il comune in corso si trova lì.',
+      '<b>Décharger ce qui est éloigné</b>':
+        '<b>Scaricare ciò che è lontano</b>',
+      'Fait le ménage tout seul quand tu quittes une zone. <b>Décoché par défaut</b> : le cumul est le comportement normal, et on ne retire pas ce que tu as chargé sans que tu l\'aies demandé. Coché, il garde toujours ce que tu regardes, la commune en cours, et les 3 dernières entrées utilisées.':
+        'Fa pulizia da solo quando lasci una zona. <b>Deselezionato per impostazione predefinita</b>: la somma è il comportamento normale, e non si toglie ciò che hai caricato senza che tu l\'abbia chiesto. Se selezionato, conserva sempre ciò che guardi, il comune in corso, e le 3 ultime voci usate.',
+      '<b>tout vider</b>':
+        '<b>svuota tutto</b>',
+      'Oublie les contours chargés. Tes polygones d\'agglomération, eux, sont conservés.':
+        'Dimentica i confini caricati. I tuoi poligoni di centro abitato, invece, sono conservati.',
+      'Les contours sont volumineux : ils sont rangés dans le navigateur (IndexedDB) et <b>ne partent jamais</b> dans les exports de partage.':
+        'I confini sono voluminosi: vengono riposti nel browser (IndexedDB) e <b>non partono mai</b> nelle esportazioni di condivisione.',
+      'C\'est <b>la</b> donnée que le script ne peut pas deviner : où commence et où finit l\'agglomération, au sens des panneaux d\'entrée. Trois façons de la poser.':
+        'È <b>il</b> dato che lo script non può indovinare: dove comincia e dove finisce il centro abitato, nel senso dei cartelli di ingresso. Tre modi per posarlo.',
+      'C\'est <b>la</b> donnée que le script ne peut pas deviner : où commence et où finit l\'agglomération, au sens des panneaux d\'entrée. <b>Ici, elle se trace à la main.</b> Les panneaux existent sur le terrain, mais <b>aucun relevé officiel ouvert ne les recense dans ce pays</b> : le script ne propose donc ni le relevé, ni le pré-tracé, plutôt qu\'un bouton qui ne rendrait rien. Le tracé à la main est ici le chemin normal, pas un repli.':
+        'È <b>il</b> dato che lo script non può indovinare: dove comincia e dove finisce il centro abitato, nel senso dei cartelli di ingresso. <b>Qui si traccia a mano.</b> I cartelli esistono sul terreno, ma <b>in questo paese non esiste alcun rilevamento ufficiale aperto che li censisca</b>: lo script non propone quindi né il rilevamento, né il tracciato automatico, piuttosto che un pulsante che non renderebbe nulla. Qui il tracciato a mano è la via normale, non un ripiego.',
+      '🎬 <b><a href="https://drive.google.com/file/d/1f1zLZQvBatKcZv9dQ6dCtRN-VDXAiq6_/view" target="_blank" rel="noopener">Voir en vidéo</a></b> — ce qu\'on trace, pourquoi il peut y en avoir plusieurs, et à quoi sert « village rattaché ». Exemple : Gruissan et ses trois zones bâties.':
+        '🎬 <b><a href="https://drive.google.com/file/d/1f1zLZQvBatKcZv9dQ6dCtRN-VDXAiq6_/view" target="_blank" rel="noopener">Guarda il video</a></b> — cosa si traccia, perché possono essercene diversi, e a cosa serve « frazione ». Esempio: Gruissan (Francia) e i suoi tre centri abitati.',
+      '<b>🪧 Panneaux d\'agglomération</b>':
+        '<b>🪧 Cartelli di centro abitato</b>',
+      '<b>À essayer en premier.</b> Relève les panneaux <b>EB10</b> (entrée) et <b>EB20</b> (sortie) de la commune, d\'après le jeu officiel de signalisation. Ils s\'affichent sur la carte.':
+        '<b>Da provare per primo.</b> Rileva i cartelli <b>EB10</b> (ingresso) e <b>EB20</b> (uscita) del comune, secondo il rilevamento ufficiale della segnaletica. Vengono mostrati sulla mappa.',
+      '<b>✏️ Proposer un tracé</b>':
+        '<b>✏️ Proponi un tracciato</b>',
+      'Transforme ces panneaux en polygones — <b>un par agglomération</b> : le bourg et chaque hameau séparément. Le script te les présente <b>un par un</b> : <b>Créer ce polygone</b>, <b>Passer celui-ci</b>, <b>Tout arrêter</b>.':
+        'Trasforma questi cartelli in poligoni — <b>uno per centro abitato</b>: il capoluogo e ogni frazione separatamente. Lo script te li presenta <b>uno per uno</b>: <b>Crea questo poligono</b>, <b>Salta questo</b>, <b>Ferma tutto</b>.',
+      '<b>＋ Tracer l\'agglomération</b>':
+        '<b>＋ Traccia il centro abitato</b>',
+      'Tracé à la main, point par point, quand les panneaux manquent ou ne suffisent pas.':
+        'Tracciato a mano, punto per punto, quando i cartelli mancano o non bastano.',
+      'Tracé à la main, point par point.':
+        'Tracciato a mano, punto per punto.',
+      '<b>sans agglomération</b>':
+        '<b>senza centro abitato</b>',
+      'À cocher pour une commune qui n\'en a pas. ⚠️ <b>Toute la commune passera alors en hors agglomération</b> : aucune voie ne doit plus porter de ville.':
+        'Da spuntare per un comune che non ne ha. ⚠️ <b>Tutto il comune passerà allora fuori dal centro abitato</b>: nessuna strada dovrà più portare la città.',
+      '<b>Village rattaché.</b> Quand une agglomération porte un nom différent de la commune, coche <b>village rattaché</b> et choisis la ville <b>dans la liste de WME</b> : le script attendra alors le format <b>« Village (Commune) »</b> sur ces voies — <b>c\'est le format du pays regardé</b>, et il ne s\'écrit pas pareil partout.':
+        '<b>Frazione.</b> Quando un centro abitato porta un nome diverso dal comune, spunta <b>frazione</b> e scegli la città <b>nell\'elenco di WME</b>: lo script si aspetterà allora il formato <b>« Village (Commune) »</b> su quelle strade — <b>è il formato del paese guardato</b>, e non si scrive uguale ovunque.',
+      '<b>Village rattaché.</b> Quand une agglomération porte un nom différent de la commune, coche <b>village rattaché</b> et choisis la ville <b>dans la liste de WME</b> : le script attendra alors le format <b>« Village, Commune »</b> sur ces voies — <b>c\'est le format du pays regardé</b>, et il ne s\'écrit pas pareil partout.':
+        '<b>Frazione.</b> Quando un centro abitato porta un nome diverso dal comune, spunta <b>frazione</b> e scegli la città <b>nell\'elenco di WME</b>: lo script si aspetterà allora il formato <b>« nomefrazione, nomecomune »</b> su quelle strade — <b>è il formato del paese guardato</b>, e non si scrive uguale ovunque.',
+      '⚠️ Une ville que Waze porte sur des segments <b>sans aucun polygone</b> en face déclenche une alerte : il manque presque toujours un polygone, et sans lui le script réclamerait le <b>retrait</b> de cette ville — une correction à l\'envers.':
+        '⚠️ Una città che Waze porta su segmenti <b>senza alcun poligono</b> di fronte fa scattare un avviso: quasi sempre manca un poligono, e senza di esso lo script chiederebbe di <b>togliere</b> quella città — una correzione al contrario.',
+      '<b>Quand le pré-tracé ne propose rien — ou pas grand-chose.</b> Le relevé de panneaux est <b>très inégal, et l\'écart se joue au niveau du département</b> : mesuré le 28/08/2026 sur un échantillon d\'une commune sur huit, <b>98 %</b> des communes d\'Ille-et-Vilaine ont au moins un panneau relevé (41 sur 42), contre <b>28 %</b> dans l\'Hérault (12 sur 43) — alors que les deux départements sont desservis par la source. Là où elle est fournie, le pré-tracé est le chemin le plus court ; ailleurs, le tracé à la main reste la norme. Le script annonce le nombre relevé plutôt que de bricoler une forme.':
+        '<b>Quando il tracciato automatico non propone nulla — o quasi.</b> Il rilevamento dei cartelli è <b>molto disomogeneo, e lo scarto si gioca a livello del dipartimento</b>: misurato il 28/08/2026 su un campione di un comune su otto, il <b>98 %</b> dei comuni dell\'Ille-et-Vilaine ha almeno un cartello rilevato (41 su 42), contro il <b>28 %</b> nell\'Hérault (12 su 43) — mentre i due dipartimenti sono entrambi serviti dalla fonte. Dove è fornito, il tracciato automatico è la via più breve; altrove, il tracciato a mano resta la norma. Lo script annuncia il numero rilevato invece di inventare una forma.',
+      '<b>« s\'aligne le long d\'une voie »</b>':
+        '<b>« si allinea lungo una strada »</b>',
+      'Les panneaux forment une ligne, pas une surface (moins de 150 m de large) : c\'est une route. Rien n\'est tracé — sinon le polygone couvrirait la voie et pas le village.':
+        'I cartelli formano una linea, non una superficie: è una strada. Nulla viene tracciato — altrimenti il poligono coprirebbe la strada e non il paese.',
+      '<b>« couvre N % de la commune »</b>':
+        '<b>« copre N % del comune »</b>',
+      'Le polygone proposé est probablement <b>plusieurs agglomérations soudées</b> : les entrées se sont enchaînées de proche en proche. Vérifie, et passe-le pour les tracer séparément.':
+        'Il poligono proposto è probabilmente <b>più centri abitati saldati insieme</b>: gli ingressi si sono concatenati di vicino in vicino. Verifica, e saltalo per tracciarli separatamente.',
+      '<b>« trop isolées »</b>':
+        '<b>« troppo isolati »</b>',
+      'Moins de trois entrées, ou éparpillées : aucune surface déductible. Elles restent affichées en repère pour un tracé à la main.':
+        'Meno di tre ingressi, o sparpagliati: nessuna superficie deducibile. Restano mostrati come riferimento per un tracciato a mano.',
       // ── LES MESSAGES D'ETAT (09/09) ─────────────────────────────────────
       // ⚡ Ce que le panneau dit de lui-meme entre deux analyses. Ils sont
       //    poses par un point de sortie SUR (`textContent = '…'`), donc ils

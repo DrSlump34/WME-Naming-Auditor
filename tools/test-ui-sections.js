@@ -302,6 +302,21 @@ titre('Geometries « Multi » : eclatees en features simples');
       .filter(k => k !== 'REF').forEach(k => constantes.add(k));
     return m;
   });
+  // 🔴 ET AVEC LEUR VRAIE VALEUR. Elles valaient toutes `0`, ce qui suffisait
+  // tant qu'on ne regardait que la presence d'un ⚡. Mais l'aide les AFFICHE :
+  // « moins de ${LARGEUR_MIN_AGGLO_M} m de large » rendait « moins de 0 m », et
+  // ce texte-la sert desormais de CLE DE TRADUCTION. Une constante fausse
+  // fabrique donc une cle qui ne correspondra JAMAIS a ce que le navigateur
+  // montre : la traduction serait morte-nee, sans que rien ne le signale.
+  const valeurDe = nom => {
+    const m = src.match(new RegExp('\\bconst ' + nom + '\\s*=\\s*([^;\\n]+)'));
+    if (!m) return '0';
+    const v = m[1].trim();
+    return /^-?\d+(\.\d+)?$/.test(v) ? v : '0';
+  };
+  bloc.replace(/\$\{([^}]*)\}/g, m => {
+    return m;
+  });
   /**
    * ⭐⭐⭐⭐ LE REFERENTIEL EST DESORMAIS UN PARAMETRE DE L'AIDE (v2.42), et
    * c'est ce qui rend le controle du bas possible. On ne fabrique PAS un faux :
@@ -362,7 +377,7 @@ titre('Geometries « Multi » : eclatees en features simples');
   }
 
   const sectionsDe = (autorise, pays) => new Function('autorise', 'REF', [
-    [...constantes].map(k => 'const ' + k + ' = 0;').join('\n'),
+    [...constantes].map(k => 'const ' + k + ' = ' + valeurDe(k) + ';').join('\n'),
     'const droits = () => ({ autorise, niveau: "L5", motifs: [], rangsLus: 1 });',
     'const siCorrecteur = html => (droits().autorise ? html : "");',
     'const siPanneaux = html => (REF.sourcePanneaux ? html : "");',

@@ -121,19 +121,53 @@ const morceauxConnus = k => {
   //    Exiger que TOUS les morceaux soient retrouves refusait deux blocs
   //    parfaitement servis. Un bloc invente de toutes pieces, lui, n'en a
   //    AUCUN de reconnu : le controle mord toujours sur ce qui compte.
-  if (bouts.length) return bouts.some(x => detendu(x).test(horsDico));
+  if (bouts.length && bouts.some(x => detendu(x).test(horsDico))) return true;
+  // ⚠️ ET SI AUCUN MORCEAU LONG NE SE RETROUVE, on CASCADE vers la règle des
+  //    mots au lieu de refuser. Un bloc peut être coupé par une interpolation
+  //    au milieu même d'une phrase — « Le poids de chaque ${motUnite()} »,
+  //    « … d'entrée.${siPanneaux('Trois façons…')} » — sans laisser un seul
+  //    fragment continu assez long. Le contrôle refusait alors six clés
+  //    parfaitement servies.
   // ⚠️ Aucun morceau assez long : la cle est COURTE, et elle peut quand meme
   //    etre legitime — « <b>Bretelles · Rocades</b> » est desormais assemble
   //    par `siControle("rocades", ' · Rocades')` et ne figure nulle part d'un
   //    seul tenant. On exige alors que TOUS ses mots se retrouvent dans le
   //    code : une cle inventee y echoue toujours.
-  const mots = k.replace(/<[^>]+>/g, ' ').match(/[A-Za-zÀ-ÿ]{4,}/g) || [];
-  return mots.length > 0 && mots.every(m => horsDico.indexOf(m) >= 0);
+  // 🔴 ET LES MOTS DOIVENT ÊTRE VOISINS, pas simplement présents quelque part.
+  //    Une mutation l'a montré : « tout vider » → « tout supprimer » passait,
+  //    parce que « tout » et « supprimer » existent tous deux dans le fichier,
+  //    à mille lignes d'écart. On exige donc qu'ils se suivent, séparés d'au
+  //    plus ce qu'une interpolation peut insérer.
+  // ⚠️ Les mots que le RÉFÉRENTIEL fournit ne sont pas dans la phrase : ils y
+  //    sont insérés. « Le poids de chaque ${motUnite()} » rend « … chaque
+  //    département », et « département » vit à six mille lignes de là, dans
+  //    `uniteLabel`. On les retire de l'exigence de voisinage — leur présence
+  //    est déjà garantie par le référentiel lui-même.
+  const duRef = new Set();
+  for (const m of horsDico.matchAll(
+    /(?:uniteLabel|unitesLabel|uniteAvecArticle|libelleCode|libelleDecoupage):\s*'([^']*)'/g)) {
+    (m[1].match(/[A-Za-zÀ-ÿ]{4,}/g) || []).forEach(x => duRef.add(x));
+  }
+  const mots = (k.replace(/<[^>]+>/g, ' ').match(/[A-Za-zÀ-ÿ]{4,}/g) || [])
+    .filter(m => !duRef.has(m));
+  if (!mots.length) return false;
+  const echap = m => m.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // ⚠️ LIMITE CONNUE, mesurée par mutation : une clé de deux ou trois mots
+  //    très courants peut encore passer si cette suite existe ailleurs dans le
+  //    fichier. Le contrôle attrape ce qui compte — une clé inventée, un
+  //    libellé de contrôle modifié — mais il ne remplace pas un coup d'œil sur
+  //    une clé de trois mots. Le resserrer davantage refuserait des clés
+  //    légitimes, ce qui est le défaut le plus coûteux des deux.
+  return new RegExp(mots.map(echap).join('[\\s\\S]{0,40}')).test(horsDico);
 };
 const connue = k => horsDico.indexOf(k) >= 0 || detendu(k).test(horsDico) ||
   (sansSuffixe(k) !== k && sansSuffixe(k) &&
    (horsDico.indexOf(sansSuffixe(k)) >= 0 || detendu(sansSuffixe(k)).test(horsDico))) ||
-  (/<[a-z]/i.test(k) && morceauxConnus(k));
+  // ⚠️ POUR TOUTE CLÉ, pas seulement celles qui portent des balises. « Tracé à
+  //    la main, point par point. » n'en a aucune et est pourtant assemblé par
+  //    `${siPanneaux(', quand les panneaux…')}` : la restriction aux clés
+  //    balisées en refusait trois, parfaitement servies.
+  morceauxConnus(k);
 const orphelines = clesIt.filter(k => !connue(k));
 verifier('4. ⭐ toute clé italienne se retrouve AILLEURS que dans le dictionnaire',
   orphelines, []);
