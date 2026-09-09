@@ -100,6 +100,60 @@ ajouter d'exception sur le préfixe « Piazza »** tant que la Wazeopedia italie
 c'était la condition explicite de la solution 2, et la doctrine du projet est que le script
 applique la norme, il ne la crée pas.
 
+## 🗣️ 09/09 — L'i18n : traduire À LA SORTIE, et non 1 100 fois
+
+**Le constat qui a tout décidé** : la mécanique de langue existait depuis la v2.40, mais elle
+n'était branchée que sur **les libellés de contrôle**. Le reste du panneau — ~1 100 chaînes — ne
+passait par `tr()` nulle part.
+
+**L'alternative écartée** était d'envelopper ces 1 100 chaînes une à une dans des templates HTML :
+c'est la même passe mécanique que l'accentuation de la v2.05, dont `tools/README.md` liste les
+régressions **silencieuses**, et un texte oublié dans la passe ne se voit jamais — il reste
+simplement en français.
+
+⇒ **`traduireDOM` lit le DOM produit et remplace ce que le dictionnaire connaît** ;
+`observerTraduction` fait de même pour tout ce qui y arrive ensuite, sans quoi l'italien
+disparaîtrait au premier des 59 `innerHTML =`. Traduire, désormais, c'est **ajouter une ligne au
+dictionnaire**.
+
+🔴 **PAS DE BOUCLE POSSIBLE** : on n'observe que `childList`, et la fonction ne touche qu'à des
+`nodeValue` et des attributs — ses écritures ne produisent aucune mutation observée. Ce n'est pas
+une précaution, c'est une **propriété**, et `tools/test-traduire-dom.js` la vérifie (cas 10) sur un
+DOM de papier, sans navigateur ni dépendance.
+
+### 🔴🔴 Et ce que ce choix a sauvé sans qu'on l'ait prévu
+
+`e.champ` n'est pas qu'un libellé affiché : il est **comparé à des valeurs françaises en six
+endroits du moteur de correction** (`=== 'principal'`, `!== 'alt manquant'`, `=== 'rédaction
+(dictionnaire FR)'`, `/^ville interdite \(principal\)/`). Un `tr()` posé sur `champ:` aurait laissé
+l'italien s'afficher correctement **pendant que les boutons de correction cessaient de mordre** —
+en silence, et pour les seuls éditeurs italiens. Traduire à la sortie ne touche que le DOM :
+l'objet garde sa clé.
+
+### Le périmètre livré — un lot qui se RELIT
+
+| Lot | Clés |
+|---|---|
+| Libellés de contrôle, tous référentiels | **30 / 30** |
+| Ossature du panneau (onglets, boutons, volet, infobulles) | 40 |
+| Libellés d'écart, formes en « (alt) » comprises | 48 |
+| Messages d'état | 9 |
+| **Total** | **138 clés, 0 orpheline** |
+
+⏳ **Restent en français, et c'est un choix** : l'aide (mode d'emploi) et le **guidage pas à pas**
+(168 chaînes). Le lot doit rester relisible par Silvio — 1 100 chaînes ne se relisent pas.
+⚠️ Restent aussi en français **les messages composés avec une valeur** (« Sélection impossible : »
++ la cause) : leur texte final change à chaque appel, aucune clé ne peut le désigner.
+
+### ⚠️ Le harnais i18n s'est corrigé trois fois — et jamais dans le sens qu'on croit
+
+Une **mutation** a démasqué un contrôle décoratif : *« en français, rien n'est traduit »* restait
+vert même après suppression de la garde `LANGUE === 'fr'` — ce qui le faisait passer était
+l'absence de `TEXTES.fr`, pas la garde. Puis le contrôle « aucune clé orpheline » a produit **deux
+faux refus** : il ignorait les libellés composés (`'abreviation' + ou`), et il comparait une valeur
+**décodée** à un source **encodé** (`'limite d\'agglo'`). ⇒ Un contrôle plus strict que la fonction
+qu'il surveille ne protège de rien : il force à écrire des clés fragiles.
+
 ⏳ **Ce qui reste ouvert chez Silvio** : les *cartelli bianchi* (recherche en cours de son côté).
 ✅ **La question 7 — le nom en région bilingue — n'a plus besoin de lui** : l'éditeur a tranché à
 sa place, WME porte l'italien dans les quatre zones.
