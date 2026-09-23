@@ -20,6 +20,8 @@ Le script ne peut pas voir les panneaux. Il déduit donc la zone de deux géomé
 1. le **contour communal** (fichier GeoJSON chargé par l'éditeur) délimite le périmètre d'analyse et fournit le nom de commune ;
 2. le **polygone d'agglomération**, tracé à la main à l'intérieur, sépare l'agglomération du reste.
 
+Les panneaux EB10/EB20 relevés servent de point de départ au tracé, **mais ils ne suffisent pas à faire une agglomération** (règle votée par la communauté française en 2026, page wiki *Nommage des segments*) : on trace le bourg, les villages et les anciennes communes ; un **hameau ou un lieu-dit reste hors agglomération, même panneauté**. Pour chaque secteur de panneaux, le script demande donc de trancher — tracer, ou **« C'est un hameau »** — et s'en souvient. En cas de doute, un Local Champ ou un Country Manager tranche.
+
 > 🎬 **[Voir en vidéo : la zone bâtie, et les villages rattachés](https://drive.google.com/file/d/1f1zLZQvBatKcZv9dQ6dCtRN-VDXAiq6_/view)** — une minute, sur l'exemple de Gruissan. C'est le point sur lequel on se trompe le plus souvent : le polygone à tracer n'est pas la limite de la commune, et une commune peut en compter plusieurs.
 >
 > Le fichier est aussi versionné ici : [`captures/zone-batie-villages-rattaches.mp4`](captures/zone-batie-villages-rattaches.mp4). ⚠️ GitHub ne lit pas les vidéos de l'arborescence — ce chemin sert d'archive, pas de lecture en ligne.
@@ -72,9 +74,9 @@ Sur les POI, le script **dit d'où vient sa proposition** : quelle voie, à quel
 
 ![L'onglet POI : l'adresse proposée pour un lieu, et le raisonnement qui y mène.](captures/03-poi-explication.jpg)
 
-Tout part de deux géométries, à préparer une fois par commune : le contour officiel, et l'agglomération tracée à la main.
+Tout part de deux géométries, à préparer une fois par commune : le contour officiel, et l'agglomération tracée à la main. Chaque secteur de panneaux se tranche : un polygone pour un village, « C'est un hameau » pour un hameau — ici Le Courégant, à Ploemeur, panneauté mais hors agglomération.
 
-![Le volet des données de référence : choix de la commune, puis tracé de l'agglomération.](captures/04-donnees-reference.jpg)
+![Le volet des données de référence : le bourg tracé, un secteur de panneaux encore à trancher, et le hameau du Courégant déclaré hors agglomération.](captures/04-donnees-reference.jpg)
 
 ## Mise à jour
 
