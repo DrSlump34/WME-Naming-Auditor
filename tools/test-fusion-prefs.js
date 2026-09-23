@@ -166,6 +166,31 @@ titre('⭐ Verrous sur le SOURCE — ce qui rend la fusion possible');
     /if \(!p\.sansAgglo\[insee\]\) continue;/.test(fus), true);
 }
 
+titre('⭐ v2.49.03 — les hameaux declares voyagent dans le partage');
+{
+  verifier('23. l\'export emporte les hameaux (CLES_PARTAGE)',
+    /const CLES_PARTAGE = \['agglos', 'sansAgglo', 'hameaux'\];/.test(src), true);
+  // La VRAIE fonction d'import, extraite, sur un etat local donne.
+  const monterImport = (local) => new Function('prefs', 'codeCommuneValide', 'polygoneImporteValide',
+    'agglos', 'sansAgglo', 'hameaux', 'saveAgglos', 'saveSansAgglo',
+    extraire('pointHameauValide') + '\n' + extraire('fusionnerPartage') + '\nreturn fusionnerPartage;')(
+    { inspect: t => ({ ok: true, payload: JSON.parse(t) }) }, c => /^\d{5}$/.test(c), () => true,
+    {}, {}, local, () => {}, () => {});
+  const local = { '29103': [] };           // commune ou l'on a TOUT annule
+  const imp = monterImport(local);
+  const r = imp(JSON.stringify({ hameaux: {
+    '56162': [{ lon: -3.43, lat: 47.70 }, { lon: NaN, lat: 47 }],
+    '29103': [{ lon: -4.1, lat: 48.2 }],
+    '22113': [],
+    'XX': [{ lon: 1, lat: 1 }]
+  } }));
+  verifier('24. ⭐ commune ABSENTE : ses hameaux valides sont ajoutés', local['56162'], [{ lon: -3.43, lat: 47.70 }]);
+  verifier('25. ⚠️ commune déjà tranchée ici (même tout annulé) : INTOUCHÉE', local['29103'], []);
+  verifier('26. une liste vide importée n\'ajoute rien', '22113' in local, false);
+  verifier('27. ⚠️ point invalide (NaN) et code faux : écartés ET comptés, jamais en silence',
+    [r.ajoutHameaux, r.rejetes], [1, 2]);
+}
+
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(66));
 console.log('%d verifications OK, %d ECHEC(S)', ok, ko);

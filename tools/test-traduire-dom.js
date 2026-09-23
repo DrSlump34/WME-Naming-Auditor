@@ -40,9 +40,18 @@ if (!mAttrs) throw new Error('ATTRS_VISIBLES introuvable');
 const ATTRS = JSON.parse(mAttrs[1].replace(/'/g, '"'));
 
 /** La fonction du script, montee avec le dictionnaire et la langue voulus. */
-function monter(TEXTES, LANGUE) {
-  return new Function('TEXTES', 'LANGUE', 'ATTRS_VISIBLES',
-    extraire('traduireDOM') + '\nreturn traduireDOM;')(TEXTES, LANGUE, ATTRS);
+// ⚠️ v2.49.03 : `traduireDOM` appelle `traduireAttribut` et `traduireMotif` —
+//    extraites elles aussi, jamais recopiees. `MOTIFS` vide par defaut : les
+//    tests historiques portent sur le dictionnaire seul.
+function monter(TEXTES, LANGUE, MOTIFS) {
+  return new Function('TEXTES', 'LANGUE', 'ATTRS_VISIBLES', 'MOTIFS',
+    extraire('traduireMotif') + '\n' + extraire('traduireAttribut') + '\n' +
+    extraire('traduireDOM') + '\nreturn traduireDOM;')(TEXTES, LANGUE, ATTRS, MOTIFS || {});
+}
+function monterAttr(TEXTES, LANGUE, MOTIFS) {
+  return new Function('TEXTES', 'LANGUE', 'MOTIFS',
+    extraire('traduireMotif') + '\n' + extraire('traduireAttribut') +
+    '\nreturn traduireAttribut;')(TEXTES, LANGUE, MOTIFS || {});
 }
 
 // ── Un DOM de papier : juste ce que la fonction touche ───────────────────────
@@ -242,14 +251,44 @@ v('16. la racine est RENDUE, pour pouvoir chainer', trIt(elem('i', {}, [])).tag,
     textes(q), ['Segmenti']);
 }
 
-// 17. 🔴 L'observateur n'ecoute QUE `childList` — la contrepartie de la n° 10.
+// 17. 🔴 L'observateur — REGLE CHANGEE EN v2.49.03, et c'est voulu.
+//     Il n'ecoutait que `childList`. Or les infobulles sont REECRITES sans
+//     qu'aucun noeud n'arrive (`bouton.title = …`) : celles de « Panneaux » et
+//     « Proposer un tracé » repassaient en francais a chaque rendu (mesure dans
+//     WME le 23/09/2026). Il ecoute donc aussi les ATTRIBUTS VISIBLES, et eux
+//     seuls. L'absence de boucle ne vient plus de « on n'observe pas ce qu'on
+//     ecrit » mais de la marque `__agnTr` : tests 25 a 27.
 {
   const obs = extraire('observerTraduction');
-  v('17. 🔴 l\'observateur n\'ecoute que childList (pas d\'attributes ni characterData)',
-    /observe\(racine, \{ childList: true, subtree: true \}\)/.test(obs) &&
-    !/attributes\s*:\s*true/.test(obs) && !/characterData\s*:\s*true/.test(obs), true);
+  v('17. 🔴 l\'observateur écoute childList ET les seuls attributs visibles (jamais characterData)',
+    /childList: true, subtree: true,\s*attributes: true, attributeFilter: ATTRS_VISIBLES/.test(obs) &&
+    !/characterData\s*:\s*true/.test(obs), true);
   v('18. … et il ne demarre pas en francais',
     /if \(LANGUE === 'fr' \|\| !racine\) return null;/.test(obs), true);
+}
+// 25-27. La marque qui empeche la boucle, et les motifs.
+{
+  const MOT = { it: [[/^(\d+) polygones?$/, (t, n) => n === '1' ? '1 poligono' : n + ' poligoni']] };
+  // ⚠️ Dictionnaire PIEGE : la traduction est elle-meme une cle. C'est le seul
+  //    cas ou l'observateur bouclerait (Centrer → Centra → Centrer…) ; sans lui,
+  //    le test 26 passerait meme si la marque etait retiree.
+  const tra = monterAttr({ it: { 'Centrer': 'Centra', 'Centra': 'Centrer' } }, 'it', MOT);
+  const b = elem('button', { title: 'Centrer' }, []);
+  tra(b, 'title');
+  v('25. une infobulle réécrite est traduite', b.getAttribute('title'), 'Centra');
+  // Ce que fait l'observateur juste apres : notre propre setAttribute revient.
+  let ecritures = 0; const set = b.setAttribute; b.setAttribute = (k, x) => { ecritures++; set(k, x); };
+  tra(b, 'title');
+  v('26. 🔴 notre propre écriture, revenue par l\'observateur, n\'est PAS réécrite (pas de boucle)', ecritures, 0);
+  b.setAttribute('title', '3 polygones'); ecritures = 0;
+  tra(b, 'title');
+  v('27. ⭐ le script réécrit l\'infobulle avec un nombre : le MOTIF la traduit', [b.getAttribute('title'), ecritures], ['3 poligoni', 1]);
+  const n = elem('span', {}, [texte('1 polygone')]);
+  monter({ it: {} }, 'it', MOT)(n);
+  v('28. ⭐ un nœud texte à variable est traduit par motif', textes(n), ['1 poligono']);
+  const k = elem('span', {}, [texte('1 polygone')]);
+  monter({ it: { '1 polygone': 'UNE CLÉ' } }, 'it', MOT)(k);
+  v('29. ⚠️ une clé exacte passe AVANT le motif', textes(k), ['UNE CLÉ']);
 }
 // 19. Le branchement : l'ossature est traduite AVANT d'etre observee, sinon
 //     rien ne la signalerait jamais (elle existe deja quand on observe).

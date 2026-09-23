@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.49.02
+// @version      2.49.03
 // @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies selon les règles du pays regardé (agglomération / centro abitato, contours communaux INSEE / ISTAT). Interface et aide en français et en italien. ⚠️ Le portage italien est en phase de TEST.
 // @author       DrSlump34
 // @license      MIT
@@ -1412,7 +1412,10 @@
   // manquantes (choix de l'auteur, 25/07) : le partage ENRICHIT, il n'ecrase pas.
   // ---------------------------------------------------------------------------
 
-  const CLES_PARTAGE = ['agglos', 'sansAgglo'];
+  // ⚠️ v2.49.03 : les secteurs declares HAMEAU voyagent aussi. Ce sont des
+  //    decisions de zonage, comme « sans agglomeration » : un polygone importe
+  //    sans elles ferait reclamer a nouveau chaque hameau panneaute.
+  const CLES_PARTAGE = ['agglos', 'sansAgglo', 'hameaux'];
 
   async function exporterPartage() {
     return prefs.exportFile('wme-naming-auditor-partage-' +
@@ -1421,7 +1424,7 @@
 
   /**
    * Fusionne un fichier de partage sans jamais ecraser le local. Rend
-   * `{ ok, ajoutPoly, ajoutSans }` ou `{ ok:false, raison }` (jamais d'exception,
+   * `{ ok, ajoutPoly, ajoutSans, ajoutHameaux }` ou `{ ok:false, raison }` (jamais d'exception,
    * et rien n'est ecrit en cas de rejet — meme discipline que WMEPrefs).
    */
   /**
@@ -1463,11 +1466,23 @@
     return d[0] === f[0] && d[1] === f[1];
   }
 
+  /**
+   * Un point de hameau importe est-il exploitable ? { lon, lat } finis, dans
+   * les bornes. ⚠️ Meme discipline que `polygoneImporteValide` : le fichier
+   * vient d'un TIERS, et un NaN ferait « trancher » un secteur au hasard.
+   */
+  function pointHameauValide(p) {
+    return !!p && typeof p === 'object' &&
+      typeof p.lon === 'number' && typeof p.lat === 'number' &&
+      isFinite(p.lon) && isFinite(p.lat) &&
+      p.lon >= -180 && p.lon <= 180 && p.lat >= -90 && p.lat <= 90;
+  }
+
   function fusionnerPartage(texte) {
     const info = prefs.inspect(texte);
     if (!info.ok) return info;                 // { ok:false, raison, script?, format? }
     const p = info.payload || {};
-    let ajoutPoly = 0, ajoutSans = 0, rejetes = 0;
+    let ajoutPoly = 0, ajoutSans = 0, ajoutHameaux = 0, rejetes = 0;
     for (const [insee, liste] of Object.entries(p.agglos || {})) {
       if (!codeCommuneValide(insee) || !Array.isArray(liste) || !liste.length) { rejetes++; continue; }
       // On ne garde que les polygones exploitables, et on n'accepte la commune
@@ -1496,8 +1511,21 @@
       if (!p.sansAgglo[insee]) continue;
       if (!sansAgglo[insee]) { sansAgglo[insee] = true; ajoutSans++; }
     }
-    if (ajoutPoly || ajoutSans) { saveAgglos(); saveSansAgglo(); }
-    return { ok: true, ajoutPoly, ajoutSans, rejetes };
+    for (const [insee, liste] of Object.entries(p.hameaux || {})) {
+      if (!codeCommuneValide(insee) || !Array.isArray(liste)) { rejetes++; continue; }
+      const propres = liste.filter(pointHameauValide);
+      if (propres.length !== liste.length) rejetes += liste.length - propres.length;
+      // Une liste VIDE exportee dit « tout annule » : rien a importer.
+      if (!propres.length) continue;
+      // « n'ajouter que les absentes » : une commune ou j'ai DEJA tranche — meme
+      // en annulant tout (liste vide) — reste intouchee.
+      if (hameaux[insee]) continue;
+      // On RECONSTRUIT chaque point : un fichier tiers n'impose pas ses champs.
+      hameaux[insee] = propres.map(pt => ({ lon: pt.lon, lat: pt.lat }));
+      ajoutHameaux++;
+    }
+    if (ajoutPoly || ajoutSans || ajoutHameaux) { saveAgglos(); saveSansAgglo(); }
+    return { ok: true, ajoutPoly, ajoutSans, ajoutHameaux, rejetes };
   }
 
   function importerPartageFichier(fichier) {
@@ -2277,7 +2305,7 @@
       if (limites && cellules >= limites.budget) { tronque = true; break; }
       const { lat, lon, zoom } = aFaire.shift();
       cellules++;
-      if (prog) prog.info(cellules + ' zone(s) interrogee(s), ' + vus.size + ' panneau(x) d\'agglo');
+      if (prog) prog.info(cellules + ' zone(s) interrogée(s), ' + vus.size + ' panneau(x) d\'agglo');
       let data;
       if (!REF.sourcePanneaux) throw new Error('aucune source de panneaux dans ce pays');
       try { data = JSON.parse(await telecharger(REF.sourcePanneaux.url(lat, lon, zoom), prog)); }
@@ -4097,7 +4125,7 @@
       return;
     }
     const lignes = ['<b>' + total + ' panneau(x) d\'agglomération</b> dans la commune (' +
-      b.cellules + ' requete(s)).'];
+      b.cellules + ' requête(s)).'];
     if (!b.zones) {
       lignes.push('Aucun polygone tracé : rien à confronter pour l\'instant.');
     } else {
@@ -4108,7 +4136,7 @@
       // l'autre selon l'arrondi, d'ou des « 0 m » absurdes. Ce qui compte,
       // c'est de regarder si le trace englobe le bati.
       lignes.push('Vérifie que le tracé englobe bien les habitations de ' +
-        'l\'agglomération, et ajuste-le aux poignees (✎) si besoin.');
+        'l\'agglomération, et ajuste-le aux poignées (✎) si besoin.');
     }
     if (b.tronque) {
       lignes.push('⚠️ <b>Relevé peut-être incomplet</b> : une zone rendait le maximum ' +
@@ -4172,13 +4200,13 @@
           <div class="agn-modale-in">
             <div class="agn-modale-t">Polygone ${rang} / ${total} — quel nom ?</div>
             <div class="agn-modale-c">
-              Ce trace vient de <b>${prop.portes}</b> entrée(s) d'agglomération
+              Ce tracé vient de <b>${prop.portes}</b> entrée(s) d'agglomération
               (${prop.panneaux} panneau(x))${prop.aire
                 ? ` : <b>${Math.round(prop.aire / 10000)} ha</b>, ${Math.round(prop.longueur)} m
                     de long sur ${Math.round(prop.largeur)} m de large en moyenne` : ''}.
               <div class="agn-modale-geo">
-                <div class="agn-d">⚠️ <b>Trace grossier</b> : les panneaux ne sont
-                  poses que sur les routes. Entre deux entrées, la ligne est
+                <div class="agn-d">⚠️ <b>Tracé grossier</b> : les panneaux ne sont
+                  posés que sur les routes. Entre deux entrées, la ligne est
                   calculée, pas relevée — <b>à corriger aux poignées</b> ensuite.</div>
                 ${partDeLaCommune(prop) >= PART_COMMUNE_SUSPECTE ? `<div class="agn-d agn-alerte">
                   ⚠️ Ce polygone couvre <b>${Math.round(partDeLaCommune(prop) * 100)} %</b>
@@ -4194,7 +4222,7 @@
                    placeholder="Choisis une ville, ou saisis un nom">
             <div class="agn-note" id="agn-na-apercu"></div>
             <label class="agn-sb-c"><input type="checkbox" id="agn-na-rat" title="Village rattaché : le nom appliqué devient « Village (Commune) » au lieu du seul nom de la commune INSEE">
-              Village rattache (ville = « Village (Commune) »)</label>
+              Village rattaché (ville = « Village (Commune) »)</label>
             <button class="agn-btn primary" id="agn-na-ok">Créer ce polygone</button>
             <button class="agn-btn" id="agn-na-hameau" title="Un hameau ou un lieu-dit reste hors agglomération, même équipé de panneaux : pas de polygone, et le script ne le réclamera plus">C'est un hameau</button>
             <button class="agn-btn" id="agn-na-skip">Passer celui-ci</button>
@@ -4209,6 +4237,11 @@
       boite.addEventListener('mousedown', e => e.stopPropagation());
       ['keydown', 'keypress', 'keyup'].forEach(ev =>
         boite.addEventListener(ev, e => e.stopPropagation()));
+      // ⚠️ v2.49.03 : cette boite vit dans le `body`, HORS de la fenetre que
+      // l'observateur surveille — elle restait donc en francais. On la traduit,
+      // et on l'observe : l'apercu « Ville appliquée : … » se reecrit a la frappe.
+      traduireDOM(boite);
+      const obsTrad = observerTraduction(boite);
       const sel = boite.querySelector('#agn-na-sel'), rat = boite.querySelector('#agn-na-rat');
       const apercu = boite.querySelector('#agn-na-apercu');
       /**
@@ -4234,7 +4267,7 @@
       sel.oninput = () => { if (/\s\(.+\)\s*$/.test(sel.value)) rat.checked = true; maj(); };
       rat.onchange = maj;
       maj();
-      const finir = v => { boite.remove(); resolve(v); };
+      const finir = v => { if (obsTrad) obsTrad.disconnect(); boite.remove(); resolve(v); };
       boite.querySelector('#agn-na-ok').onclick =
         () => finir({ label: composer(), rattache: rat.checked });
       boite.querySelector('#agn-na-hameau').onclick = () => finir({ hameau: true });
@@ -4445,6 +4478,8 @@
     if (!texte) { if (n) n.remove(); return; }
     if (!n) { n = el('<div id="agn-trace-aide"></div>'); document.body.appendChild(n); }
     n.innerHTML = texte;
+    // ⚠️ Hors de la fenetre observee (v2.49.03) : on traduit a chaque ecriture.
+    traduireDOM(n);
   }
 
   async function tracerAgglo() {
@@ -4468,7 +4503,7 @@
     // ⚠️ « Agglomération » est un mot du code de la route : évident pour qui baigne
     // dedans, opaque pour qui découvre. Le bandeau dit donc CE QU'ON ENTOURE avant
     // de dire comment le faire.
-    bandeauTrace('✏️ <b>Entoure la zone bâtie de ' + esc(depart ? depart.quoi : communeActive.nom) + '</b>' +
+    bandeauTrace('✏️ <b>Entoure la zone bâtie ' + esc(deLieu(depart ? depart.quoi : communeActive.nom)) + '</b>' +
       ' <span>· celle entre les panneaux d’entrée et de sortie d’agglo — <b>pas</b> la limite de commune</span>' +
       (depart && depart.entrees ? ' <span>· ' + depart.entrees + ' entrée(s) relevée(s) ici</span>' : '') +
       '<span> · clique les sommets, <b>double-clic pour fermer</b> · Échap pour renoncer</span>');
@@ -5667,7 +5702,7 @@
       '<b>C\'est un hameau</b>':
         '<b>È un hameau</b>',
       'Un secteur d\'entrées qui n\'est ni un village ni une ancienne commune reste <b>hors agglomération</b>, même panneauté. Le bouton le déclare, dans la fenêtre du pré-tracé comme dans le cadre de fin de zonage : pas de polygone, et le script ne le réclame plus. <b>Annuler</b> le remet à trancher. En cas de doute, un <b>Local Champ</b> ou un <b>Country Manager</b> tranche.':
-        'Un settore di ingressi che non è né un villaggio né un ex comune resta <b>fuori dal centro abitato</b>, anche con i cartelli. Il pulsante lo dichiara, nella finestra del pre-tracciato come nel riquadro di fine zonizzazione: nessun poligono, e lo script non lo richiede più. <b>Annuler</b> lo rimette da decidere. In caso di dubbio decide un <b>Local Champ</b> o un <b>Country Manager</b>.',
+        'Un settore di ingressi che non è né un villaggio né un ex comune resta <b>fuori dal centro abitato</b>, anche con i cartelli. Il pulsante lo dichiara, nella finestra del pre-tracciato come nel riquadro di fine zonizzazione: nessun poligono, e lo script non lo richiede più. <b>Annulla</b> lo rimette da decidere. In caso di dubbio decide un <b>Local Champ</b> o un <b>Country Manager</b>.',
       '<b>＋ Tracer l\'agglomération</b>':
         '<b>＋ Traccia il centro abitato</b>',
       'Tracé à la main, point par point, quand les panneaux manquent ou ne suffisent pas.':
@@ -5725,8 +5760,8 @@
         'Nel <b>gestore di script</b> (Tampermonkey), non nel sito: sopravvive a una « cancellazione dei dati di navigazione » ed entra nei suoi backup.',
       '<b>⬇️ Exporter</b>':
         '<b>⬇️ Esporta</b>',
-      'Un fichier avec les polygones et les communes sans agglo. ⚠️ <b>Tes coches « traité » n\'y sont jamais</b> : elles sont personnelles. Tes <b>secteurs déclarés hameau</b> n\'y sont pas non plus : à redéclarer sur l\'autre poste.':
-        'Un file con i poligoni e i comuni senza centro abitato. ⚠️ <b>Le tue spunte « trattato » non ci sono mai</b>: sono personali. Nemmeno i tuoi <b>settori dichiarati hameau</b>: vanno dichiarati di nuovo sull\'altro computer.',
+      'Un fichier avec les polygones, les communes sans agglo et les <b>secteurs déclarés hameau</b>. ⚠️ <b>Tes coches « traité » n\'y sont jamais</b> : elles sont personnelles.':
+        'Un file con i poligoni, i comuni senza centro abitato e i <b>settori dichiarati hameau</b>. ⚠️ <b>Le tue spunte « trattato » non ci sono mai</b>: sono personali.',
       '<b>⬆️ Importer un fichier</b>':
         '<b>⬆️ Importa un file</b>',
       'Ajoute ce qui manque et <b>ne remplace jamais</b> ce que tu as déjà. Un fichier venu d\'un autre script est refusé.':
@@ -5741,8 +5776,8 @@
         'Sul PC di partenza, clicca <b>⬇️ Esporta (poligoni + comuni)</b>. Ottieni un file <b>.json</b>: trasferiscilo come vuoi (chiavetta USB, e-mail, cloud).',
       'Sur le PC d\'arrivée, clique <b>⬆️ Importer un fichier</b> et choisis ce .json.':
         'Sul PC di arrivo, clicca <b>⬆️ Importa un file</b> e scegli quel .json.',
-      '⚠️ <b>L\'import n\'écrase jamais rien</b> : il ajoute seulement les communes qui te manquent. Si une commune existe des deux côtés, c\'est <b>la version du PC d\'arrivée</b> qui est gardée — exporte donc depuis le poste le plus à jour. Et tes <b>coches ✓ traité ne voyagent pas</b> : elles sont personnelles, seuls les polygones et les communes « sans agglomération » sont dans le fichier.<br> Tu peux aussi déposer ce fichier quelque part (GitHub…) et le récupérer avec <b>🌐 Importer depuis l\'URL</b>, pratique pour le reprendre régulièrement sans repasser par une clé.':
-        '⚠️ <b>L\'importazione non sovrascrive mai nulla</b>: aggiunge soltanto i comuni che ti mancano. Se un comune esiste da entrambe le parti, si tiene <b>la versione del PC di arrivo</b> — esporta quindi dalla postazione più aggiornata. E le tue <b>spunte ✓ trattato non viaggiano</b>: sono personali, nel file ci sono solo i poligoni e i comuni « senza centro abitato ».<br> Puoi anche depositare questo file da qualche parte (GitHub…) e recuperarlo con <b>🌐 Importa da URL</b>, comodo per riprenderlo regolarmente senza passare da una chiavetta.',
+      '⚠️ <b>L\'import n\'écrase jamais rien</b> : il ajoute seulement les communes qui te manquent. Si une commune existe des deux côtés, c\'est <b>la version du PC d\'arrivée</b> qui est gardée — exporte donc depuis le poste le plus à jour. Et tes <b>coches ✓ traité ne voyagent pas</b> : elles sont personnelles, seuls les polygones, les communes « sans agglomération » et les secteurs déclarés hameau sont dans le fichier.<br> Tu peux aussi déposer ce fichier quelque part (GitHub…) et le récupérer avec <b>🌐 Importer depuis l\'URL</b>, pratique pour le reprendre régulièrement sans repasser par une clé.':
+        '⚠️ <b>L\'importazione non sovrascrive mai nulla</b>: aggiunge soltanto i comuni che ti mancano. Se un comune esiste da entrambe le parti, si tiene <b>la versione del PC di arrivo</b> — esporta quindi dalla postazione più aggiornata. E le tue <b>spunte ✓ trattato non viaggiano</b>: sono personali, nel file ci sono solo i poligoni, i comuni « senza centro abitato » e i settori dichiarati hameau.<br> Puoi anche depositare questo file da qualche parte (GitHub…) e recuperarlo con <b>🌐 Importa da URL</b>, comodo per riprenderlo regolarmente senza passare da una chiavetta.',
       // ── L'AIDE (09/09) ──────────────────────────────────────────────────
       // ⭐ Traduite PAR BLOC : dans l'aide une phrase est coupee par ses
       //    <b>, et l'italien ne remet pas les morceaux dans cet ordre. La
@@ -6139,8 +6174,311 @@
       'POI résidentiels en agglomération (à vérifier)':
         'Luoghi residenziali nel centro abitato (da verificare)',
       'POI : commune différente du contour INSEE (à vérifier)':
-        'Luoghi: comune diverso dal confine INSEE (da verificare)'
+        'Luoghi: comune diverso dal confine INSEE (da verificare)',
+      // ======================================================================
+      // v2.49.03 — LA ZONE DE TRACE (volet, guide, pre-trace, fin de zonage).
+      // Textes RELEVES dans WME le 23/09/2026 (Ploemeur, 15 etats), pas
+      // recopies du source. Ceux qui portent un nombre ou un nom sont dans
+      // MOTIFS, juste apres ce dictionnaire.
+      // ======================================================================
+      "Amène la carte sur la commune à traiter : les contours du département se chargent tout seuls.":
+        "Porta la mappa sul comune da trattare: i confini si caricano da soli.",
+      "Rien à faire d'autre — patiente quelques secondes.":
+        "Nient'altro da fare — attendi qualche secondo.",
+      "Choisis ta commune dans la liste.":
+        "Scegli il tuo comune nell'elenco.",
+      "Celle qui est sous le centre de la carte est remontée en tête.":
+        "Quello sotto il centro della mappa è in cima all'elenco.",
+      "Vérification des panneaux disponibles sur cette commune…":
+        "Verifica dei cartelli disponibili in questo comune…",
+      "Une seconde — la source est très inégale, et c'est elle qui décide par où commencer.":
+        "Un secondo — la fonte è molto disomogenea, ed è lei a decidere da dove cominciare.",
+      "Relève les panneaux d'agglomération.":
+        "Rileva i cartelli di centro abitato.",
+      "Ils marquent les entrées et sorties : c'est le point de départ du tracé.":
+        "Segnano ingressi e uscite: è il punto di partenza del tracciato.",
+      "Tire un tracé de ces panneaux.":
+        "Ricava un tracciato da questi cartelli.",
+      "Un polygone par agglomération — le bourg, puis chaque village ou ancienne commune. Un hameau reste hors agglomération, même avec des panneaux.":
+        "Un poligono per centro abitato — il capoluogo, poi ogni villaggio o ex comune. Un hameau resta fuori dal centro abitato, anche con i cartelli.",
+      "C'est la zone entre les panneaux d'entrée et de sortie d'agglo — pas la limite de commune (celle en tirets bleus). Les panneaux ne suffisent pas ici. Double-clic pour fermer le tracé — ou coche « sans agglomération » si la commune n'en a pas.":
+        "È la zona tra i cartelli di ingresso e di uscita — non il confine comunale (quello a trattini blu). Qui i cartelli non bastano. Doppio clic per chiudere il tracciato — o spunta « senza centro abitato » se il comune non ne ha.",
+      "Il reste des secteurs d'entrées à trancher.":
+        "Restano settori di ingressi da decidere.",
+      "Pour chacun : village ou ancienne commune ⇒ trace-le ; hameau ou lieu-dit ⇒ « C'est un hameau » (il reste hors agglomération, même panneauté).":
+        "Per ciascuno: villaggio o ex comune ⇒ traccialo; hameau o lieu-dit ⇒ « È un hameau » (resta fuori dal centro abitato, anche con i cartelli).",
+      "Ajuste le tracé proposé (✎).":
+        "Regola il tracciato proposto (✎).",
+      "Les panneaux ne marquent que les routes : entre deux entrées, la ligne est calculée. Tire les poignées pour la coller au terrain.":
+        "I cartelli segnano solo le strade: tra due ingressi la linea è calcolata. Trascina le maniglie per farla aderire al terreno.",
+      "Termine l'édition pour enregistrer le tracé.":
+        "Termina la modifica per salvare il tracciato.",
+      "Glisse un point plein, clique un point creux pour en ajouter, clic droit pour supprimer.":
+        "Trascina un punto pieno, clicca un punto vuoto per aggiungerne uno, clic destro per eliminare.",
+      "⚠️ Assure-toi d'abord que TOUTES les agglomérations sont tracées (bourg, villages, anciennes communes) : une agglomération oubliée passe en hors agglomération, et tous ses écarts seront faux.":
+        "⚠️ Assicurati prima che TUTTI i centri abitati siano tracciati (capoluogo, villaggi, ex comuni): un centro abitato dimenticato passa fuori dal centro abitato, e tutte le sue difformità saranno false.",
+      "Rien ne sera enregistré — tu reliras chaque correction dans WME.":
+        "Nulla verrà salvato — rileggerai ogni correzione in WME.",
+      "aucune":
+        "nessuno",
+      "aucun":
+        "nessuno",
+      "⚠ à tracer":
+        "⚠ da tracciare",
+      "sans agglomération (déclarée)":
+        "senza centro abitato (dichiarato)",
+      "Délimite la <b>zone bâtie</b> — entre les panneaux d’entrée et de sortie d’agglo, pas la limite de commune. Relève les panneaux, tires-en un tracé, ou dessine à la main.":
+        "Delimita la <b>zona edificata</b> — tra i cartelli di ingresso e di uscita, non il confine comunale. Rileva i cartelli, ricavane un tracciato, o disegna a mano.",
+      "Récupère les panneaux EB10 / EB20 (entrée et sortie d'agglomération) et les confronte aux polygones tracés.":
+        "Recupera i cartelli EB10 / EB20 (ingresso e uscita del centro abitato) e li confronta con i poligoni tracciati.",
+      "Aucun panneau d'entrée d'agglomération relevé sur cette commune dans le jeu officiel de signalisation. Ce n'est pas un défaut du script : la source est très inégale. Trace l'agglomération à la main.":
+        "Nessun cartello di ingresso rilevato in questo comune nel rilevamento ufficiale della segnaletica. Non è un difetto dello script: la fonte è molto disomogenea. Traccia il centro abitato a mano.",
+      "Vérification de la disponibilité des panneaux…":
+        "Verifica della disponibilità dei cartelli…",
+      "Relève d'abord les panneaux (bouton au-dessus).":
+        "Rileva prima i cartelli (pulsante qui sopra).",
+      "Aucun panneau sur cette commune : rien à proposer.":
+        "Nessun cartello in questo comune: niente da proporre.",
+      "Choisis une commune.":
+        "Scegli un comune.",
+      "Termine d'abord l'édition du tracé en cours (💾 pour enregistrer, Échap pour annuler).":
+        "Termina prima la modifica del tracciato in corso (💾 per salvare, Esc per annullare).",
+      "Édition en cours : enregistre (💾) ou annule (Échap) avant de replier.":
+        "Modifica in corso: salva (💾) o annulla (Esc) prima di ripiegare.",
+      "Aucune agglomération tracée pour":
+        "Nessun centro abitato tracciato per",
+      "À cocher seulement si la commune n'a RÉELLEMENT aucun panneau d'agglomération : toute la commune sera alors analysée comme hors agglomération.":
+        "Da spuntare solo se il comune NON ha DAVVERO alcun cartello di centro abitato: tutto il comune sarà allora analizzato come fuori dal centro abitato.",
+      "cette commune n'a <b>aucune agglomération</b> (tout est hors agglo)":
+        "questo comune non ha <b>alcun centro abitato</b> (tutto è fuori dal centro abitato)",
+      "Choisis dans les villes que WME connait, ou saisis librement.":
+        "Scegli tra le città che WME conosce, o scrivi liberamente.",
+      "Étiquette (repérage seul)":
+        "Etichetta (solo come riferimento)",
+      "Le nom appliqué devient « Village (Commune) » au lieu du seul nom de la commune INSEE. Le village est lu sur la City du segment.":
+        "Il nome applicato diventa « Village (Commune) » invece del solo nome del comune INSEE. Il villaggio viene letto sulla City del segmento.",
+      "village rattaché":
+        "frazione",
+      "Éditer les sommets":
+        "Modifica i vertici",
+      "Enregistrer le tracé modifié · Échap pour annuler":
+        "Salva il tracciato modificato · Esc per annullare",
+      "Centrer":
+        "Centra",
+      "Supprimer":
+        "Elimina",
+      "Glisser un point plein · cliquer un point creux pour en ajouter · clic droit pour supprimer":
+        "Trascinare un punto pieno · cliccare un punto vuoto per aggiungerne uno · clic destro per eliminare",
+      "Terminer":
+        "Termina",
+      "Annuler":
+        "Annulla",
+      "Bourg, village, ancienne commune : chaque agglomération de la commune a son propre polygone. La carte se cadre sur le prochain secteur d'entrées à couvrir — sauf si tu l'as déjà sous les yeux.":
+        "Capoluogo, villaggio, ex comune: ogni centro abitato del comune ha il proprio poligono. La mappa si inquadra sul prossimo settore di ingressi da coprire — salvo che tu lo abbia già sotto gli occhi.",
+      "＋ Ajouter une autre agglomération":
+        "＋ Aggiungi un altro centro abitato",
+      "Panneaux d'agglomération":
+        "Cartelli di centro abitato",
+      "Interrogation de la source":
+        "Interrogazione della fonte",
+      "Onglet en arrière-plan : le navigateur ralentit le travail. Reviens sur cet onglet.":
+        "Scheda in secondo piano: il browser rallenta il lavoro. Torna su questa scheda.",
+      "Relevé interrompu.":
+        "Rilevamento interrotto.",
+      "Cette source exige Tampermonkey (la page de WME ne peut pas appeler l'extérieur).":
+        "Questa fonte richiede Tampermonkey (la pagina di WME non può chiamare l'esterno).",
+      "Aucun panneau EB10 / EB20 relevé dans cette commune.":
+        "Nessun cartello EB10 / EB20 rilevato in questo comune.",
+      "Le jeu national ne couvre que 86 départements, et une commune couverte peut n'avoir aucun panneau saisi : cela ne dit RIEN sur son agglomération.":
+        "Il rilevamento nazionale copre solo 86 dipartimenti, e un comune coperto può non avere alcun cartello inserito: questo NON dice nulla sul suo centro abitato.",
+      "Aucun polygone tracé : rien à confronter pour l'instant.":
+        "Nessun poligono tracciato: per ora niente da confrontare.",
+      "Vérifie que le tracé englobe bien les habitations de l'agglomération, et ajuste-le aux poignées (✎) si besoin.":
+        "Verifica che il tracciato includa bene le abitazioni del centro abitato, e regolalo con le maniglie (✎) se serve.",
+      "Relevé peut-être incomplet":
+        "Rilevamento forse incompleto",
+      ": une zone rendait le maximum de résultats que l'API accepte, même découpée au plus fin.":
+        ": una zona restituiva il massimo di risultati accettato dall'API, anche suddivisa al massimo.",
+      "Aucun panneau relevé : rien à proposer. Lance d'abord « 🪧 Panneaux d'agglomération ».":
+        "Nessun cartello rilevato: niente da proporre. Avvia prima « 🪧 Cartelli di centro abitato ».",
+      "aucun tracé possible":
+        "nessun tracciato possibile",
+      ". Trace à la main — les panneaux restent affichés.":
+        ". Traccia a mano — i cartelli restano visibili.",
+      "ajuste-les aux poignées (✎)":
+        "regolali con le maniglie (✎)",
+      "Aucun polygone créé":
+        "Nessun poligono creato",
+      "trace les villages un par un":
+        "traccia i villaggi uno per uno",
+      "(un hameau reste hors agglomération) :":
+        "(un hameau resta fuori dal centro abitato):",
+      "(un hameau reste hors agglomération), en commençant par le bourg :":
+        "(un hameau resta fuori dal centro abitato), cominciando dal capoluogo:",
+      "bourg principal":
+        "capoluogo",
+      "ne sont ni couverts par un polygone, ni déclarés hameau. Pour chacun :":
+        "non sono né coperti da un poligono, né dichiarati hameau. Per ciascuno:",
+      "village ou ancienne commune":
+        "villaggio o ex comune",
+      "⇒ trace-le (une agglomération oubliée passe en hors agglomération) ;":
+        "⇒ traccialo (un centro abitato dimenticato passa fuori dal centro abitato);",
+      "hameau ou lieu-dit":
+        "hameau o lieu-dit",
+      "⇒ il reste hors agglomération, même avec des panneaux.":
+        "⇒ resta fuori dal centro abitato, anche con i cartelli.",
+      "C'est un hameau":
+        "È un hameau",
+      "Pas de polygone pour ce secteur : il reste hors agglomération, et le script ne le réclamera plus. Réversible.":
+        "Nessun poligono per questo settore: resta fuori dal centro abitato, e lo script non lo richiederà più. Reversibile.",
+      "En cas de doute, un <b>Local Champ</b> ou un <b>Country Manager</b> tranche.":
+        "In caso di dubbio decide un <b>Local Champ</b> o un <b>Country Manager</b>.",
+      "— hors agglomération :":
+        "— fuori dal centro abitato:",
+      "Ce secteur redevient à trancher : village (polygone) ou hameau.":
+        "Questo settore torna da decidere: villaggio (poligono) o hameau.",
+      "secteur non relevé":
+        "settore non rilevato",
+      "✔ Tous les secteurs d'entrées relevés sont tranchés (polygone ou hameau). Vérifie tout de même les villages sans panneau avant de terminer.":
+        "✔ Tutti i settori di ingressi rilevati sono decisi (poligono o hameau). Verifica comunque i villaggi senza cartelli prima di terminare.",
+      "⚠️ Assure-toi d'avoir tracé":
+        "⚠️ Assicurati di aver tracciato",
+      "toutes":
+        "tutti",
+      "les agglomérations de la commune (le bourg, les villages et les anciennes communes — pas les hameaux, même panneautés) : une agglomération oubliée passe en hors agglomération, et tous ses écarts seront faux.":
+        "i centri abitati del comune (il capoluogo, i villaggi e gli ex comuni — non gli hameau, anche con i cartelli): un centro abitato dimenticato passa fuori dal centro abitato, e tutte le sue difformità saranno false.",
+      "Aucun panneau d'agglomération n'est disponible ici :":
+        "Nessun cartello di centro abitato è disponibile qui:",
+      "le script ne peut pas vérifier à ta place":
+        "lo script non può verificare al posto tuo",
+      "Au besoin,":
+        "Se serve,",
+      "les recense pour toi.":
+        "li elenca per te.",
+      "est déclarée":
+        "è dichiarato",
+      "sans agglomération":
+        "senza centro abitato",
+      ": tous ses segments seront jugés hors agglomération. Décoche la case si ce n'est plus vrai.":
+        ": tutti i suoi segmenti saranno giudicati fuori dal centro abitato. Togli la spunta se non è più vero.",
+      "Ce tracé vient de":
+        "Questo tracciato viene da",
+      "⚠️ <b>Tracé grossier</b> : les panneaux ne sont posés que sur les routes. Entre deux entrées, la ligne est calculée, pas relevée — <b>à corriger aux poignées</b> ensuite.":
+        "⚠️ <b>Tracciato approssimativo</b>: i cartelli sono posati solo sulle strade. Tra due ingressi la linea è calcolata, non rilevata — <b>da correggere con le maniglie</b> in seguito.",
+      "L'étiquette sert de repère. Le format":
+        "L'etichetta serve da riferimento. Il formato",
+      "est le seul qui change la ville appliquée.":
+        "è l'unico che cambia la città applicata.",
+      "Choisis une ville, ou saisis un nom":
+        "Scegli una città, o scrivi un nome",
+      "Village rattaché : le nom appliqué devient « Village (Commune) » au lieu du seul nom de la commune INSEE":
+        "Frazione: il nome applicato diventa « Village (Commune) » invece del solo nome del comune INSEE",
+      "Village rattaché (ville = « Village (Commune) »)":
+        "Frazione (città = « Village (Commune) »)",
+      "Créer ce polygone":
+        "Crea questo poligono",
+      "Un hameau ou un lieu-dit reste hors agglomération, même équipé de panneaux : pas de polygone, et le script ne le réclamera plus":
+        "Un hameau o un lieu-dit resta fuori dal centro abitato, anche con i cartelli: nessun poligono, e lo script non lo richiederà più",
+      "Passer celui-ci":
+        "Salta questo",
+      "Tout arrêter":
+        "Ferma tutto",
+      "· celle entre les panneaux d’entrée et de sortie d’agglo — <b>pas</b> la limite de commune":
+        "· quella tra i cartelli di ingresso e di uscita — <b>non</b> il confine comunale",
+      "· clique les sommets, <b>double-clic pour fermer</b> · Échap pour renoncer":
+        "· clicca i vertici, <b>doppio clic per chiudere</b> · Esc per rinunciare",
+      "Écrit un fichier JSON contenant tes polygones, tes communes « sans agglo » et tes secteurs déclarés hameau, à transmettre à un autre éditeur. Tes coches « traité » restent personnelles et n'y sont pas.":
+        "Scrive un file JSON con i tuoi poligoni, i tuoi comuni « senza centro abitato » e i tuoi settori dichiarati hameau, da trasmettere a un altro editor. Le tue spunte « trattato » restano personali e non ci sono.",
+      "Le fichier partage les <b>polygones</b>, les communes « sans agglo » et les <b>secteurs déclarés hameau</b>. Les coches « traité » restent personnelles.":
+        "Il file condivide i <b>poligoni</b>, i comuni « senza centro abitato » e i <b>settori dichiarati hameau</b>. Le spunte « trattato » restano personali.",
+      "Rien de nouveau : les communes du fichier étaient déjà chez toi.":
+        "Niente di nuovo: i comuni del file erano già presenti da te."
     }
+  };
+
+  /**
+   * Les textes qui portent un NOMBRE ou un NOM (v2.49.03) — voir `traduireMotif`.
+   *
+   * Chaque entree : [motif ANCRE, remplacement] ; le remplacement est une
+   * chaine a `$1` ou une fonction qui recoit la correspondance.
+   * ⚠️ Le texte compare est NORMALISE (espaces reduits, bords rognes) : c'est
+   *    celui que voit l'ecran, pas celui du source.
+   * ⚠️ Releves dans WME le 23/09/2026 (Ploemeur) et completes des variantes que
+   *    le code sait produire. `tools/test-zone-trace-it.js` les eprouve tous.
+   */
+  const LIEUX_IT = {
+    'bourg': 'del capoluogo', 'bourg (mairie)': 'del capoluogo (municipio)',
+    'un secteur d\'entrées': 'di un settore di ingressi'
+  };
+  // « du bourg », « d'un secteur d'entrées », « de Ploemeur », « du Havre » →
+  // italien. `deLieu` a mange l'article (« Le Havre » → « du Havre ») : on le rend.
+  const lieuIt = (art, q) => LIEUX_IT[q] ||
+    'di ' + (art === 'du ' ? 'Le ' : art === 'des ' ? 'Les ' : '') + q;
+  const RAISONS_IT = {
+    'trop isolés': 'troppo isolati', 'trop isolées': 'troppo isolati',
+    'alignés le long d\'une route': 'allineati lungo una strada'
+  };
+  const MOTIFS = {
+    it: [
+      // --- volet -------------------------------------------------------------
+      [/^(\d+) commune\(s\) dans la vue sur (\d+)$/, '$1 comune/i nella vista su $2'],
+      [/^(\d+) communes$/, '$1 comuni'],
+      [/^(\d+) polygones?$/, (t, n) => n === '1' ? '1 poligono' : n + ' poligoni'],
+      [/^(\d+) sommets — ville appliquée :$/, '$1 vertici — città applicata:'],
+      [/^‹ville du segment› \((.+)\)$/, '‹città del segmento› ($1)'],
+      [/^Récupère les panneaux EB10 \/ EB20 \(entrée et sortie d'agglomération\) et les confronte aux polygones tracés\. (\d+) panneau\(x\) repéré\(s\) sur cette commune\.$/,
+        'Recupera i cartelli EB10 / EB20 (ingresso e uscita del centro abitato) e li confronta con i poligoni tracciati. $1 cartello/i individuato/i in questo comune.'],
+      [/^Aucun jeu de données de panneaux d'entrée d'agglomération n'existe pour (.+)\. Le tracé se fait à la main — c'est déjà le cas dans une bonne partie de la France\.$/,
+        'Non esiste alcun insieme di dati dei cartelli di ingresso per $1. Il tracciato si fa a mano — è già così in buona parte della Francia.'],
+      [/^Les (\d+) panneaux relevés ne forment aucune surface exploitable : (ils s'alignent le long d'une voie|ils sont trop isolés)\. Trace à la main\.$/,
+        (t, n, r) => 'I ' + n + ' cartelli rilevati non formano alcuna superficie utilizzabile: ' +
+          (/aligne/.test(r) ? 'sono allineati lungo una strada' : 'sono troppo isolati') + '. Traccia a mano.'],
+      // --- releve et bilan ------------------------------------------------------
+      [/^(\d+) zone\(s\) interrogée\(s\), (\d+) panneau\(x\) d'agglo$/, '$1 zona/e interrogata/e, $2 cartello/i di centro abitato'],
+      [/^(\d+) panneau\(x\) d'agglomération$/, '$1 cartello/i di centro abitato'],
+      [/^dans la commune \((\d+) requête\(s\)\)\.$/, 'nel comune ($1 richiesta/e).'],
+      [/^(\d+) panneau\(x\)$/, '$1 cartello/i'],
+      [/^(?:sur (\d+) ha)?(?:, (alignés le long d'une route|trop isolés))? :$/,
+        (t, ha, r) => (ha ? 'su ' + ha + ' ha' : '') + (r ? ', ' + RAISONS_IT[r] : '') + ':'],
+      [/^(\d+) polygone\(s\) créé\(s\)$/, '$1 poligono/i creato/i'],
+      [/^, les panneaux ne marquent que les routes( ·|\.)$/, (t, fin) => ', i cartelli segnano solo le strade' + fin],
+      [/^entrée\(s\) non tracée\(s\) \((.+)\)\.$/, (t, r) => 'ingresso/i non tracciato/i (' + (RAISONS_IT[r] || r) + ').'],
+      // --- secteurs et hameaux -----------------------------------------------------
+      [/^(\d+) secteur\(s\) d'entrées repéré\(s\) —$/, '$1 settore/i di ingressi individuato/i —'],
+      [/^(\d+) secteur\(s\) d'entrées$/, '$1 settore/i di ingressi'],
+      [/^(\d+) secteur\(s\) déclaré\(s\) hameau$/, '$1 settore/i dichiarato/i hameau'],
+      [/^([•·]) (\d+) entrée\(s\)$/, '$1 $2 ingresso/i'],
+      [/^(\d+) entrée\(s\)$/, '$1 ingresso/i'],
+      [/^· (\d+) entrée\(s\) relevée\(s\) ici$/, '· $1 ingresso/i rilevato/i qui'],
+      // --- fenetre du pre-trace ------------------------------------------------------
+      [/^Polygone (\d+) \/ (\d+) — quel nom \?$/, 'Poligono $1 / $2 — quale nome?'],
+      [/^entrée\(s\) d'agglomération \((\d+) panneau\(x\)\)( :|\.)$/,
+        (t, n, fin) => 'ingresso/i di centro abitato (' + n + ' cartello/i)' + (fin === '.' ? '.' : ':')],
+      [/^, (\d+) m de long sur (\d+) m de large en moyenne\.$/, ', lungo $1 m e largo in media $2 m.'],
+      [/^⚠️ Ce polygone couvre <b>(\d+) %<\/b> de la commune\. Il réunit <b>probablement plusieurs agglomérations<\/b> que la chaîne des entrées a soudées : vérifie sur la carte, et si c'est le cas, passe-le pour les tracer séparément\.$/,
+        '⚠️ Questo poligono copre il <b>$1 %</b> del comune. Riunisce <b>probabilmente più centri abitati</b> che la catena degli ingressi ha saldato: verifica sulla mappa e, se è così, saltalo per tracciarli separatamente.'],
+      [/^Ville appliquée : (.+)$/, 'Città applicata: $1'],
+      // --- guide et bandeau du trace ---------------------------------------------------
+      [/^Entoure la zone bâtie (du |des |d'|de )(.+?)( à la main\.)?$/,
+        (t, art, q, main) => 'Delimita la zona edificata ' + lieuIt(art, q) + (main ? ' a mano.' : '')],
+      [/^Le script travaille sur (.+) — pas sur la commune que tu regardes\.$/,
+        'Lo script lavora su $1 — non sul comune che stai guardando.'],
+      [/^La carte est centrée sur (.+)\. Choisis-la dans la liste pour travailler dessus — ou recadre sur (.+) pour reprendre où tu en étais\.$/,
+        (t, a, b) => 'La mappa è centrata su ' + (a === 'une autre commune' ? 'un altro comune' : a) +
+          '. Sceglilo nell\'elenco per lavorarci — o reinquadra su ' + b + ' per riprendere da dove eri.'],
+      [/^Le zonage (du |des |d'|de )(.+) est fait — referme le volet de gauche\.$/,
+        (t, art, q) => 'La zonizzazione ' + lieuIt(art, q) + ' è fatta — richiudi il pannello di sinistra.'],
+      [/^Tout est prêt : lance l'analyse (du |des |d'|de )(.+)\.$/,
+        (t, art, q) => 'Tutto è pronto: avvia l\'analisi ' + lieuIt(art, q) + '.'],
+      [/^La carte a quitté (.+) — choisis la commune à traiter\.$/,
+        'La mappa ha lasciato $1 — scegli il comune da trattare.'],
+      // --- reglages : resultat d'un import de partage ----------------------------
+      [/^(\d+) commune\(s\) avec polygone, (\d+) « sans agglo » et (\d+) avec hameaux déclarés ajoutée\(s\)\. Tes communes existantes n'ont pas été touchées\.(.*)$/,
+        (t, a, b, c, reste) => a + ' comune/i con poligono, ' + b + ' « senza centro abitato » e ' + c +
+          ' con hameau dichiarati aggiunto/i. I tuoi comuni esistenti non sono stati toccati.' +
+          (reste ? reste.replace(/^ ⚠️ (\d+) entrée\(s\) écartée\(s\) : code INSEE, polygone ou hameau invalide \(le fichier est peut-être abîmé\)\.$/,
+            ' ⚠️ $1 voce/i scartata/e: codice INSEE, poligono o hameau non valido (il file è forse danneggiato).') : '')]
+    ]
   };
 
   let LANGUE = 'fr';
@@ -6159,10 +6497,49 @@
     return LANGUE;
   }
 
+  /**
+   * « de » + un lieu, ELIDE comme on l'ecrit : « du bourg », « d'un secteur
+   * d'entrees », « d'Arles », « de Ploemeur », « du Havre ».
+   * ⚠️ Vu en direct le 23/09/2026 : le bandeau du trace affichait « Entoure la
+   * zone batie de un secteur d'entrees », et « de le bourg » attendait son tour.
+   * Les motifs italiens reconnaissent ces quatre formes (voir MOTIFS).
+   */
+  function deLieu(q) {
+    q = String(q || '');
+    if (/^le /i.test(q)) return 'du ' + q.slice(3);
+    if (/^les /i.test(q)) return 'des ' + q.slice(4);
+    if (/^[aeiouyàâäéèêëîïôöûùüœ]/i.test(q)) return 'd\'' + q;
+    return 'de ' + q;
+  }
+
   /** Le texte dans la langue de l'editeur — le francais s'il n'y a rien. */
   function tr(fr) {
     const d = TEXTES[LANGUE];
     return (d && d[fr]) || fr;
+  }
+
+  /**
+   * Traduit un texte qui porte un NOMBRE ou un NOM, par motif (v2.49.03).
+   *
+   * ⚠️⚠️ LE DICTIONNAIRE NE PEUT PAS LES ATTEINDRE : sa cle est le texte exact,
+   * et « 7 commune(s) dans la vue sur 3195 » change a chaque deplacement de
+   * carte. Mesure le 23/09/2026 dans WME (Ploemeur, 15 etats de la zone de
+   * trace) : une vingtaine de textes de ce genre, tous restes en francais.
+   * On ne les RECONSTRUIT pas a la source avec `tr()` — c'est le choix du
+   * 09/09 (traduire a la sortie) — : on les RECONNAIT a la sortie.
+   * ⚠️ Appele SEULEMENT apres l'echec du dictionnaire : un texte fixe garde sa
+   * cle, un motif ne peut pas lui voler sa traduction.
+   * ⚠️ Chaque motif est ANCRE (^…$) : il ne traduit que la phrase entiere,
+   * jamais un morceau d'une phrase plus longue.
+   */
+  function traduireMotif(texte) {
+    const m = MOTIFS[LANGUE];
+    if (!m || !texte) return null;
+    for (const [re, rep] of m) {
+      const r = texte.match(re);
+      if (r) return typeof rep === 'function' ? rep(...r) : texte.replace(re, rep);
+    }
+    return null;
   }
 
   // ⚠️ Les attributs qui S'AFFICHENT. `alt` et `aria-label` n'existent pas dans
@@ -6201,6 +6578,26 @@
    * `observerTraduction`) de ne pas se declencher lui-meme : aucune mutation
    * `childList` n'en sort, donc pas de boucle a rompre par un drapeau.
    */
+  /**
+   * Traduit UN attribut visible d'un element (infobulle, texte d'attente).
+   * ⚠️ Appelee aussi par l'observateur quand le script REECRIT une infobulle :
+   * `renderAgglos` recalcule celles de « Panneaux » et « Proposer un tracé » a
+   * chaque rendu, et elles repassaient en francais (mesure du 23/09/2026).
+   * ⚠️ La marque `__agnTr` retient la derniere valeur ECRITE par nous : la
+   * mutation que provoque notre propre `setAttribute` revient ici et s'arrete
+   * la, meme si une traduction se trouvait etre aussi une cle.
+   */
+  function traduireAttribut(n, a) {
+    const d = TEXTES[LANGUE];
+    const v = n && n.getAttribute && n.getAttribute(a);
+    if (!d || !v) return;
+    const marque = n.__agnTr || (n.__agnTr = {});
+    if (marque[a] === v) return;
+    const cle = String(v).trim();
+    const t = d[cle] || d[cle.replace(/\s+/g, ' ')] || traduireMotif(cle.replace(/\s+/g, ' '));
+    if (t && t !== v) { marque[a] = t; n.setAttribute(a, t); }
+  }
+
   function traduireDOM(racine) {
     if (LANGUE === 'fr' || !racine) return racine;
     const d = TEXTES[LANGUE];
@@ -6220,7 +6617,8 @@
         //    en forme du fichier — un jour ou quelqu'un reindente ce bloc, la
         //    traduction tombe en silence. On cherche donc aussi la version aux
         //    espaces normalises, qui est celle qu'un humain sait ecrire.
-        const trad = d[cle] || d[cle.replace(/\s+/g, ' ')];
+        const trad = d[cle] || d[cle.replace(/\s+/g, ' ')] ||
+          traduireMotif(cle.replace(/\s+/g, ' '));
         // ⚠️ On remplace DANS le texte brut : « Segments <span> » perdrait son
         //    espace de fin, et deux mots se colleraient.
         if (trad) n.nodeValue = brut.replace(cle, trad);
@@ -6258,7 +6656,8 @@
       const balise = Array.prototype.some.call(enfants0, c => c && c.nodeType === 1);
       const dedans = balise ? n.innerHTML : '';
       if (dedans && dedans.length <= 4000) {
-        const blocTrad = d[dedans.trim()] || d[dedans.trim().replace(/\s+/g, ' ')];
+        const blocTrad = d[dedans.trim()] || d[dedans.trim().replace(/\s+/g, ' ')] ||
+          traduireMotif(dedans.trim().replace(/\s+/g, ' '));
         if (blocTrad) {
           // ⚠️ La marque AVANT l'ecriture : l'observateur peut etre appele
           //    avant que la ligne suivante ne s'execute.
@@ -6268,12 +6667,7 @@
         }
       }
 
-      for (const a of ATTRS_VISIBLES) {
-        const v = n.getAttribute && n.getAttribute(a);
-        if (!v) continue;
-        const t = d[String(v).trim()];
-        if (t) n.setAttribute(a, t);
-      }
+      for (const a of ATTRS_VISIBLES) traduireAttribut(n, a);
       const enfants = n.childNodes;
       if (!enfants) return;
       // ⚠️ Copie : traduire ne modifie pas la liste, mais s'appuyer sur une
@@ -6312,10 +6706,15 @@
     try {
       const obs = new MO(lots => {
         for (const lot of lots) {
+          // ⚠️ v2.49.03 : les INFOBULLES aussi. Elles sont reecrites sans
+          //    qu'aucun noeud n'arrive (`bouton.title = …`) : l'observateur
+          //    `childList` seul ne les voyait jamais.
+          if (lot.type === 'attributes') { traduireAttribut(lot.target, lot.attributeName); continue; }
           for (const n of lot.addedNodes) traduireDOM(n);
         }
       });
-      obs.observe(racine, { childList: true, subtree: true });
+      obs.observe(racine, { childList: true, subtree: true,
+                            attributes: true, attributeFilter: ATTRS_VISIBLES });
       return obs;
     } catch (e) { log('traduction : observateur impossible', e); return null; }
   }
@@ -12226,7 +12625,7 @@
     // comme « la commune ». On nomme CE QU'ON ENTOURE, et on l'oppose explicitement à
     // la limite communale — laquelle est à l'écran, en tirets bleus.
     'agglo-tracer': { n: 2, cible: '#agn-tracer', dansVolet: true,
-      texte: () => 'Entoure la zone bâtie de ' + nomSuivi() + ' à la main.',
+      texte: () => 'Entoure la zone bâtie ' + deLieu(nomSuivi()) + ' à la main.',
       suite: 'C\'est la zone entre les panneaux d\'entrée et de sortie d\'agglo — pas la ' +
              'limite de commune (celle en tirets bleus). Les panneaux ne suffisent pas ici. ' +
              'Double-clic pour fermer le tracé — ou coche « sans agglomération » si la ' +
@@ -12268,12 +12667,12 @@
       // gardent « ce volet ».
       // ⚠️ On NOMME la commune : l'affirmation « c'est fait » ne vaut que si on
       // sait de quoi elle parle (27/07).
-      texte: () => 'Le zonage de ' + nomSuivi() + ' est fait — referme le volet de gauche.',
+      texte: () => 'Le zonage ' + deLieu(nomSuivi()) + ' est fait — referme le volet de gauche.',
       suite: '⚠️ Assure-toi d\'abord que TOUTES les agglomérations sont tracées (bourg, ' +
              'villages, anciennes communes) : une agglomération oubliée passe en hors ' +
              'agglomération, et tous ses écarts seront faux.' },
     analyse: { n: 3, cible: '#agn-scan',
-      texte: () => 'Tout est prêt : lance l\'analyse de ' + nomSuivi() + '.',
+      texte: () => 'Tout est prêt : lance l\'analyse ' + deLieu(nomSuivi()) + '.',
       suite: 'Rien ne sera enregistré — tu reliras chaque correction dans WME.' }
   };
 
@@ -12634,7 +13033,7 @@
           <b>coches ✓ traité</b>.</p>
         <table class="agn-aide-t">
           <tr><td><b>Où</b></td><td>Dans le <b>gestionnaire de scripts</b> (Tampermonkey), pas dans le site : ça survit à un « effacer les données de navigation » et ça entre dans ses sauvegardes.</td></tr>
-          <tr><td><b>⬇️ Exporter</b></td><td>Un fichier avec les polygones et les communes sans agglo. ⚠️ <b>Tes coches « traité » n'y sont jamais</b> : elles sont personnelles. Tes <b>secteurs déclarés hameau</b> n'y sont pas non plus : à redéclarer sur l'autre poste.</td></tr>
+          <tr><td><b>⬇️ Exporter</b></td><td>Un fichier avec les polygones, les communes sans agglo et les <b>secteurs déclarés hameau</b>. ⚠️ <b>Tes coches « traité » n'y sont jamais</b> : elles sont personnelles.</td></tr>
           <tr><td><b>⬆️ Importer un fichier</b></td><td>Ajoute ce qui manque et <b>ne remplace jamais</b> ce que tu as déjà. Un fichier venu d'un autre script est refusé.</td></tr>
           <tr><td><b>🌐 Importer depuis l'URL</b></td><td>Même chose depuis une adresse (https uniquement).</td></tr>
         </table>
@@ -12651,8 +13050,8 @@
           seulement les communes qui te manquent. Si une commune existe des deux côtés,
           c'est <b>la version du PC d'arrivée</b> qui est gardée — exporte donc depuis le
           poste le plus à jour. Et tes <b>coches ✓ traité ne voyagent pas</b> : elles sont
-          personnelles, seuls les polygones et les communes « sans agglomération » sont
-          dans le fichier.<br>
+          personnelles, seuls les polygones, les communes « sans agglomération » et les
+          secteurs déclarés hameau sont dans le fichier.<br>
           Tu peux aussi déposer ce fichier quelque part (GitHub…) et le récupérer avec
           <b>🌐 Importer depuis l'URL</b>, pratique pour le reprendre régulièrement sans
           repasser par une clé.</div>` },
@@ -12975,9 +13374,10 @@
             <div class="agn-sb-n">Polygones, communes « sans agglo » et coches « traité »
               sont conservés dans le gestionnaire de scripts (survit au nettoyage du
               navigateur), avec repli local.</div>
-            <button class="agn-sb-b" id="agn-r-exporter" title="Écrit un fichier JSON contenant tes polygones et tes communes « sans agglo », à transmettre à un autre éditeur. Tes coches « traité » restent personnelles et n'y sont pas.">⬇️ Exporter (polygones + communes)</button>
-            <div class="agn-sb-n">Le fichier partage les <b>polygones</b> et les
-              communes « sans agglo ». Les coches « traité » restent personnelles.</div>
+            <button class="agn-sb-b" id="agn-r-exporter" title="Écrit un fichier JSON contenant tes polygones, tes communes « sans agglo » et tes secteurs déclarés hameau, à transmettre à un autre éditeur. Tes coches « traité » restent personnelles et n'y sont pas.">⬇️ Exporter (polygones + communes)</button>
+            <div class="agn-sb-n">Le fichier partage les <b>polygones</b>, les
+              communes « sans agglo » et les <b>secteurs déclarés hameau</b>. Les coches
+              « traité » restent personnelles.</div>
             <button class="agn-sb-b" id="agn-r-importer-f" title="Ajoute les communes d'un fichier reçu. ⚠️ Tes communes existantes ne sont JAMAIS écrasées : seules les absentes sont ajoutées.">⬆️ Importer un fichier</button>
             <input type="file" id="agn-r-fichier-partage" accept=".json,application/json" style="display:none">
             <label class="agn-sb-l" style="margin-top:8px"><span>Importer depuis une URL</span></label>
@@ -13182,13 +13582,14 @@
       if (!r.ok) { dire('Import refusé : ' + (RAISONS[r.raison] || r.raison), true); return; }
       // ⚠️ Un rejet ne doit JAMAIS être silencieux : un import qui n'a pris que
       // la moitié du fichier, sans le dire, laisse croire à un zonage complet.
-      const rejet = r.rejetes ? ' ⚠️ ' + r.rejetes + ' entrée(s) écartée(s) : code INSEE ou ' +
-        'polygone invalide (le fichier est peut-être abîmé).' : '';
-      if (!r.ajoutPoly && !r.ajoutSans) {
+      const rejet = r.rejetes ? ' ⚠️ ' + r.rejetes + ' entrée(s) écartée(s) : code INSEE, ' +
+        'polygone ou hameau invalide (le fichier est peut-être abîmé).' : '';
+      if (!r.ajoutPoly && !r.ajoutSans && !r.ajoutHameaux) {
         dire('Rien de nouveau : les communes du fichier étaient déjà chez toi.' + rejet, !!r.rejetes);
       } else {
-        dire(r.ajoutPoly + ' commune(s) avec polygone et ' + r.ajoutSans +
-          ' « sans agglo » ajoutée(s). Tes communes existantes n\'ont pas été touchées.' + rejet);
+        dire(r.ajoutPoly + ' commune(s) avec polygone, ' + r.ajoutSans + ' « sans agglo » et ' +
+          (r.ajoutHameaux || 0) + ' avec hameaux déclarés ajoutée(s). Tes communes existantes ' +
+          'n\'ont pas été touchées.' + rejet);
       }
       // Rafraichir ce que l'editeur voit : liste des communes, agglos, carte.
       rafraichirCommunesDeLaVue(); renderAgglos(); redrawAgglos();
