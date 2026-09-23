@@ -119,11 +119,19 @@ titre('Robustesse : on ne casse jamais la sauvegarde');
     fusionner(null, { agglos: { '30254': [POLY()] }, sansAgglo: {}, traites: {} }).agglos['30254'].length, 1);
   verifier('11. memoire vide ⇒ le stockage est intact (jamais d\'effacement)',
     fusionner({ agglos: { '30254': [POLY()] } }, null).agglos['30254'].length, 1);
-  verifier('12. les deux vides ⇒ trois sections presentes, jamais `undefined`',
-    Object.keys(fusionner({}, {})).sort(), ['agglos', 'sansAgglo', 'traites']);
+  // v2.49 : quatrieme section, les secteurs declares hameau (schema 2, wiki v52).
+  verifier('12. les deux vides ⇒ quatre sections presentes, jamais `undefined`',
+    Object.keys(fusionner({}, {})).sort(), ['agglos', 'hameaux', 'sansAgglo', 'traites']);
   const r = fusionner({}, {});
-  verifier('12. … et bien des objets', [typeof r.agglos, typeof r.sansAgglo, typeof r.traites],
-    ['object', 'object', 'object']);
+  verifier('12. … et bien des objets',
+    [typeof r.agglos, typeof r.sansAgglo, typeof r.traites, typeof r.hameaux],
+    ['object', 'object', 'object', 'object']);
+  // ⚠️ Un hameau declare dans un AUTRE onglet ne doit pas etre perdu a la
+  // sauvegarde de celui-ci — c'est tout l'objet de la fusion.
+  const h = fusionner({ hameaux: { '56162': [{ lon: -3.5, lat: 47.7 }] } },
+                      { agglos: {}, sansAgglo: {}, traites: {}, hameaux: { '29103': [] } });
+  verifier('12b. ⭐ hameau declare ailleurs + commune videe ici ⇒ les deux gardes',
+    [h.hameaux['56162'].length, h.hameaux['29103'].length], [1, 0]);
 }
 
 titre('⭐ Verrous sur le SOURCE — ce qui rend la fusion possible');

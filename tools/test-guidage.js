@@ -58,6 +58,9 @@ function etape(etat) {
     // v2.23 : les secteurs d'entrees non couverts retiennent le parcours — une
     // agglomeration oubliee fausse toute l'analyse.
     secteurs: [], couverts: [],
+    // v2.49 (schema 2, wiki v52) : un secteur DECLARE HAMEAU est tranche, comme
+    // un secteur couvert — il reste hors agglomeration, sans polygone.
+    hameaux: [],
     // v2.24.02 : « le releve a-t-il ete FAIT » ≠ « il y a des panneaux ».
     releveFait: false, voletOuvert: false,
     // v2.26.02 : la commune SOUS LE CENTRE de la carte. `null` = on ne sait pas
@@ -71,13 +74,13 @@ function etape(etat) {
   const fn = new Function(
     'options', 'pays', 'communes', 'communeActive', 'edition', 'agglos', 'sansAgglo',
     'panneaux', 'bilanPreTrace', 'sondageCourant', 'lastScan',
-    'secteursCourants', 'secteurCouvert', 'releveFait', 'ui',
+    'secteursCourants', 'secteurTranche', 'releveFait', 'ui',
     'guidageDecale', 'communeSousLeCentre',
     extraire('etapeCourante') + '\nreturn etapeCourante();');
   return fn({ guidage: e.guidage }, { etat: e.paysEtat }, e.communes, e.communeActive,
             e.edition, e.agglos, e.sansAgglo, e.panneaux, e.bilanPreTrace,
             () => e.sondage, e.lastScan,
-            e.secteurs, g => e.couverts.includes(g), e.releveFait,
+            e.secteurs, g => e.couverts.includes(g) || e.hameaux.includes(g), e.releveFait,
             { volet: { classList: { contains: () => e.voletOuvert } } },
             // ⚠️ La VRAIE fonction du userscript, extraite : un test qui reecrirait
             // la comparaison ne prouverait que lui-meme.
@@ -184,6 +187,42 @@ titre('⚠️ EXHAUSTIVITE : une agglomeration oubliee fausse toute l\'analyse')
   verifier('20. aucun secteur connu ⇒ pas de faux rappel (on ne sait rien)',
     etape({ communeActive: COMMUNE, panneaux: RELEVE, agglos: { '83119': [{ ring: [] }] },
             secteurs: [], couverts: [] }), 'analyse');
+  // ⚠️⚠️ SCHEMA 2 (vote t411162, wiki v52 du 23/09/2026) : « un hameau ou un
+  // lieu-dit reste hors agglomeration, meme equipe de panneaux ». Jusqu'a la
+  // 2.48, le test 17 suffisait a bloquer l'editeur devant un hameau panneaute :
+  // il ne pouvait aller a l'analyse qu'en l'entourant — c'est-a-dire en
+  // appliquant le schema 1, celui que les Champs ont ecarte.
+  verifier('20b. ⭐ secteur non couvert mais DECLARE HAMEAU ⇒ on passe a l\'analyse',
+    etape({ communeActive: COMMUNE, panneaux: RELEVE, agglos: { '83119': [{ ring: [] }] },
+            secteurs: [s1, s2], couverts: [s1.g], hameaux: [s2.g] }), 'analyse');
+  verifier('20c. … et le volet ouvert mène au bilan, pas au rappel',
+    etape({ communeActive: COMMUNE, panneaux: RELEVE, agglos: { '83119': [{ ring: [] }] },
+            secteurs: [s1, s2], couverts: [s1.g], hameaux: [s2.g], voletOuvert: true }),
+    'volet-terminer');
+  verifier('20d. ⚠️ un hameau déclaré ne couvre QUE lui : un autre secteur libre est réclamé',
+    etape({ communeActive: COMMUNE, panneaux: RELEVE, agglos: { '83119': [{ ring: [] }] },
+            secteurs: [s1, s2], couverts: [], hameaux: [s2.g] }), 'agglo-encore');
+}
+
+titre('⭐ La VRAIE reconnaissance d\'un hameau declare (secteurHameau)');
+{
+  // Fonctions EXTRAITES du userscript : `distanceM`, la tolerance et le test.
+  const m = src.match(/const distanceM = \(a, b\) => [\s\S]*?\);\n/);
+  const tol = src.match(/const TOLERANCE_HAMEAU_M = \d+;/);
+  const hameauDe = (hameaux, communeActive) => new Function('hameaux', 'communeActive',
+    m[0] + tol[0] + extraire('secteurHameau') + '\nreturn secteurHameau;')(hameaux, communeActive);
+  const decl = { '56162': [{ lon: -3.4300, lat: 47.7300 }] };
+  const f = hameauDe(decl, { code: '56162' });
+  // 0,001° de latitude ≈ 110 m ; 0,01° ≈ 1,1 km.
+  verifier('21a. même centre ⇒ hameau', f({ centre: { lon: -3.4300, lat: 47.7300 } }), true);
+  verifier('21b. centre décalé de ~110 m (nouveau relevé) ⇒ toujours hameau',
+    f({ centre: { lon: -3.4300, lat: 47.7310 } }), true);
+  verifier('21c. ⚠️ secteur voisin à ~1,1 km ⇒ PAS hameau (il reste à trancher)',
+    f({ centre: { lon: -3.4300, lat: 47.7400 } }), false);
+  verifier('21d. ⚠️ même point, AUTRE commune ⇒ pas hameau',
+    hameauDe(decl, { code: '29103' })({ centre: { lon: -3.4300, lat: 47.7300 } }), false);
+  verifier('21e. sans commune active ⇒ pas hameau (on ne suppose rien)',
+    hameauDe(decl, null)({ centre: { lon: -3.4300, lat: 47.7300 } }), false);
 }
 
 titre('⚠️ LE CAS LIRAC : un relevé qui ne rend RIEN');

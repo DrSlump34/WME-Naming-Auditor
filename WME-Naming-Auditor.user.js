@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.48.01
+// @version      2.49.00
 // @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies selon les règles du pays regardé (agglomération / centro abitato, contours communaux INSEE / ISTAT). Interface et aide en français et en italien. ⚠️ Le portage italien est en phase de TEST.
 // @author       DrSlump34
 // @license      MIT
@@ -966,6 +966,22 @@
   // autres. Structure OBJET et non tableau pour que la fusion multi-poste soit
   // une union, jamais un ecrasement.
   let traites = {};
+  /**
+   * Secteurs d'entrees declares HAMEAU : { <code INSEE>: [{ lon, lat }] }.
+   *
+   * ⚠️⚠️ SCHEMA 2 (vote t411162, 6-0, clos le 14/09/2026 ; wiki « Nommage des
+   * segments » v52 du 23/09) : « Les panneaux EB10/EB20 ne suffisent pas a faire
+   * d'un lieu une agglomeration. Un hameau ou un lieu-dit reste hors
+   * agglomeration, meme equipe de panneaux. » Jusqu'a la 2.48, tout secteur
+   * d'entrees non couvert par un polygone etait tenu pour une agglomeration
+   * OUBLIEE, et le guidage refusait d'aller a l'analyse tant qu'on ne l'avait
+   * pas entoure : le script poussait au schema 1, celui que les Champs ont ecarte.
+   * Aucune source ne distingue un hameau d'un village : c'est l'EDITEUR qui
+   * tranche, secteur par secteur, et le script s'en souvient.
+   * On retient le CENTRE du secteur, pas un indice : l'ordre des secteurs change
+   * d'un releve a l'autre, leur position non.
+   */
+  let hameaux = {};
   let communeActive = null;
   let findings = [];
   let lastScan = null;
@@ -1248,7 +1264,7 @@
   // consorts sont vides — sauver a ce moment ECRASERAIT les donnees stockees.
   let prefsPret = false;
 
-  const prefsVide = d => !d || (!d.agglos && !d.sansAgglo && !d.traites);
+  const prefsVide = d => !d || (!d.agglos && !d.sansAgglo && !d.traites && !d.hameaux);
 
   /**
    * Charge polygones / sans-agglo / traites. Reprise EN CASCADE, pour que
@@ -1290,6 +1306,7 @@
     agglos = data.agglos || {};
     sansAgglo = data.sansAgglo || {};
     traites = data.traites || {};
+    hameaux = data.hameaux || {};
     prefsPret = true;
   }
 
@@ -1329,7 +1346,9 @@
     return {
       agglos: union(d.agglos, l.agglos),
       sansAgglo: union(d.sansAgglo, l.sansAgglo),
-      traites: union(d.traites, l.traites)
+      traites: union(d.traites, l.traites),
+      // Meme regle que `traites` : la vue de l'onglet sur SA commune fait foi.
+      hameaux: union(d.hameaux, l.hameaux)
     };
   }
 
@@ -1350,10 +1369,11 @@
       // repart alors de ce qu'on a, comme avant. Mieux vaut le comportement
       // d'hier qu'aucune sauvegarde.
       try { distant = (await prefs.load()) || {}; } catch (e) { log('WMEPrefs relecture', e); }
-      const fusion = fusionnerPrefs(distant, { agglos, sansAgglo, traites });
+      const fusion = fusionnerPrefs(distant, { agglos, sansAgglo, traites, hameaux });
       // La memoire de CET onglet adopte la fusion : sans ca, il continuerait a
       // ignorer le travail de l'autre jusqu'au prochain rechargement de page.
       agglos = fusion.agglos; sansAgglo = fusion.sansAgglo; traites = fusion.traites;
+      hameaux = fusion.hameaux;
       await prefs.save(fusion);
     }).catch(e => log('WMEPrefs save', e));
     return chaineSauvegarde;
@@ -3733,6 +3753,38 @@
       .some(z => z.ring && pointInRing(g.centre.lon, g.centre.lat, z.ring));
   }
 
+  /**
+   * Le secteur a-t-il ete declare HAMEAU sur cette commune ?
+   * ⚠️ Tolerance de 250 m : un nouveau releve peut decaler le centre de quelques
+   * dizaines de metres (un panneau ajoute ou retire). Deux secteurs distincts
+   * sont bien plus eloignes — c'est la distance qui les separe en secteurs.
+   */
+  const TOLERANCE_HAMEAU_M = 250;
+  function secteurHameau(g) {
+    if (!g || !g.centre || !communeActive) return false;
+    return (hameaux[communeActive.code] || []).some(p =>
+      distanceM([p.lon, p.lat], [g.centre.lon, g.centre.lat]) < TOLERANCE_HAMEAU_M);
+  }
+
+  /** Le secteur est-il TRANCHE : entoure d'un polygone, ou declare hameau ? */
+  function secteurTranche(g) {
+    return secteurCouvert(g) || secteurHameau(g);
+  }
+
+  /** Declare (oui) ou retire (non) un secteur hameau, puis sauve. */
+  function declarerHameau(g, oui) {
+    if (!g || !g.centre || !communeActive) return;
+    const code = communeActive.code;
+    const reste = (hameaux[code] || []).filter(p =>
+      distanceM([p.lon, p.lat], [g.centre.lon, g.centre.lat]) >= TOLERANCE_HAMEAU_M);
+    if (oui) reste.push({ lon: g.centre.lon, lat: g.centre.lat });
+    // ⚠️ Liste VIDE conservee (pas supprimee) : la fusion multi-onglets doit
+    // pouvoir distinguer « tout retire » de « jamais vu » (meme piege que
+    // `sansAgglo`, 2.26.04).
+    hameaux[code] = reste;
+    sauverPrefs();
+  }
+
   function listerSecteurs(groupes) {
     if (!ui.bilanPanneaux || !groupes || !groupes.length || !communeActive) return;
     const mairie = communeActive.mairie;
@@ -3740,7 +3792,7 @@
     const principal = mairie && isFinite(avec[0].d) ? avec[0] : null;
     const bloc = el('<div class="agn-secteurs"></div>');
     bloc.innerHTML = '<div class="agn-secteurs-t">' + avec.length +
-      ' secteur(s) d\'entrées repéré(s) — <b>trace-les un par un</b>' +
+      ' secteur(s) d\'entrées repéré(s) — <b>trace les villages un par un</b> (un hameau reste hors agglomération)' +
       (principal ? ', en commençant par le bourg' : '') + ' :</div>';
     avec.forEach((x, rang) => {
       const b = el('<button class="agn-secteur"></button>');
@@ -4144,6 +4196,7 @@
             <label class="agn-sb-c"><input type="checkbox" id="agn-na-rat" title="Village rattaché : le nom appliqué devient « Village (Commune) » au lieu du seul nom de la commune INSEE">
               Village rattache (ville = « Village (Commune) »)</label>
             <button class="agn-btn primary" id="agn-na-ok">Créer ce polygone</button>
+            <button class="agn-btn" id="agn-na-hameau" title="Un hameau ou un lieu-dit reste hors agglomération, même équipé de panneaux : pas de polygone, et le script ne le réclamera plus">C'est un hameau</button>
             <button class="agn-btn" id="agn-na-skip">Passer celui-ci</button>
             <button class="agn-btn" id="agn-na-stop">Tout arrêter</button>
           </div>
@@ -4184,6 +4237,7 @@
       const finir = v => { boite.remove(); resolve(v); };
       boite.querySelector('#agn-na-ok').onclick =
         () => finir({ label: composer(), rattache: rat.checked });
+      boite.querySelector('#agn-na-hameau').onclick = () => finir({ hameau: true });
       boite.querySelector('#agn-na-skip').onclick = () => finir({ passe: true });
       boite.querySelector('#agn-na-stop').onclick = () => finir(null);
     });
@@ -4255,6 +4309,8 @@
         liste.splice(liste.indexOf(apercu), 1);
         if (rep === null) break;
         if (rep.passe) { redrawAgglos(); continue; }
+        // Hameau : pas de polygone, et le secteur ne sera plus reclame.
+        if (rep.hameau) { declarerHameau(p, true); redrawAgglos(); continue; }
         // ⚠️ `aAffiner` : ce tracé vient des panneaux, il est GROSSIER par
         // construction. Le drapeau sert au guidage (il pointe vers ✎) et tombe
         // dès la première édition — on ne réclame pas deux fois la même chose.
@@ -4325,7 +4381,7 @@
    */
   function departDuTrace() {
     if (!communeActive) return null;
-    const libre = secteursCourants.find(x => x.g && x.g.centre && !secteurCouvert(x.g));
+    const libre = secteursCourants.find(x => x.g && x.g.centre && !secteurTranche(x.g));
     if (libre) {
       return { centre: libre.g.centre, zoom: 15,
                quoi: libre.nom || (isFinite(libre.d) ? 'le bourg' : 'un secteur d\'entrées'),
@@ -5322,8 +5378,8 @@
         'Il nome <b>principale</b> porta il numero di strada, <b>senza città</b>. Il nome della via e la città vivono in <b>alternativo</b>.',
       'Panneaux d\'entrée (EB10) et de sortie (EB20) d\'agglomération. Une commune peut contenir plusieurs agglomérations.':
         'Cartelli di ingresso (EB10) e di uscita (EB20) del centro abitato. Un comune può contenerne diversi.',
-      'Format <span class="agn-aide-ex">Village (Commune)</span>. ⚠️ Village rattaché ou hameau : cela se tranche avec le <b>State</b> ou <b>Regional Manager</b>.':
-        'Formato <span class="agn-aide-ex">Village (Commune)</span>. ⚠️ Frazione o borgata: si decide con lo <b>State</b> o il <b>Regional Manager</b>.',
+      'Format <span class="agn-aide-ex">Village (Commune)</span> : une ancienne commune, ou un village (environ 200 habitants autour d\'un centre : église, place, commerces). ⚠️ Un <b>hameau</b> ou un <b>lieu-dit</b> reste hors agglomération, même avec des panneaux. Des repères, pas un seuil : en cas de doute, un <b>Local Champ</b> ou un <b>Country Manager</b> tranche.':
+        'Formato <span class="agn-aide-ex">Village (Commune)</span>: un ex comune, o un villaggio (circa 200 abitanti intorno a un centro: chiesa, piazza, negozi). ⚠️ Un <b>hameau</b> (borgata) o un <b>lieu-dit</b> (località) resta fuori dal centro abitato, anche con i cartelli. Sono indicazioni, non una soglia: in caso di dubbio decide un <b>Local Champ</b> o un <b>Country Manager</b>.',
       '<b>Écrire le nom :</b>':
         '<b>Scrivere il nome:</b>',
       'Le nom <b>officiel et complet</b>. En cas de désaccord entre sources, <b>le panneau de signalisation prime</b> sur le cadastre et les plans ; les autres noms officiels peuvent aller en alternatif.':
@@ -5606,8 +5662,8 @@
         '<b>Da provare per primo.</b> Rileva i cartelli <b>EB10</b> (ingresso) e <b>EB20</b> (uscita) del comune, secondo il rilevamento ufficiale della segnaletica. Vengono mostrati sulla mappa.',
       '<b>✏️ Proposer un tracé</b>':
         '<b>✏️ Proponi un tracciato</b>',
-      'Transforme ces panneaux en polygones — <b>un par agglomération</b> : le bourg et chaque hameau séparément. Le script te les présente <b>un par un</b> : <b>Créer ce polygone</b>, <b>Passer celui-ci</b>, <b>Tout arrêter</b>.':
-        'Trasforma questi cartelli in poligoni — <b>uno per centro abitato</b>: il capoluogo e ogni frazione separatamente. Lo script te li presenta <b>uno per uno</b>: <b>Crea questo poligono</b>, <b>Salta questo</b>, <b>Ferma tutto</b>.',
+      'Transforme ces panneaux en polygones — <b>un par agglomération</b> : le bourg, puis chaque village ou ancienne commune. Un <b>hameau</b> reste hors agglomération, même panneauté. Le script te les présente <b>un par un</b> : <b>Créer ce polygone</b>, <b>C\'est un hameau</b>, <b>Passer celui-ci</b>, <b>Tout arrêter</b>.':
+        'Trasforma questi cartelli in poligoni — <b>uno per centro abitato</b>: il capoluogo, poi ogni villaggio o ex comune. Un <b>hameau</b> (borgata) resta fuori dal centro abitato, anche con i cartelli. Lo script te li presenta <b>uno per uno</b>: <b>Crea questo poligono</b>, <b>È un hameau</b>, <b>Salta questo</b>, <b>Ferma tutto</b>.',
       '<b>＋ Tracer l\'agglomération</b>':
         '<b>＋ Traccia il centro abitato</b>',
       'Tracé à la main, point par point, quand les panneaux manquent ou ne suffisent pas.':
@@ -6630,7 +6686,7 @@
           <tr><td><b>En agglomération</b></td><td>Le nom <b>principal</b> porte le nom de rue <b>et la ville</b>. Le numéro de route (Dxxx…) passe en <b>alternatif</b>.</td></tr>
           <tr><td><b>Hors agglomération</b></td><td>Le nom <b>principal</b> porte le numéro de route, <b>sans ville</b>. Le nom de rue et la ville vivent en <b>alternatif</b>.</td></tr>
           <tr><td><b>Limites</b></td><td>Panneaux d'entrée (EB10) et de sortie (EB20) d'agglomération. Une commune peut contenir plusieurs agglomérations.</td></tr>
-          <tr><td><b>Village rattaché</b></td><td>Format <span class="agn-aide-ex">Village (Commune)</span>. ⚠️ Village rattaché ou hameau : cela se tranche avec le <b>State</b> ou <b>Regional Manager</b>.</td></tr>
+          <tr><td><b>Village rattaché</b></td><td>Format <span class="agn-aide-ex">Village (Commune)</span> : une ancienne commune, ou un village (environ 200 habitants autour d'un centre : église, place, commerces). ⚠️ Un <b>hameau</b> ou un <b>lieu-dit</b> reste hors agglomération, même avec des panneaux. Des repères, pas un seuil : en cas de doute, un <b>Local Champ</b> ou un <b>Country Manager</b> tranche.</td></tr>
         </table>
 
         <p><b>Écrire le nom :</b></p>
@@ -11306,6 +11362,8 @@
   .agn-avert-exh{margin-top:8px;padding:7px 9px;border-radius:4px;font-size:11px;line-height:1.45;
     background:#fff3e0;border-left:3px solid var(--agn-orange, #e65100);color:var(--agn-texte, #1f2933)}
   .agn-avert-doux{background:#f1f8e9;border-left-color:var(--agn-vert, #2e7d32)}
+  .agn-hameau-l{margin-top:4px}
+  .agn-hameau-l .agn-btn{padding:1px 6px;font-size:10px;margin-left:4px}
   #agn-tracer-encore{margin-top:8px}
   #agn-modale{position:fixed;inset:0;z-index:9700;background:rgba(0,0,0,.35);
     display:flex;align-items:center;justify-content:center;
@@ -12121,7 +12179,7 @@
     // ⚠️ Et surtout : reste-t-il des secteurs d'entrees DECOUVERTS ? Une
     // agglomeration oubliee passe en hors agglomeration et fausse tous ses
     // ecarts — c'est la faute la plus couteuse du parcours.
-    if (secteursCourants.some(x => x.g && x.g.centre && !secteurCouvert(x.g))) return 'agglo-encore';
+    if (secteursCourants.some(x => x.g && x.g.centre && !secteurTranche(x.g))) return 'agglo-encore';
     // ⚠️ Le zonage est fait : deux gestes restent, dans cet ordre. Refermer le
     // volet (il masque la fenetre de travail et le bouton d'analyse), puis
     // analyser. Guider directement vers « Analyser » alors que le volet le
@@ -12158,7 +12216,8 @@
       suite: 'Ils marquent les entrées et sorties : c\'est le point de départ du tracé.' },
     'agglo-proposer': { n: 2, cible: '#agn-pretrace', dansVolet: true,
       texte: 'Tire un tracé de ces panneaux.',
-      suite: 'Un polygone par agglomération — bourg et hameaux séparément.' },
+      suite: 'Un polygone par agglomération — le bourg, puis chaque village ou ancienne ' +
+             'commune. Un hameau reste hors agglomération, même avec des panneaux.' },
     // ⚠️ Même piège que le bandeau de tracé : « l'agglomération de ‹commune› » se lit
     // comme « la commune ». On nomme CE QU'ON ENTOURE, et on l'oppose explicitement à
     // la limite communale — laquelle est à l'écran, en tirets bleus.
@@ -12183,9 +12242,9 @@
                nomSuivi() + ' pour reprendre où tu en étais.';
       } },
     'agglo-encore': { n: 2, cible: '#agn-tracer-encore', dansVolet: true,
-      texte: 'Il reste des agglomérations à tracer.',
-      suite: 'Des secteurs d\'entrées ne sont couverts par aucun polygone. ' +
-             'Une agglomération oubliée passe en hors agglomération — et tous ses écarts seront faux.' },
+      texte: 'Il reste des secteurs d\'entrées à trancher.',
+      suite: 'Pour chacun : village ou ancienne commune ⇒ trace-le ; hameau ou lieu-dit ⇒ ' +
+             '« C\'est un hameau » (il reste hors agglomération, même panneauté).' },
     // ⚠️ On vise le crayon DU polygone concerné, pas le premier venu : avec
     // plusieurs agglomérations, le halo se serait posé n'importe où.
     affiner: { n: 2, cible: '.agn-a-affiner .agn-edit', dansVolet: true,
@@ -12206,8 +12265,9 @@
       // ⚠️ On NOMME la commune : l'affirmation « c'est fait » ne vaut que si on
       // sait de quoi elle parle (27/07).
       texte: () => 'Le zonage de ' + nomSuivi() + ' est fait — referme le volet de gauche.',
-      suite: '⚠️ Assure-toi d\'abord que TOUTES les agglomérations sont tracées : ' +
-             'une agglomération oubliée passe en hors agglomération, et tous ses écarts seront faux.' },
+      suite: '⚠️ Assure-toi d\'abord que TOUTES les agglomérations sont tracées (bourg, ' +
+             'villages, anciennes communes) : une agglomération oubliée passe en hors ' +
+             'agglomération, et tous ses écarts seront faux.' },
     analyse: { n: 3, cible: '#agn-scan',
       texte: () => 'Tout est prêt : lance l\'analyse de ' + nomSuivi() + '.',
       suite: 'Rien ne sera enregistré — tu reliras chaque correction dans WME.' }
@@ -12373,7 +12433,7 @@
           « village rattaché ». Exemple : Gruissan et ses trois zones bâties.</p>
         <table class="agn-aide-t">
           ${siPanneaux(`<tr><td><b>🪧 Panneaux d'agglomération</b></td><td><b>À essayer en premier.</b> Relève les panneaux <b>EB10</b> (entrée) et <b>EB20</b> (sortie) de la commune, d'après le jeu officiel de signalisation. Ils s'affichent sur la carte.</td></tr>
-          <tr><td><b>✏️ Proposer un tracé</b></td><td>Transforme ces panneaux en polygones — <b>un par agglomération</b> : le bourg et chaque hameau séparément. Le script te les présente <b>un par un</b> : <b>Créer ce polygone</b>, <b>Passer celui-ci</b>, <b>Tout arrêter</b>.</td></tr>`)}
+          <tr><td><b>✏️ Proposer un tracé</b></td><td>Transforme ces panneaux en polygones — <b>un par agglomération</b> : le bourg, puis chaque village ou ancienne commune. Un <b>hameau</b> reste hors agglomération, même panneauté. Le script te les présente <b>un par un</b> : <b>Créer ce polygone</b>, <b>C'est un hameau</b>, <b>Passer celui-ci</b>, <b>Tout arrêter</b>.</td></tr>`)}
           <tr><td><b>＋ Tracer l'agglomération</b></td><td>Tracé à la main, point par point${siPanneaux(', quand les panneaux manquent ou ne suffisent pas')}.</td></tr>
           <tr><td><b>sans agglomération</b></td><td>À cocher pour une commune qui n'en a pas. ⚠️ <b>Toute la commune passera alors en hors agglomération</b> : aucune voie ne doit plus porter de ville.</td></tr>
         </table>
@@ -13711,7 +13771,7 @@
     // ⚠️ Cette infobulle PROMETTAIT un cadrage inconditionnel. Depuis la 2.35.04
     // la carte ne bouge plus quand le secteur est deja sous les yeux : le texte
     // doit dire la regle, sinon l'immobilite se lit comme une panne.
-    suite.title = 'Bourg, hameau, village rattaché : chaque agglomération de la commune ' +
+    suite.title = 'Bourg, village, ancienne commune : chaque agglomération de la commune ' +
       'a son propre polygone. La carte se cadre sur le prochain secteur d\'entrées à ' +
       'couvrir — sauf si tu l\'as déjà sous les yeux.';
     suite.onclick = tracerAgglo;
@@ -13730,16 +13790,56 @@
    * releves, on SAIT quels secteurs d'entrees ne sont dans aucun polygone. Un
    * chiffre precis vaut mieux qu'une recommandation.
    */
+  /**
+   * Liste les secteurs declares hameau de la commune, chacun avec « Annuler ».
+   * ⚠️ Une declaration doit rester VISIBLE et REVERSIBLE : sinon un clic trop
+   * rapide ferait disparaitre une agglomeration sans que rien ne le montre.
+   */
+  function ajouterHameauxDeclares(n) {
+    if (!communeActive) return;
+    const liste = hameaux[communeActive.code] || [];
+    if (!liste.length) return;
+    const t = el('<div class="agn-note"></div>');
+    t.innerHTML = '🏘 <b>' + liste.length + ' secteur(s) déclaré(s) hameau</b> — hors agglomération :';
+    n.appendChild(t);
+    liste.forEach(p => {
+      const x = secteursCourants.find(s => s.g && s.g.centre &&
+        distanceM([p.lon, p.lat], [s.g.centre.lon, s.g.centre.lat]) < TOLERANCE_HAMEAU_M);
+      const l = el('<div class="agn-hameau-l"></div>');
+      l.innerHTML = '• ' + esc(x ? (x.nom || (x.g.portes + ' entrée(s)')) : 'secteur non relevé') + ' ';
+      const b = el('<button class="agn-btn">Annuler</button>');
+      b.title = 'Ce secteur redevient à trancher : village (polygone) ou hameau.';
+      b.onclick = () => { declarerHameau({ centre: p }, false); renderAgglos(); };
+      l.appendChild(b);
+      n.appendChild(l);
+    });
+  }
+
   function avertissementExhaustivite() {
-    const restants = secteursCourants.filter(x => x.g && x.g.centre && !secteurCouvert(x.g));
+    const restants = secteursCourants.filter(x => x.g && x.g.centre && !secteurTranche(x.g));
     if (restants.length) {
       const n = el('<div class="agn-avert-exh"></div>');
-      n.innerHTML = '⚠️ <b>' + restants.length + ' secteur(s) d\'entrées</b> ne sont couverts par ' +
-        'aucun polygone : ' +
-        restants.slice(0, 4).map(x => esc(x.nom || (x.g.portes + ' entrée(s)'))).join(', ') +
-        (restants.length > 4 ? '…' : '') +
-        '<br>Trace-les avant de terminer — <b>une agglomération oubliée passe en hors ' +
-        'agglomération</b>, et tous ses écarts seront faux.';
+      // ⚠️ SCHEMA 2 : un secteur non couvert n'est plus forcement un oubli. On
+      // pose la QUESTION, secteur par secteur, et chacun porte son bouton.
+      n.innerHTML = '⚠️ <b>' + restants.length + ' secteur(s) d\'entrées</b> ne sont ni ' +
+        'couverts par un polygone, ni déclarés hameau. Pour chacun : <b>village ou ancienne ' +
+        'commune</b> ⇒ trace-le (une agglomération oubliée passe en hors agglomération) ; ' +
+        '<b>hameau ou lieu-dit</b> ⇒ il reste hors agglomération, même avec des panneaux.';
+      restants.slice(0, 6).forEach(x => {
+        const l = el('<div class="agn-hameau-l"></div>');
+        l.innerHTML = '• ' + esc(x.nom || (x.g.portes + ' entrée(s)')) + ' ';
+        const b = el('<button class="agn-btn">C\'est un hameau</button>');
+        b.title = 'Pas de polygone pour ce secteur : il reste hors agglomération, ' +
+          'et le script ne le réclamera plus. Réversible.';
+        b.onclick = () => { declarerHameau(x.g, true); renderAgglos(); };
+        l.appendChild(b);
+        n.appendChild(l);
+      });
+      if (restants.length > 6) n.appendChild(el('<div class="agn-hameau-l">…</div>'));
+      const doute = el('<div class="agn-note"></div>');
+      doute.innerHTML = 'En cas de doute, un <b>Local Champ</b> ou un <b>Country Manager</b> tranche.';
+      n.appendChild(doute);
+      ajouterHameauxDeclares(n);
       return n;
     }
     const n = el('<div class="agn-avert-exh agn-avert-doux"></div>');
@@ -13757,10 +13857,11 @@
     const sond = sondageCourant();
     const muette = !!(sond && sond.etat === 'aucun');
     n.innerHTML = secteursCourants.length
-      ? '✔ Tous les secteurs d\'entrées relevés sont couverts. Vérifie tout de même les ' +
-        'hameaux sans panneau avant de terminer.'
+      ? '✔ Tous les secteurs d\'entrées relevés sont tranchés (polygone ou hameau). ' +
+        'Vérifie tout de même les villages sans panneau avant de terminer.'
       : '⚠️ Assure-toi d\'avoir tracé <b>toutes</b> les agglomérations de la commune ' +
-        '(bourg, hameaux, villages rattachés) : une agglomération oubliée passe en hors ' +
+        '(le bourg, les villages et les anciennes communes — pas les hameaux, même ' +
+        'panneautés) : une agglomération oubliée passe en hors ' +
         'agglomération, et tous ses écarts seront faux.' +
         // ⚠️ Depuis la 2.25.01 le guidage ne renvoie plus vers les panneaux quand un
         // polygone existe deja. Le moyen de VERIFIER reste utile — mais il se
@@ -13769,6 +13870,8 @@
                   '<b>le script ne peut pas vérifier à ta place</b>.'
                 : releveFait ? ''
                              : '<br>Au besoin, <b>🪧 Panneaux d\'agglomération</b> les recense pour toi.');
+    // Les hameaux declares restent visibles (et reversibles) une fois tout tranche.
+    ajouterHameauxDeclares(n);
     return n;
   }
 
