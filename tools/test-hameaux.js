@@ -157,6 +157,17 @@ titre('⚠️ v2.49.01 — sans polygone, les hameaux déclarés restent visible
     /ajouterHameauxDeclares\(/.test(vide), true);
 }
 
+titre('⚠️ v2.49.04 — les boutons tiennent en bout de ligne');
+{
+  // `.agn-btn` est display:block + width:100% : sans correction, « C'est un
+  // hameau » et « Annuler » s'etalaient en pleine largeur sous chaque ligne —
+  // vu sur la capture de publication, aucun banc ne regardait le style.
+  const m = src.match(/\.agn-hameau-l \.agn-btn\{([^}]*)\}/);
+  const r = m ? m[1].replace(/\s+/g, '') : '';
+  verifier('18. ⭐ la règle des boutons hameau annule display:block et width:100%',
+    /display:inline-block/.test(r) && /width:auto/.test(r), true);
+}
+
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(66));
 console.log(ok + ' verifications OK, ' + ko + ' ECHEC(S)');

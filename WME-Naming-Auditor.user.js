@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.49.03
+// @version      2.49.04
 // @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies selon les règles du pays regardé (agglomération / centro abitato, contours communaux INSEE / ISTAT). Interface et aide en français et en italien. ⚠️ Le portage italien est en phase de TEST.
 // @author       DrSlump34
 // @license      MIT
@@ -11766,7 +11766,10 @@
     background:#fff3e0;border-left:3px solid var(--agn-orange, #e65100);color:var(--agn-texte, #1f2933)}
   .agn-avert-doux{background:#f1f8e9;border-left-color:var(--agn-vert, #2e7d32)}
   .agn-hameau-l{margin-top:4px}
-  .agn-hameau-l .agn-btn{padding:1px 6px;font-size:10px;margin-left:4px}
+  /* v2.49.04 : .agn-btn est display:block + width:100% ; sans ces deux
+     corrections le bouton s'etalait sous la ligne (vu sur la capture du 23/09). */
+  .agn-hameau-l .agn-btn{display:inline-block;width:auto;vertical-align:middle;
+    padding:1px 8px;font-size:10px;margin:0 0 0 6px}
   #agn-tracer-encore{margin-top:8px}
   #agn-modale{position:fixed;inset:0;z-index:9700;background:rgba(0,0,0,.35);
     display:flex;align-items:center;justify-content:center;
