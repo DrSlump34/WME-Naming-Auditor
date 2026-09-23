@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.49.01
+// @version      2.49.02
 // @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies selon les règles du pays regardé (agglomération / centro abitato, contours communaux INSEE / ISTAT). Interface et aide en français et en italien. ⚠️ Le portage italien est en phase de TEST.
 // @author       DrSlump34
 // @license      MIT
@@ -5664,6 +5664,10 @@
         '<b>✏️ Proponi un tracciato</b>',
       'Transforme ces panneaux en polygones — <b>un par agglomération</b> : le bourg, puis chaque village ou ancienne commune. Un <b>hameau</b> reste hors agglomération, même panneauté. Le script te les présente <b>un par un</b> : <b>Créer ce polygone</b>, <b>C\'est un hameau</b>, <b>Passer celui-ci</b>, <b>Tout arrêter</b>.':
         'Trasforma questi cartelli in poligoni — <b>uno per centro abitato</b>: il capoluogo, poi ogni villaggio o ex comune. Un <b>hameau</b> (borgata) resta fuori dal centro abitato, anche con i cartelli. Lo script te li presenta <b>uno per uno</b>: <b>Crea questo poligono</b>, <b>È un hameau</b>, <b>Salta questo</b>, <b>Ferma tutto</b>.',
+      '<b>C\'est un hameau</b>':
+        '<b>È un hameau</b>',
+      'Un secteur d\'entrées qui n\'est ni un village ni une ancienne commune reste <b>hors agglomération</b>, même panneauté. Le bouton le déclare, dans la fenêtre du pré-tracé comme dans le cadre de fin de zonage : pas de polygone, et le script ne le réclame plus. <b>Annuler</b> le remet à trancher. En cas de doute, un <b>Local Champ</b> ou un <b>Country Manager</b> tranche.':
+        'Un settore di ingressi che non è né un villaggio né un ex comune resta <b>fuori dal centro abitato</b>, anche con i cartelli. Il pulsante lo dichiara, nella finestra del pre-tracciato come nel riquadro di fine zonizzazione: nessun poligono, e lo script non lo richiede più. <b>Annuler</b> lo rimette da decidere. In caso di dubbio decide un <b>Local Champ</b> o un <b>Country Manager</b>.',
       '<b>＋ Tracer l\'agglomération</b>':
         '<b>＋ Traccia il centro abitato</b>',
       'Tracé à la main, point par point, quand les panneaux manquent ou ne suffisent pas.':
@@ -5688,8 +5692,8 @@
         'I cartelli formano una linea, non una superficie: è una strada. Nulla viene tracciato — altrimenti il poligono coprirebbe la strada e non il paese.',
       '<b>« couvre N % de la commune »</b>':
         '<b>« copre N % del comune »</b>',
-      'Le polygone proposé est probablement <b>plusieurs agglomérations soudées</b> : les entrées se sont enchaînées de proche en proche. Vérifie, et passe-le pour les tracer séparément.':
-        'Il poligono proposto è probabilmente <b>più centri abitati saldati insieme</b>: gli ingressi si sono concatenati di vicino in vicino. Verifica, e saltalo per tracciarli separatamente.',
+      'Le polygone proposé est probablement <b>plusieurs agglomérations soudées</b> : les entrées se sont enchaînées de proche en proche. Vérifie, et passe-le pour les tracer séparément. Un hameau pris dans la soudure reste hors agglomération.':
+        'Il poligono proposto è probabilmente <b>più centri abitati saldati insieme</b>: gli ingressi si sono concatenati di vicino in vicino. Verifica, e saltalo per tracciarli separatamente. Un hameau preso nella saldatura resta fuori dal centro abitato.',
       '<b>« trop isolées »</b>':
         '<b>« troppo isolati »</b>',
       'Moins de trois entrées, ou éparpillées : aucune surface déductible. Elles restent affichées en repère pour un tracé à la main.':
@@ -5715,14 +5719,14 @@
         'A cosa serve: <b>confrontare a colpo d\'occhio ciò che i segmenti dichiarano e dove si trovano davvero</b>. Un segmento selezionato da 🏘 ma posato fuori dal tuo poligono di centro abitato porta una città di troppo; un segmento rimasto non selezionato all\'interno del poligono ne ha probabilmente una che manca.',
       '⚠️⚠️ <b>Ces boutons ne voient que ce qui est affiché</b>, et c\'est une limite de WME, pas du script : la carte ne descend les segments que <b>par vue</b>, et <b>lâche ceux qui en sortent</b> — on ne peut donc même pas cumuler les sélections en déplaçant la carte. <b>Sélectionner toute une commune d\'un coup est impossible</b> (Road Selector a exactement la même limite). Le compte rendu te prévient à chaque fois qu\'<b>il en manque probablement</b>.<br> <b>Ces boutons ne touchent jamais à ta carte</b> — ni au zoom, ni au centrage. À toi de cadrer : un zoom plus large en prend davantage, jusqu\'au <b>zoom 16</b>, dernier niveau où WME charge encore <b>toutes</b> les rues (il y couvre ~2,4 km, contre ~0,6 km au zoom 18). En dessous de 16, WME cesse de descendre les petites rues : tu verrais plus grand en sélectionnant moins. Au-delà, <b>déplace la carte et reclique</b> : secteur par secteur. Les segments des communes voisines sont écartés, et comptés à part. Une ville portée par un nom <b>alternatif</b> ne compte pas : hors agglomération, c\'est justement le nommage attendu.':
         '⚠️⚠️ <b>Questi pulsanti vedono solo ciò che è visualizzato</b>, ed è un limite di WME, non dello script: la mappa scarica i segmenti <b>per vista</b>, e <b>lascia andare quelli che ne escono</b> — non si possono nemmeno sommare le selezioni spostando la mappa. <b>Selezionare un intero comune in una volta è impossibile</b> (Road Selector ha esattamente lo stesso limite). Il resoconto ti avverte ogni volta che <b>probabilmente ne mancano</b>.<br> <b>Questi pulsanti non toccano mai la tua mappa</b> — né lo zoom, né il centraggio. Sta a te inquadrare: uno zoom più ampio ne prende di più, fino allo <b>zoom 16</b>, ultimo livello in cui WME carica ancora <b>tutte</b> le strade (vi copre ~2,4 km, contro ~0,6 km allo zoom 18). Sotto il 16, WME smette di scaricare le vie minori: vedresti più largo selezionando meno. Oltre, <b>sposta la mappa e riclicca</b>: settore per settore. I segmenti dei comuni vicini sono esclusi, e contati a parte. Una città portata da un nome <b>alternativo</b> non conta: fuori dal centro abitato, è proprio la denominazione attesa.',
-      'Trois choses sont mémorisées : tes <b>polygones d\'agglomération</b>, tes communes déclarées <b>sans agglomération</b>, et tes <b>coches ✓ traité</b>.':
-        'Tre cose vengono memorizzate: i tuoi <b>poligoni di centro abitato</b>, i tuoi comuni dichiarati <b>senza centro abitato</b>, e le tue <b>spunte ✓ trattato</b>.',
+      'Quatre choses sont mémorisées : tes <b>polygones d\'agglomération</b>, tes communes déclarées <b>sans agglomération</b>, tes <b>secteurs déclarés hameau</b> et tes <b>coches ✓ traité</b>.':
+        'Quattro cose vengono memorizzate: i tuoi <b>poligoni di centro abitato</b>, i tuoi comuni dichiarati <b>senza centro abitato</b>, i tuoi <b>settori dichiarati hameau</b> e le tue <b>spunte ✓ trattato</b>.',
       'Dans le <b>gestionnaire de scripts</b> (Tampermonkey), pas dans le site : ça survit à un « effacer les données de navigation » et ça entre dans ses sauvegardes.':
         'Nel <b>gestore di script</b> (Tampermonkey), non nel sito: sopravvive a una « cancellazione dei dati di navigazione » ed entra nei suoi backup.',
       '<b>⬇️ Exporter</b>':
         '<b>⬇️ Esporta</b>',
-      'Un fichier avec les polygones et les communes sans agglo. ⚠️ <b>Tes coches « traité » n\'y sont jamais</b> : elles sont personnelles.':
-        'Un file con i poligoni e i comuni senza centro abitato. ⚠️ <b>Le tue spunte « trattato » non ci sono mai</b>: sono personali.',
+      'Un fichier avec les polygones et les communes sans agglo. ⚠️ <b>Tes coches « traité » n\'y sont jamais</b> : elles sont personnelles. Tes <b>secteurs déclarés hameau</b> n\'y sont pas non plus : à redéclarer sur l\'autre poste.':
+        'Un file con i poligoni e i comuni senza centro abitato. ⚠️ <b>Le tue spunte « trattato » non ci sono mai</b>: sono personali. Nemmeno i tuoi <b>settori dichiarati hameau</b>: vanno dichiarati di nuovo sull\'altro computer.',
       '<b>⬆️ Importer un fichier</b>':
         '<b>⬆️ Importa un file</b>',
       'Ajoute ce qui manque et <b>ne remplace jamais</b> ce que tu as déjà. Un fichier venu d\'un autre script est refusé.':
@@ -12433,7 +12437,8 @@
           « village rattaché ». Exemple : Gruissan et ses trois zones bâties.</p>
         <table class="agn-aide-t">
           ${siPanneaux(`<tr><td><b>🪧 Panneaux d'agglomération</b></td><td><b>À essayer en premier.</b> Relève les panneaux <b>EB10</b> (entrée) et <b>EB20</b> (sortie) de la commune, d'après le jeu officiel de signalisation. Ils s'affichent sur la carte.</td></tr>
-          <tr><td><b>✏️ Proposer un tracé</b></td><td>Transforme ces panneaux en polygones — <b>un par agglomération</b> : le bourg, puis chaque village ou ancienne commune. Un <b>hameau</b> reste hors agglomération, même panneauté. Le script te les présente <b>un par un</b> : <b>Créer ce polygone</b>, <b>C'est un hameau</b>, <b>Passer celui-ci</b>, <b>Tout arrêter</b>.</td></tr>`)}
+          <tr><td><b>✏️ Proposer un tracé</b></td><td>Transforme ces panneaux en polygones — <b>un par agglomération</b> : le bourg, puis chaque village ou ancienne commune. Un <b>hameau</b> reste hors agglomération, même panneauté. Le script te les présente <b>un par un</b> : <b>Créer ce polygone</b>, <b>C'est un hameau</b>, <b>Passer celui-ci</b>, <b>Tout arrêter</b>.</td></tr>
+          <tr><td><b>C'est un hameau</b></td><td>Un secteur d'entrées qui n'est ni un village ni une ancienne commune reste <b>hors agglomération</b>, même panneauté. Le bouton le déclare, dans la fenêtre du pré-tracé comme dans le cadre de fin de zonage : pas de polygone, et le script ne le réclame plus. <b>Annuler</b> le remet à trancher. En cas de doute, un <b>Local Champ</b> ou un <b>Country Manager</b> tranche.</td></tr>`)}
           <tr><td><b>＋ Tracer l'agglomération</b></td><td>Tracé à la main, point par point${siPanneaux(', quand les panneaux manquent ou ne suffisent pas')}.</td></tr>
           <tr><td><b>sans agglomération</b></td><td>À cocher pour une commune qui n'en a pas. ⚠️ <b>Toute la commune passera alors en hors agglomération</b> : aucune voie ne doit plus porter de ville.</td></tr>
         </table>
@@ -12453,7 +12458,7 @@
           script annonce le nombre relevé plutôt que de bricoler une forme.</p>
         <table class="agn-aide-t">
           <tr><td><b>« s'aligne le long d'une voie »</b></td><td>Les panneaux forment une ligne, pas une surface (moins de ${LARGEUR_MIN_AGGLO_M} m de large) : c'est une route. Rien n'est tracé — sinon le polygone couvrirait la voie et pas le village.</td></tr>
-          <tr><td><b>« couvre N % de la commune »</b></td><td>Le polygone proposé est probablement <b>plusieurs agglomérations soudées</b> : les entrées se sont enchaînées de proche en proche. Vérifie, et passe-le pour les tracer séparément.</td></tr>
+          <tr><td><b>« couvre N % de la commune »</b></td><td>Le polygone proposé est probablement <b>plusieurs agglomérations soudées</b> : les entrées se sont enchaînées de proche en proche. Vérifie, et passe-le pour les tracer séparément. Un hameau pris dans la soudure reste hors agglomération.</td></tr>
           <tr><td><b>« trop isolées »</b></td><td>Moins de trois entrées, ou éparpillées : aucune surface déductible. Elles restent affichées en repère pour un tracé à la main.</td></tr>
         </table>`)}` },
 
@@ -12624,11 +12629,12 @@
           à écrire, et un contrôle absent est invisible : autant le dire.</div>` },
 
       { id: 'partage', titre: '💾 Sauvegarde et partage', corps: `
-        <p>Trois choses sont mémorisées : tes <b>polygones d'agglomération</b>, tes communes
-          déclarées <b>sans agglomération</b>, et tes <b>coches ✓ traité</b>.</p>
+        <p>Quatre choses sont mémorisées : tes <b>polygones d'agglomération</b>, tes communes
+          déclarées <b>sans agglomération</b>, tes <b>secteurs déclarés hameau</b> et tes
+          <b>coches ✓ traité</b>.</p>
         <table class="agn-aide-t">
           <tr><td><b>Où</b></td><td>Dans le <b>gestionnaire de scripts</b> (Tampermonkey), pas dans le site : ça survit à un « effacer les données de navigation » et ça entre dans ses sauvegardes.</td></tr>
-          <tr><td><b>⬇️ Exporter</b></td><td>Un fichier avec les polygones et les communes sans agglo. ⚠️ <b>Tes coches « traité » n'y sont jamais</b> : elles sont personnelles.</td></tr>
+          <tr><td><b>⬇️ Exporter</b></td><td>Un fichier avec les polygones et les communes sans agglo. ⚠️ <b>Tes coches « traité » n'y sont jamais</b> : elles sont personnelles. Tes <b>secteurs déclarés hameau</b> n'y sont pas non plus : à redéclarer sur l'autre poste.</td></tr>
           <tr><td><b>⬆️ Importer un fichier</b></td><td>Ajoute ce qui manque et <b>ne remplace jamais</b> ce que tu as déjà. Un fichier venu d'un autre script est refusé.</td></tr>
           <tr><td><b>🌐 Importer depuis l'URL</b></td><td>Même chose depuis une adresse (https uniquement).</td></tr>
         </table>
