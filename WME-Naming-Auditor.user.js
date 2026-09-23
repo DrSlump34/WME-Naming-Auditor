@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.49.00
+// @version      2.49.01
 // @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies selon les règles du pays regardé (agglomération / centro abitato, contours communaux INSEE / ISTAT). Interface et aide en français et en italien. ⚠️ Le portage italien est en phase de TEST.
 // @author       DrSlump34
 // @license      MIT
@@ -13684,6 +13684,15 @@
         saveSansAgglo(); renderAgglos(); majResumeSections();
       };
       ui.listeAgglos.appendChild(bloc);
+      // ⚠️⚠️ LES HAMEAUX DECLARES DOIVENT SE VOIR ICI AUSSI (v2.49.01). Sans
+      // polygone, cette sortie ne passait pas par `avertissementExhaustivite` :
+      // « C'est un hameau » puis « Tout arreter » dans le pre-trace laissait une
+      // declaration INVISIBLE, donc impossible a annuler. Trouve en live sur
+      // Ploemeur le 23/09, en lisant le code avant l'essai — aucun banc ne
+      // couvrait ce chemin.
+      const decl = el('<div class="agn-hameaux-decl"></div>');
+      ajouterHameauxDeclares(decl);
+      if (decl.childNodes.length) ui.listeAgglos.appendChild(decl);
       majResumeSections();
       majBandeauPays();
       majBoutonsZone();

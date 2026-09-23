@@ -141,6 +141,22 @@ titre('Aucun texte ne renvoie plus l\'arbitrage au State ou Regional Manager');
     (code.match(/hameau séparément|hameaux séparément/g) || []).length, 0);
 }
 
+titre('⚠️ v2.49.01 — sans polygone, les hameaux déclarés restent visibles');
+{
+  // La sortie « Aucune agglomération tracée » de `renderAgglos` ne passe pas par
+  // le panneau de vigilance : sans ce branchement, « C'est un hameau » puis
+  // « Tout arrêter » laissait une déclaration invisible, donc inannulable.
+  const r = extraire('renderAgglos');
+  // ⚠️ La fin se cherche APRES le debut : `renderAgglos` a d'autres sorties
+  // `majGuidage(); return;` plus haut, et la premiere donnait une tranche vide.
+  const debut = r.indexOf('if (!liste.length) {');
+  const vide = r.slice(debut, r.indexOf('majGuidage();\n      return;', debut));
+  verifier('17. (garde-fou du test) la tranche lue est bien la branche vide',
+    /Aucune agglomération tracée/.test(vide), true);
+  verifier('17. ⭐ la branche « aucune agglomération » liste les hameaux déclarés',
+    /ajouterHameauxDeclares\(/.test(vide), true);
+}
+
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(66));
 console.log(ok + ' verifications OK, ' + ko + ' ECHEC(S)');
