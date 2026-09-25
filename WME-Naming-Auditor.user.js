@@ -2122,7 +2122,12 @@
           onload: r => (r.status >= 200 && r.status < 300)
             ? resolve(r.responseText) : reject(new Error('HTTP ' + r.status)),
           onerror: () => reject(new Error('appel refusé')),
-          ontimeout: () => reject(new Error('délai dépassé')) });
+          ontimeout: () => reject(new Error('délai dépassé')),
+          // ⚠️ Audit du 25/09/2026 : interrompue par autre chose que notre « Annuler » (le
+          //    gestionnaire, la page), la requete ne rappelait RIEN — promesse jamais reglee, barre
+          //    de progression figee. (Apres notre propre abort, ce rejet arrive sur une promesse
+          //    deja rejetee : sans effet.)
+          onabort: () => reject(new Error('appel interrompu')) });
         // ⚠️ Sans `abort()`, « Annuler » pendant un departement de 3 Mo
         // attendrait quand meme la fin du telechargement : l'editeur croirait
         // le bouton mort. Le handle de GM_xmlhttpRequest le fournit.
