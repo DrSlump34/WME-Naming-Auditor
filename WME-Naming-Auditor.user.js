@@ -4721,6 +4721,15 @@
     // Une valeur deja juste devenait donc un ecart, et sa « correction »
     // l'abimait.
     const village = (villeSeg.match(REF.reVillageDansVille) || [null, villeSeg])[1].trim();
+    // ⚠️⚠️ AUDIT DU 25/09/2026 : un segment qui ne porte que le nom de la COMMUNE (« Coursan »,
+    // ou deja « Coursan (Coursan) ») etait lu comme le nom du village, et la cible devenait
+    // « Coursan (Coursan) » — « Rimini, Rimini » en Italie — sans aucun doute signale, puis
+    // ecrite par le ⚡ sans verifier que cette ville existe. Le nom de la commune n'est pas un
+    // nom de village : on ne peut pas le deduire, on le DIT, et la cible reste la commune.
+    if (village && normSansAccent(village) === normSansAccent(nomCommune)) {
+      return { ville: nomCommune, doute: 'village rattaché : le segment porte le nom de la commune, ' +
+               'pas celui du village — impossible d\'en déduire le nom du village' };
+    }
     if (village) return { ville: REF.formatVillage(village, nomCommune), doute: null };
     return { ville: nomCommune, doute: 'village rattaché : aucune ville sur le segment, ' +
              'impossible d\'en déduire le nom du village' };
