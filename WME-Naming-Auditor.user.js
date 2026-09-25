@@ -1489,10 +1489,14 @@
       // que s'il en reste au moins un : mieux vaut aucune donnee qu'un zonage
       // partiel, qui ferait passer pour « hors agglo » ce qui est en agglo.
       const propres = liste.filter(polygoneImporteValide);
-      if (propres.length !== liste.length) rejetes += liste.length - propres.length;
-      if (!propres.length) continue;
-      // « n'ajouter que les absentes » : une commune deja tracee est intouchee.
-      if (!agglos[insee] || !agglos[insee].length) {
+      // ⚠️⚠️ AUDIT DU 25/09/2026 (A11) : le principe ci-dessus n'etait pas applique — une commune
+      // dont UNE partie des polygones etait rejetee entrait avec le reste, zonage partiel compris.
+      if (propres.length !== liste.length) { rejetes += liste.length - propres.length; continue; }
+      // « n'ajouter que les absentes » : une commune ou j'ai DEJA decide est intouchee.
+      // ⚠️ A11 : « decide » ne veut pas dire « trace ». Une cle VIDE est une decision (tous les
+      //    polygones supprimes, v2.26.04), et une commune declaree « sans agglo » aussi : le test
+      //    `!agglos[insee].length` les prenait pour des absentes et y versait les polygones du tiers.
+      if (!(insee in agglos) && sansAgglo[insee] !== true) {
         agglos[insee] = propres.map(a => ({
           // On RECONSTRUIT l'objet : un fichier tiers n'impose pas ses champs.
           label: typeof a.label === 'string' ? a.label.slice(0, 120) : '',
@@ -1509,7 +1513,11 @@
       // en contenir : l'importer comme une declaration inverserait le choix de
       // celui qui l'a envoye.
       if (!p.sansAgglo[insee]) continue;
-      if (!sansAgglo[insee]) { sansAgglo[insee] = true; ajoutSans++; }
+      // ⚠️ A11 : une case DECOCHEE ici (`false`) est une decision, pas une absence — `!sansAgglo[insee]`
+      //    la recochait. Et une commune ou j'ai des polygones n'est pas « sans agglo ».
+      if (!(insee in sansAgglo) && !(agglos[insee] && agglos[insee].length)) {
+        sansAgglo[insee] = true; ajoutSans++;
+      }
     }
     for (const [insee, liste] of Object.entries(p.hameaux || {})) {
       if (!codeCommuneValide(insee) || !Array.isArray(liste)) { rejetes++; continue; }

@@ -191,6 +191,48 @@ titre('⭐ v2.49.03 — les hameaux declares voyagent dans le partage');
     [r.ajoutHameaux, r.rejetes], [1, 2]);
 }
 
+titre('⚠️⚠️ Audit du 25/09/2026 (A11) — l\'import respecte les décisions locales');
+{
+  const P = { label: 'x', rattache: false, ring: [[1, 45], [1.01, 45], [1.01, 45.01], [1, 45]] };
+  // Le VRAI validateur : un faux laissait passer `null` (isFinite(null) vaut true).
+  const monter = (fus, agglos, sansAgglo) => new Function('prefs', 'codeCommuneValide',
+    'agglos', 'sansAgglo', 'hameaux', 'saveAgglos', 'saveSansAgglo',
+    extraire('polygoneImporteValide') + '\n' + extraire('pointHameauValide') + '\n' + fus +
+    '\nreturn fusionnerPartage;')(
+    { inspect: t => ({ ok: true, payload: JSON.parse(t) }) }, c => /^\d{5}$/.test(c),
+    agglos, sansAgglo, {}, () => {}, () => {});
+  const jouer = (fus, agglos, sansAgglo, payload) => {
+    // ⚠️ JSON ne transporte pas NaN : on rend le polygone casse par une chaine.
+    const r = monter(fus, agglos, sansAgglo)(JSON.stringify(payload).replace('"NaN"', 'null'));
+    return r;
+  };
+  const fus = extraire('fusionnerPartage');
+  const fichier = () => ({
+    agglos: { '11106': [P], '11107': [P], '11108': [P], '11109': [P, { label: 'y', ring: [['NaN', 45]] }] },
+    sansAgglo: { '11110': true, '11111': true }
+  });
+  const scenario = f => {
+    const agglos = { '11106': [], '11110': [P] }, sansAgglo = { '11107': true, '11111': false };
+    const r = jouer(f, agglos, sansAgglo, fichier());
+    return { agglos, sansAgglo, r };
+  };
+  const x = scenario(fus);
+  verifier('28. ⚠️ tous mes polygones supprimés (clé vide) : INTOUCHÉE', x.agglos['11106'], []);
+  verifier('29. ⚠️ commune déclarée « sans agglo » ici : pas de polygone importé', '11107' in x.agglos, false);
+  verifier('30. commune absente : importée', x.agglos['11108'] && x.agglos['11108'].length, 1);
+  verifier('31. ⚠️ une partie des polygones est cassée : la commune ENTIÈRE est écartée',
+    ['11109' in x.agglos, x.r.rejetes], [false, 1]);
+  verifier('32. ⚠️ « sans agglo » importé sur une commune où j\'ai des polygones : refusé', x.sansAgglo['11110'], undefined);
+  verifier('33. ⚠️ case décochée ici (false) : le fichier ne la recoche pas', x.sansAgglo['11111'], false);
+  // Temoins : chaque garde retiree, le defaut revient.
+  const t1 = scenario(fus.replace("!(insee in agglos) && sansAgglo[insee] !== true", "!agglos[insee] || !agglos[insee].length"));
+  verifier('34. TÉMOIN : l\'ancien test verse le fichier dans la clé vide', t1.agglos['11106'].length, 1);
+  const t2 = scenario(fus.replace("!(insee in sansAgglo) && !(agglos[insee] && agglos[insee].length)", "!sansAgglo[insee]"));
+  verifier('35. TÉMOIN : l\'ancien test recoche la case décochée', t2.sansAgglo['11111'], true);
+  const t3 = scenario(fus.replace("rejetes += liste.length - propres.length; continue; }", "rejetes += liste.length - propres.length; }"));
+  verifier('36. TÉMOIN : sans le rejet en bloc, la commune entre à moitié', t3.agglos['11109'] && t3.agglos['11109'].length, 1);
+}
+
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(66));
 console.log('%d verifications OK, %d ECHEC(S)', ok, ko);
