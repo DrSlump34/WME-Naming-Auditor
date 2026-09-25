@@ -434,7 +434,7 @@
       return;
     }
     GM_xmlhttpRequest({
-      method: 'GET', url: URL_MAJ, timeout: 10000, nocache: true,
+      method: 'GET', url: URL_MAJ, timeout: 10000, nocache: true, anonymous: true,
       onload: r => {
         // ⚠️ onload est appele AUSSI sur un 404 : sans ce test, la page d'erreur
         // de GreasyFork serait analysee comme un bloc de metadonnees.
@@ -2081,7 +2081,9 @@
              : (typeof GM !== 'undefined' && GM.xmlHttpRequest) ? GM.xmlHttpRequest : null;
     if (gm) {
       return new Promise((resolve, reject) => {
-        const req = gm({ method: 'GET', url, timeout: 120000,
+        // ⚠️ Audit du 25/09/2026 : `anonymous` — aucune de ces sources publiques (contours, panneaux,
+        //    dictionnaire) n'a a recevoir les cookies de l'editeur. Verifie sans cookie le 25/09 : 200.
+        const req = gm({ method: 'GET', url, timeout: 120000, anonymous: true,
           onload: r => (r.status >= 200 && r.status < 300)
             ? resolve(r.responseText) : reject(new Error('HTTP ' + r.status)),
           onerror: () => reject(new Error('appel refusé')),
