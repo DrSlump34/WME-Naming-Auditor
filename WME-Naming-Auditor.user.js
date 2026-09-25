@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.50.06
+// @version      2.50.07
 // @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies selon les règles du pays regardé (agglomération / centro abitato, contours communaux INSEE / ISTAT). Interface et aide en français et en italien. ⚠️ Le portage italien est en phase de TEST.
 // @author       DrSlump34
 // @license      MIT
@@ -12067,7 +12067,7 @@
   .agn-tab.agn-tab-on{background:#fff;color:var(--agn-bleu-fonce, #1565c0);border-bottom-color:var(--agn-bleu, #1e88e5)}
   .agn-tab-n{display:inline-block;min-width:16px;padding:0 5px;margin-left:3px;border-radius:8px;
     background:var(--agn-gris-pale, #b0bec5);color:#fff;font-size:10px;font-weight:700}
-  .agn-tab.agn-tab-on .agn-tab-n{background:var(--agn-bleu, #1e88e5)}
+  .agn-tab.agn-tab-on .agn-tab-n{background:#1976d2}
   /* ⭐ Charte (WRP) : degrade #1e88e5 → #1565c0, titre 13 px 700, boutons ronds de 24 px. */
   #agn-tete{display:flex;align-items:center;gap:8px;padding:8px 12px;
     background:linear-gradient(135deg,#1e88e5 0%,#1565c0 100%);color:#fff;
@@ -12143,14 +12143,17 @@
     height:auto;min-height:0;white-space:normal;text-align:center}
   .agn-btn:hover:not(:disabled){filter:brightness(1.05)}
   .agn-btn:disabled{opacity:.45;cursor:default}
-  .agn-btn.primary{background:var(--agn-bleu, #2196f3);color:#fff}
+  /* ⚖️ Arbitrage de l'auteur (25/09/2026, audit WPEU) : texte blanc sur #2196f3 = 3,12:1, echoue AA.
+     Toute pastille PLEINE a texte blanc passe en #1976d2 (4,60:1) ; #2196f3 reste aux titres, au rail
+     allume des interrupteurs et aux barres sans texte. */
+  .agn-btn.primary{background:#1976d2;color:#fff}
   /* ⚠️⚠️ SANS CETTE REGLE, LE BOUTON BLEU DEVENAIT ILLISIBLE AU SURVOL (signale
      par l'auteur, 27/07) : la regle de survol compte TROIS selecteurs
      (classe + hover + not) contre DEUX pour le bouton bleu (classe + classe) —
      elle l'emporte donc, et posait un fond gris clair sous un texte reste
      BLANC. Le bouton bleu s'assombrit desormais au lieu de perdre sa couleur.
      ⚠️ PAS DE BACKTICK DANS CE BLOC : le CSS est un template literal. */
-  .agn-btn.primary:hover:not(:disabled){background:var(--agn-bleu, #2196f3);filter:brightness(1.08);color:#fff}
+  .agn-btn.primary:hover:not(:disabled){background:#1976d2;filter:brightness(1.08);color:#fff}
   .agn-sel{width:100%;box-sizing:border-box;padding:5px;font-size:12px;margin:3px 0;
     border:1px solid #bbb;border-radius:4px;background:#fff}
   .agn-sel optgroup{font-style:normal;font-weight:700;color:var(--agn-gris, #546e7a)}
@@ -12373,7 +12376,7 @@
   #agn-guide.on{display:block}
   #agn-guide b{color:var(--agn-bleu-fonce, #1565c0)}
   .agn-guide-n{display:inline-block;min-width:17px;height:17px;line-height:17px;text-align:center;
-    border-radius:50%;background:var(--agn-bleu, #1e88e5);color:#fff;font-size:11px;font-weight:700;
+    border-radius:50%;background:#1976d2;color:#fff;font-size:11px;font-weight:700;
     margin-right:5px}
   .agn-guide-suite{margin-top:4px;font-size:11px;opacity:.85}
   /* ⚠️ Une animation qui ne s'arrete jamais fatigue : le guidage disparait des
@@ -12410,7 +12413,7 @@
     border:1px solid #cfd8dc;border-radius:4px;background:#fff;cursor:pointer;
     font-size:11px;font-style:normal;color:var(--agn-texte, #1f2933)}
   .agn-secteur:hover{background:#e3f2fd;border-color:var(--agn-bleu, #1e88e5)}
-  .agn-secteur-p{background:var(--agn-bleu, #1e88e5);color:#fff;border-radius:8px;
+  .agn-secteur-p{background:#1976d2;color:#fff;border-radius:8px;
     padding:1px 6px;font-size:10px;margin-left:4px}
   /* Rappel pendant le trace : l'interface est repliee, c'est le SEUL repere a
      l'ecran. En haut, centre, au-dessus de la carte et sous les modales. */
@@ -12580,7 +12583,7 @@
   .agn-sb-b:hover{filter:brightness(1.05)}
   .agn-sb-i{width:100%;box-sizing:border-box;padding:4px 6px;font-size:12px;
     border:1px solid #bbb;border-radius:4px;margin-top:2px}
-  .agn-sb-b.agn-sb-p{background:#2196f3;color:#fff}
+  .agn-sb-b.agn-sb-p{background:#1976d2;color:#fff}
   .agn-sb-b.agn-sb-p:hover{filter:brightness(1.08)}
   .agn-nav{display:flex;gap:6px;align-items:center;margin:6px 0}
   .agn-nav button{flex:0 0 auto;padding:4px 9px}
