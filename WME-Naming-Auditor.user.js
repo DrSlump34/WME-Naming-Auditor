@@ -4775,7 +4775,7 @@
              'impossible d\'en déduire le nom du village' };
   }
 
-  function expectedNaming(nam, agglo, nomCommune) {
+  function expectedNaming(nam, agglo, nomCommune, opts) {
     // ⚠️⚠️ UN NOM COMPOSITE « Dxxx - Nom de la route » NE DOIT JAMAIS SERVIR DE
     // CIBLE (corrige en v2.14, defaut vu en live a Saint-Laurent-des-Arbres).
     // `isRoute` ne le reconnait pas comme un numero — il y a du texte apres —
@@ -4861,7 +4861,13 @@
     // Autoroute : aucune ville nulle part, agglo ou pas. On garde les noms
     // alternatifs existants (E15, second numero...) mais debarrasses de leur
     // ville, et on force le signalement des alternatifs qui en portent une.
-    const auto = entries.find(e => REF.reAutoroute.test((e.name || '').trim()));
+    // ⚠️⚠️ AUDIT DU 25/09/2026 (A9) : le TYPE du segment fait foi, pas seulement le nom. Un troncon
+    // type Autoroute nomme « N165 » (voie autoroutiere a numero de nationale) passait par les cas
+    // H : le ⚡ lui ajoutait « N165 / commune » en alternatif, une ville que la regle interdit sur
+    // une autoroute. `opts.autoroute` vient du type ; a defaut de nom en Axx, son numero de route
+    // tient lieu de nom d'autoroute.
+    const auto = entries.find(e => REF.reAutoroute.test((e.name || '').trim())) ||
+                 ((opts && opts.autoroute) ? routes[0] || null : null);
     if (auto) {
       return {
         cas: 'A', strict: true, doute,
@@ -10165,7 +10171,8 @@
       // « d'en face » est LEGITIME, et la cible ne doit pas la jeter.
       const longeLaLimite = voisines.length > 0 &&
                             partLeLongDeLaLimite(coords, communeActive) > 0;
-      let exp = REF.etatCible(nam, enAgglo ? loc.agglo : null, communeActive.nom);
+      let exp = REF.etatCible(nam, enAgglo ? loc.agglo : null, communeActive.nom,
+                              { autoroute: seg.roadType === REF.typeAutoroute });
       // ⭐ Qui porte le principal ? Voir `decisionPrincipalMitoyen`.
       let mitoyenIndecis = null, mitoyenVoisine = null, decisionMitoyenne = 'ici';
       if (longeLaLimite) {
