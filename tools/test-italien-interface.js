@@ -61,6 +61,11 @@ verifier('plus aucun « INSEE » en dur dans un texte affiche par le code', [
   /contour INSEE \(' \+/, /commune INSEE qui est appliquée/, /D'après les contours INSEE/, /\(contour INSEE\)/,
   /code INSEE, ' \+/, /rangees par code INSEE/].filter(re => re.test(horsDico)).length, 0);
 
+b('un démarrage raté se DIT à l\'écran (role=alert), pas seulement dans la console',
+  /init\(\)\.catch\(e => \{[\s\S]{0,700}setAttribute\('role', 'alert'\)[\s\S]{0,900}document\.body\.appendChild\(d\)/);
+verifier('… et son message est traduit',
+  !!TEXTES.it['{nom} n\'a pas pu démarrer : {motif}. Recharge la page ; si ça persiste, signale-le sur le fil Discuss. (Clic pour fermer.)'], true);
+
 console.log('\n=== Temoin ===');
 const mutant = src.replace("if (t || !/\\bISTAT\\b/.test(cle)) return t;", 'return t;');
 if (mutant === src) { ko++; console.log('  ECHEC temoin introuvable'); }

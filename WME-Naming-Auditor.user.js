@@ -6689,6 +6689,8 @@
         "Gli altri nomi restano come alternativi.",
       "WME ne descend que les segments présents dans la vue : ceux restés dehors ne peuvent pas être sélectionnés. Dézoome d'un cran, puis reclique sur cette ligne.":
         "WME carica solo i segmenti presenti nella vista: quelli rimasti fuori non possono essere selezionati. Riduci lo zoom di un livello, poi riclicca su questa riga.",
+      '{nom} n\'a pas pu démarrer : {motif}. Recharge la page ; si ça persiste, signale-le sur le fil Discuss. (Clic pour fermer.)':
+        '{nom} non è riuscito ad avviarsi: {motif}. Ricarica la pagina; se persiste, segnalalo nella discussione su Discuss. (Clic per chiudere.)',
       // ── Gabarits a marqueurs (trf), audit du 25/09/2026 ──
       'Le polygone tracé est entièrement HORS de {commune}.\n\nL\'enregistrer quand même ?':
         'Il poligono tracciato è interamente FUORI da {commune}.\n\nSalvarlo comunque?',
@@ -16480,5 +16482,25 @@
       (communes.length ? communes.length + ' commune(s)' : 'aucun contour'));
   }
 
-  init().catch(e => console.error('[' + SCRIPT_NAME + '] echec du demarrage :', e));
+  init().catch(e => {
+    console.error('[' + SCRIPT_NAME + '] echec du demarrage :', e);
+    // ⚠️ Audit du 25/09/2026 : un demarrage rate ne se voyait QUE dans la console — pour l'editeur,
+    //    le script avait simplement disparu. On le dit a l'ecran, fermable d'un clic.
+    try {
+      const d = document.createElement('div');
+      d.id = 'agn-echec-demarrage';
+      d.setAttribute('role', 'alert');
+      d.style.cssText = 'position:fixed;left:50%;top:60px;transform:translateX(-50%);z-index:10000;' +
+        'max-width:480px;padding:8px 12px;border-radius:8px;background:#ffebee;color:#c62828;' +
+        'font:600 12px Rubik,"Open Sans",sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.2);cursor:pointer';
+      let msg;
+      try {
+        msg = trf('{nom} n\'a pas pu démarrer : {motif}. Recharge la page ; si ça persiste, signale-le sur le fil Discuss. (Clic pour fermer.)',
+                  { nom: SCRIPT_NAME, motif: (e && e.message) || String(e) });
+      } catch (x) { msg = SCRIPT_NAME + ' : ' + ((e && e.message) || String(e)); }
+      d.textContent = msg;
+      d.onclick = () => d.remove();
+      document.body.appendChild(d);
+    } catch (x) { /* pas de body : la console a deja tout dit */ }
+  });
 })();
