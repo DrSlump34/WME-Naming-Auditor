@@ -2,7 +2,7 @@
 
 # WME Naming Auditor
 
-Userscript pour l'éditeur de cartes Waze (WME). Il audite le **nommage des segments** — nom principal et noms alternatifs — ainsi que l'**adressage** (numéros de rue, POI résidentiels, adresse des lieux), en s'appuyant sur les **contours communaux officiels** et sur un **polygone d'agglomération** tracé à la main, puis liste les écarts à la règle.
+Userscript pour l'éditeur de cartes Waze (WME), **en France et en Italie** (le portage italien est en phase de test). Interface et aide en **français et en italien**, selon la langue de WME. Il audite le **nommage des segments** — nom principal et noms alternatifs — ainsi que l'**adressage** (numéros de rue, POI résidentiels, adresse des lieux), en s'appuyant sur les **contours communaux officiels** et sur un **polygone d'agglomération** tracé à la main, puis liste les écarts à la règle.
 
 > **Le script ne modifie ni n'enregistre jamais rien tout seul.** Il lit, compare et propose. Une correction proposée est déposée dans WME exactement comme une saisie manuelle : elle se relit, elle s'annule (Ctrl+Z), et **c'est l'éditeur qui enregistre**.
 
@@ -35,8 +35,8 @@ Le script ne **crée** jamais un nom ni un numéro : il réorganise ce qui est d
 ## Mise en route
 
 1. Installer `WME-Naming-Auditor.user.js` dans Tampermonkey (accepter l'autorisation d'accès à `geo.api.gouv.fr`).
-2. Dans WME, ouvrir l'onglet 🏷️ du panneau latéral (**Scripts**), puis **Afficher la fenêtre**.
-3. Cocher un ou plusieurs départements et cliquer sur **Télécharger et charger** : les contours arrivent directement, sans passer par un fichier.
+2. Dans WME, ouvrir l'onglet du script (son icône, dans le panneau latéral **Scripts**), puis **Afficher la fenêtre** — ou cliquer sur la même icône dans la colonne de boutons de la carte.
+3. Cocher un ou plusieurs départements (en Italie : des provinces) et cliquer sur **Télécharger et charger** : les contours arrivent directement, sans passer par un fichier. L'option « Charger tout seul le département visible » s'en charge aussi.
 4. Choisir une commune, tracer son agglomération, analyser.
 
 Les contours peuvent aussi venir d'un **fichier GeoJSON** que vous fournissez — utile hors ligne, ou pour employer une autre source que celle proposée. L'outil `Recuperer-Communes.html` fabrique ce fichier depuis un navigateur, indépendamment du script.
@@ -80,11 +80,11 @@ Tout part de deux géométries, à préparer une fois par commune : le contour o
 
 ## Mise à jour
 
-Une pastille rouge apparaît dans l'en-tête de la fenêtre quand une version plus récente est publiée sur GreasyFork ; le clic ouvre sa page. Elle reste éteinte si la version installée est à jour, **et aussi hors ligne** : elle ne s'allume que sur une réponse claire, jamais par précaution.
+Une pastille rouge apparaît dans l'en-tête de la fenêtre, et un bandeau dans l'onglet Scripts, quand une version plus récente est publiée sur GreasyFork ; le clic ouvre le fichier, et le gestionnaire de scripts propose la mise à jour. La vérification a lieu **au plus une fois par 24 h**. La pastille reste éteinte si la version installée est à jour, **et aussi hors ligne** : elle ne s'allume que sur une réponse claire, jamais par précaution.
 
-## Autres pays
+## Les pays
 
-Le moteur ne connaît aucune règle nationale. Tout le franco-français est isolé dans un **référentiel** (`REFERENTIELS.FR`) qui décrit le vocabulaire des numéros de route, les types de voies sans adressage, les clés du fichier de contours, l'état cible du nommage et la liste des contrôles. Ajouter un pays revient à écrire un second référentiel, sans toucher au moteur ni à l'interface — celle-ci se construit à partir de ce qu'il déclare.
+Le moteur ne connaît aucune règle nationale. Tout ce qui est national vit dans un **référentiel** — `REFERENTIELS.FR`, `REFERENTIELS.IT` — qui décrit le vocabulaire des numéros de route, les types de voies sans adressage, les clés du fichier de contours, l'état cible du nommage et la liste des contrôles. Le référentiel italien est écrit d'après la Wazeopedia italienne, pas traduit du français. Le script choisit le référentiel d'après le **pays regardé**, et refuse de travailler ailleurs plutôt que d'appliquer les règles d'un pays à un autre.
 
 ## Données de contours
 
@@ -92,7 +92,9 @@ Le moteur ne connaît aucune règle nationale. Tout le franco-français est isol
 
 Le fichier reste sur le poste de l'éditeur.
 
-Le script joint six hôtes, et seulement ceux-là (déclarés en `@connect`) : `geo.api.gouv.fr` pour les contours, `api.wazefrance.com` comme source de contours alternative, `docs.google.com` et `googleusercontent.com` pour le dictionnaire de rédaction, `raw.githubusercontent.com` pour charger un fichier de partage par son adresse, et `update.greasyfork.org` pour savoir si une version plus récente est publiée.
+En Italie, les contours viennent de **geojson-italy** (openpolis, désormais `guglielmo/geojson-italy`), d'après les limites de l'**ISTAT**, sous **CC BY 4.0** ; le script les lit sur une version figée (commit daté), jamais sur une branche qui bouge.
+
+Le script joint six hôtes, et seulement ceux-là (déclarés en `@connect`) : `geo.api.gouv.fr` pour les contours français et le département sous la vue, `api.wazefrance.com` pour les **panneaux d'entrée d'agglomération** (EB10 / EB20), interrogés automatiquement pour la commune choisie, `docs.google.com` et `googleusercontent.com` pour le dictionnaire de rédaction, `raw.githubusercontent.com` pour les **contours italiens** et pour charger un fichier de partage par son adresse, et `update.greasyfork.org` pour savoir si une version plus récente est publiée. Ces requêtes partent **sans vos cookies**.
 
 Ce sont toutes des **lectures** : le script n'envoie aucun contenu. Les seuls paramètres transmis sont un **numéro de département** et, pour savoir lequel est sous les yeux, les **coordonnées de la vue** (latitude, longitude). **Rien de ce que vous éditez ne quitte le navigateur.**
 
