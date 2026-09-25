@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.50.01
+// @version      2.50.02
 // @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies selon les règles du pays regardé (agglomération / centro abitato, contours communaux INSEE / ISTAT). Interface et aide en français et en italien. ⚠️ Le portage italien est en phase de TEST.
 // @author       DrSlump34
 // @license      MIT
@@ -12163,7 +12163,10 @@
                : (r.right + marge + L <= bornes.droite) ? r.right + marge
                : bornes.gauche;
     return { left: Math.round(left), top: Math.round(r.top),
-             height: Math.round(Math.max(120, Math.min(r.height, bornes.bas - r.top))) };
+             // ⚠️ AUCUN plancher : fenetre fermee, `r` est vide et le volet doit rester a hauteur
+             //    nulle. Un plancher de 120 px l'a fait apparaitre seul, en haut a gauche, par-dessus
+             //    le panneau de WME (vu dans WME le 25/09/2026, 2.50.01).
+             height: Math.round(Math.max(0, Math.min(r.height, bornes.bas - r.top))) };
   }
 
   /**

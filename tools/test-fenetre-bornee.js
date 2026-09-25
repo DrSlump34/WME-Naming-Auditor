@@ -72,6 +72,9 @@ verifier('place nulle part : au bord gauche de la carte, jamais sur WME ni sous 
 verifier('la hauteur ne passe pas le pied de page',
          volet({ left: 900, right: 1320, top: 600, height: 700 }, Z, 300, 8).height, 440);
 
+verifier('fenetre FERMEE (rectangle vide) : volet de hauteur nulle, donc invisible',
+         volet({ left: 0, right: 0, top: 0, height: 0 }, Z, 300, 8).height, 0);
+
 console.log('\n=== Branchements ===');
 verifier('le glissement passe par bornerFenetre',
          /const g = bornerFenetre\(\{ x: e\.clientX - drag\.dx, y: e\.clientY - drag\.dy,/.test(src), true);
