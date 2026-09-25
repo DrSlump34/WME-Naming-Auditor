@@ -8,6 +8,8 @@
 // @icon         https://raw.githubusercontent.com/DrSlump34/WME-Naming-Auditor/master/icon-128.png
 // @homepageURL  https://github.com/DrSlump34/WME-Naming-Auditor
 // @supportURL   https://github.com/DrSlump34/WME-Naming-Auditor/issues
+// @downloadURL  https://update.greasyfork.org/scripts/588554/WME%20Naming%20Auditor.user.js
+// @updateURL    https://update.greasyfork.org/scripts/588554/WME%20Naming%20Auditor.meta.js
 // @match        https://www.waze.com/editor*
 // @match        https://www.waze.com/*/editor*
 // @match        https://beta.waze.com/editor*
@@ -368,6 +370,17 @@
   // ===========================================================================
   const GF_PAGE_URL = 'https://greasyfork.org/fr/scripts/588554-wme-naming-auditor';
   const GF_META_URL = 'https://update.greasyfork.org/scripts/588554/WME%20Naming%20Auditor.meta.js';
+  const GF_SCRIPT_URL = 'https://update.greasyfork.org/scripts/588554/WME%20Naming%20Auditor.user.js';
+  // ⭐ Charte commune (WRP, 25/09/2026) : le gestionnaire de scripts connait les adresses de mise a
+  //    jour, que l'en-tete declare depuis la 2.50.00. Un clic ouvre le FICHIER — Tampermonkey
+  //    propose alors la mise a jour — et non la page GreasyFork, ou il fallait encore la chercher.
+  const _gmScript = () => (typeof GM_info !== 'undefined' && GM_info.script) || {};
+  const URL_MAJ = _gmScript().updateURL || GF_META_URL;
+  const URL_INSTALLER = _gmScript().downloadURL || GF_SCRIPT_URL;
+  // Au plus un sondage par 24 h ; la version vue est gardee entre-temps.
+  const MAJ_CLE = 'agn.maj', MAJ_DELAI = 864e5;
+  const _majLire = () => { try { return JSON.parse(localStorage.getItem(MAJ_CLE) || 'null'); } catch (e) { return null; } };
+  const _majNoter = v => { try { localStorage.setItem(MAJ_CLE, JSON.stringify({ t: Date.now(), v })); } catch (e) { /* */ } };
   const _VER_RE = /^\d+(\.\d+)*$/;
   let _majEnLigne = null;   // version publiee, renseignee SEULEMENT si plus recente
 
@@ -393,7 +406,7 @@
     b.style.display = _majEnLigne ? 'flex' : 'none';
     if (_majEnLigne) {
       b.title = 'Mise à jour disponible : v' + _majEnLigne +
-        ' (tu utilises la v' + VERSION + ') — clique pour ouvrir GreasyFork';
+        ' (tu utilises la v' + VERSION + ') — clique pour l\'installer';
     }
   }
 
@@ -401,13 +414,19 @@
     // Version locale illisible (GM_info absent : VERSION vaut '?') : rien a comparer.
     if (!_VER_RE.test(VERSION)) return;
     if (typeof GM_xmlhttpRequest !== 'function') return;
+    const memo = _majLire();
+    if (memo && Date.now() - memo.t < MAJ_DELAI) {
+      if (memo.v && _VER_RE.test(memo.v) && _majCmp(VERSION, memo.v) < 0) { _majEnLigne = memo.v; _majRender(); }
+      return;
+    }
     GM_xmlhttpRequest({
-      method: 'GET', url: GF_META_URL, timeout: 10000,
+      method: 'GET', url: URL_MAJ, timeout: 10000, nocache: true,
       onload: r => {
         // ⚠️ onload est appele AUSSI sur un 404 : sans ce test, la page d'erreur
         // de GreasyFork serait analysee comme un bloc de metadonnees.
-        if (r.status < 200 || r.status >= 300) return;
+        if (r.status < 200 || r.status >= 300) { _majNoter(null); return; }
         const m = (r.responseText || '').match(/^\/\/\s*@version\s+(\S+)/m);
+        _majNoter(m && _VER_RE.test(m[1]) ? m[1] : null);
         if (!m || !_VER_RE.test(m[1])) return;
         if (_majCmp(VERSION, m[1]) >= 0) return;
         _majEnLigne = m[1];
@@ -12417,7 +12436,7 @@
     // fenetre, un clic qui y remonte partirait en glissement.
     o.querySelector('#agn-maj').onclick = e => {
       e.stopPropagation();
-      hote.open(GF_PAGE_URL, '_blank', 'noopener');
+      hote.open(URL_INSTALLER, '_blank', 'noopener');
     };
     // Le sondage a pu repondre AVANT que l'en-tete existe : on repeint ici,
     // sinon la pastille resterait eteinte alors que la mise a jour est la.
