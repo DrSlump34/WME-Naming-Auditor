@@ -73,6 +73,13 @@ function monter(versionInstallee, reponse) {
   const module = new Function('bouton', 'journal', 'appels', 'reponse', [
     "const VERSION = '" + versionInstallee + "';",
     "const GF_META_URL = '" + GF_META_URL + "';",
+    // ⚠️ 2.50.00 (charte WRP) : l'adresse sondee vient de GM_info, repli sur GF_META_URL ; et un
+    //    memo de 24 h, ici dans un stockage VIERGE a chaque montage (test-pastille-maj.js le couvre).
+    'const URL_MAJ = GF_META_URL;',
+    'const _st = {}; const localStorage = { getItem: k => _st[k] || null, setItem: (k, v) => { _st[k] = v; } };',
+    (src.match(/\n\s*(const MAJ_CLE = [^\n]+)/) || [])[1],
+    (src.match(/\n\s*(const _majLire = [^\n]+)/) || [])[1],
+    (src.match(/\n\s*(const _majNoter = [^\n]+)/) || [])[1],
     'const _VER_RE = ' + (src.match(/const _VER_RE = (\/.+\/);/) || [])[1] + ';',
     'let _majEnLigne = null;',
     'const log = (...a) => journal.push(a.join(" "));',
@@ -216,9 +223,10 @@ function verifie(quoi, cond, detail) {
     'le bouton manque, ou il est visible des le depart');
   verifie('le bouton est pose AVANT « Reduire »',
     src.indexOf('id="agn-maj"') < src.indexOf('id="agn-reduire"'));
-  verifie('le clic ouvre la page GreasyFork dans un autre onglet',
-    /#agn-maj'\)\.onclick[\s\S]{0,220}open\(GF_PAGE_URL, '_blank', 'noopener'\)/.test(src),
-    'le clic n\'ouvre pas GF_PAGE_URL, ou il remplacerait l\'onglet WME');
+  // ⭐ 2.50.00 (charte WRP) : le clic ouvre le FICHIER, pour que Tampermonkey propose la mise a jour.
+  verifie('le clic ouvre le fichier d\'installation dans un autre onglet',
+    /#agn-maj'\)\.onclick[\s\S]{0,220}open\(URL_INSTALLER, '_blank', 'noopener'\)/.test(src),
+    'le clic n\'ouvre pas URL_INSTALLER, ou il remplacerait l\'onglet WME');
   verifie('le clic ne part pas en glissement de la fenetre',
     /#agn-maj'\)\.onclick[\s\S]{0,120}stopPropagation\(\)/.test(src),
     'l\'en-tete est la poignee de deplacement : sans stopPropagation le clic la fait bouger');
