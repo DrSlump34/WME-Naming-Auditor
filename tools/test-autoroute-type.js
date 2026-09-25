@@ -10,7 +10,6 @@
  * Usage : node tools/test-autoroute-type.js [fichier.user.js]
  */
 'use strict';
-'use strict';
 const fs = require('fs');
 const src = fs.readFileSync(process.argv[2] || 'WME-Naming-Auditor.user.js', 'utf8');
 

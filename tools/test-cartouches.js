@@ -61,13 +61,15 @@ function jouer(segments, opts) {
   opts = opts || {};
   const cartInfo = new Map();
   const code = PREAMBULE + '\n' + extraire('collecterCartouche') + '\n' +
-               extraire('cartouchesPrincipal') + '\n' +
+               extraire('cartouchesPrincipal') + '\n' + extraire('rueHorsDuJugement') + '\n' +
                'return { collecterCartouche, cartouchesPrincipal };';
-  const api = new Function('cartInfo', code)(cartInfo);
+  // Le modele de WME est simule : `opts.autresSegs` = segments charges de la rue, non analyses.
+  const api = new Function('cartInfo', 'segmentsDeLaRue', code)(cartInfo,
+    () => [...segments.map((s, i) => 1000 + i), ...(opts.autresSegs || [])]);
 
   segments.forEach((s, i) => {
     const nam = {
-      primary: { name: opts.nomVoie || 'Avenue Jean Jaurès', cityName: 'Coursan',
+      primary: { name: opts.nomVoie || 'Avenue Jean Jaurès', cityName: opts.ville !== undefined ? opts.ville : 'Coursan',
                  signText: s.principalCartouche ? s.principalCartouche : '',
                  signType: s.principalCartouche ? 1092 : null },
       primaryId: opts.streetId === undefined ? 100 : opts.streetId,
@@ -243,6 +245,25 @@ verifier('37. la reprise est branchée après addAlternateStreet',
   /addAlternateStreet\(\{ segmentIds: ids, streetId: rue\.id \}\);\s*\n(?:\s*ecrits\+\+;\s*\n)?(?:\s*\/\/[^\n]*\n)*\s*if \(!cartoucheDeStreet\(rue\.id\)\)/.test(src), true);
 verifier('38. une Street qui porte déjà un cartouche n\'est jamais réécrite',
   /if \(!cartoucheDeStreet\(rue\.id\)\)/.test(src), true);
+
+// ⚠️⚠️ Audit du 25/09/2026 (A7) : l'ecusson se pose sur la RUE, partagee.
+{
+  const fn = extraire('rueHorsDuJugement');
+  const hors = new Function(fn + '\nreturn rueHorsDuJugement;')();
+  const G = (city, ids) => ({ city, segs: ids.map(id => ({ segId: id })) });
+  verifier('39. rue avec ville, tous ses segments jugés : pose sûre', hors(G('Coursan', [1, 2]), [1, 2]), null);
+  verifier('40. ⚠️ rue SANS ville (partagée dans tout l\'État) : refus', !!hors(G('', [1, 2]), [1, 2]), true);
+  verifier('41. ⚠️ un segment chargé de la même rue n\'a pas été jugé : refus', !!hors(G('Coursan', [1, 2]), [1, 2, 3]), true);
+  verifier('42. la garde est branchée dans cartouchesPrincipal',
+    /if \(rueHorsDuJugement\(g, segmentsDeLaRue\(g\.streetId\)\)\) continue;/.test(src), true);
+  verifier('44. bout en bout : voie SANS ville, tous ses segments en D1118 — aucun report',
+    jouer([{ alts: [D('D1118')] }, { alts: [D('D1118')] }], { ville: '' }).out.length, 0);
+  verifier('45. bout en bout : un segment chargé de la rue hors analyse — aucun report',
+    jouer([{ alts: [D('D1118')] }, { alts: [D('D1118')] }], { autresSegs: [9999] }).out.length, 0);
+  const mutant = fn.replace("if (!g.city) return 'rue sans ville, partagée au-delà de la commune';", '');
+  verifier('43. TÉMOIN : sans la garde de la ville, la rue sans ville passe',
+    mutant !== fn && new Function(mutant + '\nreturn rueHorsDuJugement;')()(G('', [1, 2]), [1, 2]), null);
+}
 
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(66));

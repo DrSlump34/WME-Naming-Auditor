@@ -10312,6 +10312,8 @@
         if (g.dejaCartouche || !g.segs.length) continue;
         // Regle de l'auteur : au moins un segment sans Dxx-cartouche ⇒ rien.
         if (g.segs.some(s => !s.shields.length)) continue;
+        // A7 : l'ecusson se pose sur la RUE, partagee — on ne propose que si elle ne deborde pas.
+        if (rueHorsDuJugement(g, segmentsDeLaRue(g.streetId))) continue;
         // Cartouche commun a TOUS les segments (intersection), et unique.
         let inter = g.segs[0].shields.map(x => x.key);
         for (const s of g.segs.slice(1)) inter = inter.filter(k => s.shields.some(x => x.key === k));
@@ -10884,6 +10886,32 @@
     if (!planDeCorrection(f)) return false;
     if (f.verrouilles && f.verrouilles >= (f.nb || 1)) return false;
     return !(f.doute && !f.cartouche);
+  }
+
+  /**
+   * Le cartouche du principal peut-il se poser sur cette rue ? (audit du 25/09/2026, A7) PURE.
+   * L'ecusson vit sur la STREET (nom + ville), que partagent tous les segments qui la portent en
+   * principal ; l'eligibilite, elle, n'etait jugee que sur les segments ANALYSES dans la commune.
+   *  - une rue SANS VILLE est partagee bien au-dela de la commune (toutes les « Route de X » sans
+   *    ville de l'Etat) : l'ecusson aurait gagne des segments qu'on ne voit pas — et hors
+   *    agglomeration, la cible H9 veut de toute facon le numero EN principal, consigne contraire ;
+   *  - une rue avec ville dont un segment charge n'a pas ete juge : meme debordement.
+   * Rend le motif du refus, ou null si la pose est sure.
+   */
+  function rueHorsDuJugement(g, segsDeLaRue) {
+    if (!g.city) return 'rue sans ville, partagée au-delà de la commune';
+    const juges = new Set(g.segs.map(x => String(x.segId)));
+    return (segsDeLaRue || []).some(id => !juges.has(String(id)))
+      ? 'segments de la même rue hors de l\'analyse' : null;
+  }
+
+  /** Les segments CHARGES dont cette rue est le principal (modele interne de WME). */
+  function segmentsDeLaRue(streetId) {
+    try {
+      return hote.W.model.segments.getObjectArray()
+        .filter(x => x.attributes && x.attributes.primaryStreetID === streetId)
+        .map(x => x.attributes.id);
+    } catch (e) { return []; }
   }
 
   /** Ce qui restera a faire a la main apres application. */
