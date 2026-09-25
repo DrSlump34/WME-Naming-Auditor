@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.50.04
+// @version      2.50.05
 // @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies selon les règles du pays regardé (agglomération / centro abitato, contours communaux INSEE / ISTAT). Interface et aide en français et en italien. ⚠️ Le portage italien est en phase de TEST.
 // @author       DrSlump34
 // @license      MIT
@@ -7079,8 +7079,42 @@
     if (t && t !== v) { marque[a] = t; n.setAttribute(a, t); }
   }
 
+  /**
+   * TYPOGRAPHIE FRANCAISE, POSEE A L'AFFICHAGE (audit du 25/09/2026, charte n°30).
+   * Insecable avant « : ; ! ? » et « », et apres « « ». ⚠️ PAS dans les chaines du source : dans la
+   * voie « bloc » de `traduireDOM`, `innerHTML` rend U+00A0 en `&nbsp;`, et les blocs d'aide italiens
+   * perdraient leur traduction sans un message. On pose donc les insecables sur ce qui est AFFICHE,
+   * en francais seulement — et seulement sur du texte : ni code, ni style, ni champ de saisie.
+   * Idempotent : un texte deja typographie ne change plus, donc ne relance pas l'observateur.
+   */
+  const RE_TYPO_AVANT = / ([:;!?»])/g, RE_TYPO_APRES = /« /g;
+  const typographier = t => String(t).replace(RE_TYPO_AVANT, '\u00a0$1').replace(RE_TYPO_APRES, '«\u00a0');
+  const ATTRS_TYPO = ['title', 'placeholder'];
+  function typographierAttribut(n, a) {
+    const v = n && n.getAttribute && n.getAttribute(a);
+    if (!v) return;
+    const t = typographier(v);
+    if (t !== v) n.setAttribute(a, t);
+  }
+  function typographierDOM(racine) {
+    const noeud = n => {
+      if (!n) return;
+      if (n.nodeType === 3) {
+        const v = n.nodeValue || '', t = typographier(v);
+        if (t !== v) n.nodeValue = t;
+        return;
+      }
+      if (n.nodeType !== 1 || /^(STYLE|SCRIPT|TEXTAREA|CODE|PRE|KBD|INPUT|SELECT|OPTION)$/.test(n.tagName)) return;
+      for (const a of ATTRS_TYPO) typographierAttribut(n, a);
+      Array.prototype.forEach.call(n.childNodes || [], noeud);
+    };
+    noeud(racine);
+    return racine;
+  }
+
   function traduireDOM(racine) {
-    if (LANGUE === 'fr' || !racine) return racine;
+    if (!racine) return racine;
+    if (LANGUE === 'fr') return typographierDOM(racine);
     const d = TEXTES[LANGUE];
     if (!d) return racine;
 
@@ -7179,7 +7213,8 @@
    * des noeuds, il faudra un `disconnect()` autour.
    */
   function observerTraduction(racine) {
-    if (LANGUE === 'fr' || !racine) return null;
+    // ⚠️ Depuis le 25/09/2026, AUSSI en francais : l'observateur y pose la typographie.
+    if (!racine) return null;
     const MO = (hote && hote.MutationObserver) || window.MutationObserver;
     if (!MO) return null;                      // navigateur trop ancien : tant pis
     try {
@@ -7188,7 +7223,11 @@
           // ⚠️ v2.49.03 : les INFOBULLES aussi. Elles sont reecrites sans
           //    qu'aucun noeud n'arrive (`bouton.title = …`) : l'observateur
           //    `childList` seul ne les voyait jamais.
-          if (lot.type === 'attributes') { traduireAttribut(lot.target, lot.attributeName); continue; }
+          if (lot.type === 'attributes') {
+            if (LANGUE === 'fr') typographierAttribut(lot.target, lot.attributeName);
+            else traduireAttribut(lot.target, lot.attributeName);
+            continue;
+          }
           for (const n of lot.addedNodes) traduireDOM(n);
         }
       });

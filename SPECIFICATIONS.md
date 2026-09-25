@@ -1,6 +1,6 @@
 # WNA — WME Naming Auditor · Dossier de spécifications
 
-> **Version du code décrite ici : 2.50.04** (lue dans le bloc `==UserScript==` de
+> **Version du code décrite ici : 2.50.05** (lue dans le bloc `==UserScript==` de
 > `WME-Naming-Auditor.user.js`). **France et Italie** — le portage italien est en phase de test.
 > Mise à jour du 25/09/2026, après l'audit `Audits/AUDIT-2026-09-25.md` (non versionné).
 > Diffusé sur **GreasyFork 588554**, dépôt `github.com/DrSlump34/WME-Naming-Auditor`,

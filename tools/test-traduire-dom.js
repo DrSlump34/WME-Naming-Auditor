@@ -45,6 +45,9 @@ const ATTRS = JSON.parse(mAttrs[1].replace(/'/g, '"'));
 //    tests historiques portent sur le dictionnaire seul.
 function monter(TEXTES, LANGUE, MOTIFS) {
   return new Function('TEXTES', 'LANGUE', 'ATTRS_VISIBLES', 'MOTIFS',
+    // 2.50 : en francais, `traduireDOM` pose la typographie (insecables) — extraite elle aussi.
+    ['RE_TYPO_AVANT', 'typographier', 'ATTRS_TYPO'].map(k => src.match(new RegExp('\\n\\s*(const ' + k + ' = [^\\n]+)'))[1]).join('\n') + '\n' +
+    extraire('typographierAttribut') + '\n' + extraire('typographierDOM') + '\n' +
     extraire('traduireMotif') + '\n' + extraire('chercherTrad') + '\n' + extraire('traduireAttribut') + '\n' +
     extraire('traduireDOM') + '\nreturn traduireDOM;')(TEXTES, LANGUE, ATTRS, MOTIFS || {});
 }
@@ -60,7 +63,7 @@ function commentaire(v) { return { nodeType: 8, nodeValue: v }; }
 function elem(tag, attrs, enfants) {
   const a = Object.assign({}, attrs || {});
   const n = {
-    nodeType: 1, tag, _a: a, childNodes: enfants || [],
+    nodeType: 1, tag, tagName: String(tag).toUpperCase(), _a: a, childNodes: enfants || [],
     getAttribute(k) { return Object.prototype.hasOwnProperty.call(a, k) ? a[k] : null; },
     setAttribute(k, v) { a[k] = v; },
     // ⚠️ `innerHTML` est ici une PROPRIETE CALCULEE, pas un champ : la fonction
@@ -199,6 +202,20 @@ const trFr = monter(DICO, 'fr');
   v('12. ⭐ en francais, aucun texte n\'est touche', textes(n), ['Analyser la commune']);
   v('13. … ni aucun attribut', n.getAttribute('title'), 'Réduire');
 }
+// 13b. ⭐ 25/09/2026 : en francais, la TYPOGRAPHIE est posee a l'affichage — texte et infobulle,
+//      jamais le code — et deux passages ne changent plus rien.
+{
+  const NB = String.fromCharCode(0xA0);
+  const n = elem('div', { title: 'Réduire : oui' }, [texte('Choisis la commune : Coursan ?'),
+    elem('code', {}, [texte('a : b')]), texte('« Rue » !')]);
+  trFr(n);
+  v('13b. insécable avant « : » et « ? », dans le texte', textes(n)[0], 'Choisis la commune' + NB + ': Coursan' + NB + '?');
+  v('13c. … et dans l\'infobulle', n.getAttribute('title'), 'Réduire' + NB + ': oui');
+  v('13d. … mais jamais dans du code', textes(n)[1], 'a : b');
+  v('13e. guillemets et point d\'exclamation', textes(n)[2], '«' + NB + 'Rue' + NB + '»' + NB + '!');
+  const apres = JSON.stringify(textes(n)); trFr(n);
+  v('13f. idempotent : un second passage ne change rien', JSON.stringify(textes(n)), apres);
+}
 // 14. Une langue declaree mais sans dictionnaire ne casse pas.
 {
   const n = elem('div', {}, [texte('Analyser la commune')]);
@@ -263,8 +280,9 @@ v('16. la racine est RENDUE, pour pouvoir chainer', trIt(elem('i', {}, [])).tag,
   v('17. 🔴 l\'observateur écoute childList ET les seuls attributs visibles (jamais characterData)',
     /childList: true, subtree: true,\s*attributes: true, attributeFilter: ATTRS_VISIBLES/.test(obs) &&
     !/characterData\s*:\s*true/.test(obs), true);
-  v('18. … et il ne demarre pas en francais',
-    /if \(LANGUE === 'fr' \|\| !racine\) return null;/.test(obs), true);
+  // ⚠️ 25/09/2026 : en francais il demarre AUSSI — pour y poser la typographie, pas pour traduire.
+  v('18. … et en francais, il typographie au lieu de traduire',
+    /if \(LANGUE === 'fr'\) typographierAttribut\(lot\.target, lot\.attributeName\);\s*\n\s*else traduireAttribut/.test(obs), true);
 }
 // 25-27. La marque qui empeche la boucle, et les motifs.
 {
