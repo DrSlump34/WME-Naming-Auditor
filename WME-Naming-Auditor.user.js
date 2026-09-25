@@ -4283,8 +4283,7 @@
       rendreDeplacable(boite.querySelector('.agn-modale-in'),
                        boite.querySelector('.agn-modale-t'));
       boite.addEventListener('mousedown', e => e.stopPropagation());
-      ['keydown', 'keypress', 'keyup'].forEach(ev =>
-        boite.addEventListener(ev, e => e.stopPropagation()));
+      isolerClavier(boite, () => boite.querySelector('#agn-na-stop').click());
       // ⚠️ v2.49.03 : cette boite vit dans le `body`, HORS de la fenetre que
       // l'observateur surveille — elle restait donc en francais. On la traduit,
       // et on l'observe : l'apercu « Ville appliquée : … » se reecrit a la frappe.
@@ -11118,8 +11117,7 @@
                        boite.querySelector('.agn-modale-t'));
       boite.addEventListener('mousedown', e => e.stopPropagation());
       // La saisie ne doit pas partir dans les raccourcis clavier de WME.
-      ['keydown', 'keypress', 'keyup'].forEach(ev =>
-        boite.addEventListener(ev, e => e.stopPropagation()));
+      isolerClavier(boite, () => boite.querySelector('[data-i="-1"]').click());
 
       const champ = boite.querySelector('#agn-saisie-nom');
       const selVille = boite.querySelector('#agn-saisie-ville');
@@ -11240,8 +11238,7 @@
                        boite.querySelector('.agn-modale-t'));
       boite.addEventListener('mousedown', e => e.stopPropagation());
       // ⚠️ Sans ca, les frappes partent dans les raccourcis clavier de WME.
-      ['keydown', 'keypress', 'keyup'].forEach(ev =>
-        boite.addEventListener(ev, e => e.stopPropagation()));
+      isolerClavier(boite, () => boite.querySelector('[data-i="-1"]').click());
       const champ = boite.querySelector('#agn-np-nom');
       const ok = boite.querySelector('#agn-np-ok');
       champ.oninput = () => { ok.disabled = !champ.value.trim(); };
@@ -12148,6 +12145,26 @@
    * absolu qu'AU PREMIER GLISSEMENT, en figeant d'abord sa position courante,
    * sinon elle sauterait dans un coin au moment ou on l'attrape.
    */
+  /**
+   * Le clavier d'une boite de dialogue (audit du 25/09/2026).
+   * Les frappes ne doivent pas partir dans les raccourcis de WME — mais les couper TOUTES avalait
+   * aussi Ctrl+S, et Echap ne fermait rien. Donc :
+   *  - Ctrl / Cmd / Alt passent (Ctrl+S enregistre), SAUF dans un champ de saisie : la, Ctrl+Z ou
+   *    Ctrl+V appartiennent au champ, et un Ctrl+Z parti dans WME defairait une edition de la carte ;
+   *  - Echap declenche `annuler` (le bouton de sortie de la boite) ;
+   *  - le reste est garde.
+   * PURE hors les ecouteurs qu'elle pose.
+   */
+  function isolerClavier(boite, annuler) {
+    ['keydown', 'keypress', 'keyup'].forEach(ev => boite.addEventListener(ev, e => {
+      const t = e.target, saisie = !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' ||
+                                           t.tagName === 'SELECT' || t.isContentEditable);
+      if ((e.ctrlKey || e.metaKey || e.altKey) && !saisie) return;
+      if (ev === 'keydown' && e.key === 'Escape' && annuler) { e.preventDefault(); annuler(); }
+      e.stopPropagation();
+    }));
+  }
+
   function rendreDeplacable(boite, poignee) {
     if (!boite || !poignee) return;
     poignee.style.cursor = 'move';
