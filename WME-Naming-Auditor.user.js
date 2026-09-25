@@ -2651,6 +2651,13 @@
    *  relance pas indefiniment un telechargement qui ne passe pas. */
   const depsTentes = new Set();
   let autoEnCours = false;
+  /** Un departement en ECHEC n'est pas « tente » pour toujours : il se retente apres ce delai. */
+  const DELAI_RETENTE_MS = 60000;
+  const depsRetente = new Map();          // code -> instant a partir duquel on peut retenter
+  function programmerRetente(d) {
+    depsTentes.delete(d);
+    depsRetente.set(d, Date.now() + DELAI_RETENTE_MS);
+  }
 
   async function depsDeLaVue() {
     let ext; try { ext = sdk.Map.getMapExtent(); } catch (e) { return []; }
@@ -2711,7 +2718,9 @@
     } catch (e) { /* pas d'extent : on tente la detection */ }
     autoEnCours = true;
     try {
-      const deps = (await depsDeLaVue()).filter(d => d && !depsTentes.has(d));
+      const maintenant = Date.now();
+      const deps = (await depsDeLaVue()).filter(d => d && !depsTentes.has(d) &&
+                                                   !((depsRetente.get(d) || 0) > maintenant));
       const dejaLa = new Set(depsCharges());
       const manquants = deps.filter(d => !dejaLa.has(d));
       manquants.forEach(d => depsTentes.add(d));      // une seule tentative
@@ -2725,11 +2734,23 @@
       try {
         const r = await chargerDepuisGouv(manquants, prog);
         prog.fin();
-        ui.statutContours.innerHTML = '<div class="agn-stat agn-ok">Contours de ' +
-          esc(noms.join(', ')) + ' chargés automatiquement — <b>' + r.nb + '</b> commune(s).</div>';
+        // ⚠️⚠️ AUDIT DU 25/09/2026 : un departement en ECHEC etait annonce « chargé » avec les autres,
+        // et jamais retente (il restait dans `depsTentes`). Ses communes manquaient au selecteur,
+        // sous un message qui disait le contraire. On separe les deux, et l'echec se retente.
+        const rates = new Set((r.echecs || []).map(x => String(x).split(' ')[0]));
+        rates.forEach(programmerRetente);
+        const reussis = manquants.filter(d => !rates.has(d)).map(d => noms[manquants.indexOf(d)]);
+        const ratesNoms = manquants.filter(d => rates.has(d)).map(d => noms[manquants.indexOf(d)]);
+        ui.statutContours.innerHTML =
+          (reussis.length ? '<div class="agn-stat agn-ok">Contours de ' + esc(reussis.join(', ')) +
+            ' chargés automatiquement — <b>' + r.nb + '</b> commune(s).</div>' : '') +
+          (ratesNoms.length ? '<div class="agn-stat agn-alerte">Contours de ' + esc(ratesNoms.join(', ')) +
+            ' non chargés : ' + esc([...r.echecs].join(' ; ')) + '. Nouvel essai dans une minute, au ' +
+            'prochain déplacement de la carte — ou relance-le à la main ci-dessus.</div>' : '');
         renderContours();
       } catch (e) {
         prog.fin();
+        if (!(e && e.annulation)) manquants.forEach(programmerRetente);
         // ⚠️ On le DIT : un chargement silencieux qui echoue laisse une liste
         // de communes vide sans que l'editeur comprenne pourquoi.
         ui.statutContours.innerHTML = '<div class="agn-stat agn-alerte">Chargement automatique de ' +
