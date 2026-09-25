@@ -684,8 +684,6 @@ Points de méthode acquis :
 - **L'Italie est en phase de test.** Les traductions italiennes (interface et aide) restent à faire
   **relire par Silvio**.
 - **Mineurs de l'audit du 25/09/2026** : tous traités en 2.50.06. Restent la relecture italienne par Silvio et la correction de `anonymous` dans `WMEPrefs` (bibliothèque d'origine).
-  true` sur les requêtes, filtre ReDoS sur les règles publiques, rôles ARIA, insécables posées à la
-  sortie, département en échec retenté, format EB10 contrôlé.
 - **La couverture EB10 varie du simple au triple selon le département** (§ 13.1) — c'est mesuré,
   et c'est l'interface qui porte le guidage en conséquence.
 - **`bretelleForme` attend une mesure sur du terrain réel** avant d'être coché d'office.
