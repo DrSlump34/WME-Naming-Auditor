@@ -1944,7 +1944,7 @@
    */
   function chargerFeatureCollection(fc, nomFichier) {
     const feats = fc.type === 'FeatureCollection' ? fc.features : [fc];
-    const out = []; let sansNom = 0;
+    const out = []; let sansNom = 0, sansCode = 0;
     for (const f of feats) {
       if (!f || !f.geometry) continue;
       // ⚠️ `nomCommune` est FACULTATIF : un referentiel qui n'a rien a
@@ -1953,6 +1953,11 @@
       const nom = (brut && REF.nomCommune) ? REF.nomCommune(brut) : brut;
       const code = litPropriete(f.properties, REF.clesCode);
       if (!nom) { sansNom++; continue; }
+      // ⚠️⚠️ AUDIT DU 25/09/2026 : sans code valide, le NOM tenait lieu de code (`code || nom`).
+      //    Tout le reste range par code — departement, agglos, sans-agglo, partage : une commune
+      //    « Coursan » devenait un departement fantome « CO », et ses polygones allaient sous une
+      //    cle que rien d'autre ne connait. Le format du code est celui que le referentiel declare.
+      if (!codeCommuneValide(code)) { sansCode++; continue; }
       // ⚠️ `mairie` n'existe que sur les contours telecharges depuis la v2.23 :
       // elle est facultative partout ou elle sert.
       const m = f.properties && f.properties.mairie;
@@ -1973,17 +1978,19 @@
       // et tout marchait — charger les contours fermait la boucle.
       // ⚠️ `pays` est celui du referentiel qui a servi a LIRE ce fichier : ce
       //    sont ses cles qui viennent d'en extraire nom et code.
-      out.push({ code: code || nom, nom, geom: f.geometry, bbox: bboxOf(f.geometry), mairie,
+      out.push({ code, nom, geom: f.geometry, bbox: bboxOf(f.geometry), mairie,
                  pays: REF.code, _pts: pointsDeGeom(f.geometry) });
     }
-    if (!out.length) throw new Error('aucune commune exploitable (nom introuvable dans les propriétés)');
+    if (!out.length) throw new Error(sansCode
+      ? 'aucune commune exploitable : ' + sansCode + ' contour(s) sans ' + REF.libelleCode + ' valide'
+      : 'aucune commune exploitable (nom introuvable dans les propriétés)');
     const depsNouveaux = new Set(out.map(c => depDuCode(c.code)));
     const gardees = communes.filter(c => !depsNouveaux.has(depDuCode(c.code)));
     communes = gardees.concat(out);
     const deps = depsCharges();
     metaContours = { nom: nomFichier, nb: communes.length, deps,
-                     date: new Date().toISOString().slice(0, 10), sansNom };
-    return { nb: out.length, total: communes.length, sansNom, deps };
+                     date: new Date().toISOString().slice(0, 10), sansNom, sansCode };
+    return { nb: out.length, total: communes.length, sansNom, sansCode, deps };
   }
 
   /** Repart de zero : l'editeur doit pouvoir vider ce qu'il a accumule. */
@@ -2045,6 +2052,13 @@
         rafraichirCommunesDeLaVue(); renderContours();
         replierSection('contours', false);     // etape faite : on rend la place
         log(res.nb + ' commune(s) chargée(s)');
+        // Un ecart ne passe jamais en silence : on DIT combien de contours ont ete laisses.
+        if (res.sansCode || res.sansNom) {
+          ui.statutContours.innerHTML = '<div class="agn-stat agn-alerte">' + res.nb + ' commune(s) chargée(s) ; ' +
+            (res.sansCode ? res.sansCode + ' contour(s) écarté(s) faute de ' + esc(REF.libelleCode) + ' valide' : '') +
+            (res.sansCode && res.sansNom ? ', ' : '') +
+            (res.sansNom ? res.sansNom + ' sans nom' : '') + '.</div>';
+        }
       } catch (e) {
         prog.fin();
         ui.statutContours.innerHTML = '<div class="agn-stat agn-alerte">Fichier illisible : ' + esc(e.message) + '</div>';
