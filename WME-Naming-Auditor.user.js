@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.50.02
+// @version      2.50.03
 // @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies selon les règles du pays regardé (agglomération / centro abitato, contours communaux INSEE / ISTAT). Interface et aide en français et en italien. ⚠️ Le portage italien est en phase de TEST.
 // @author       DrSlump34
 // @license      MIT
@@ -413,7 +413,7 @@
     const p = document.getElementById('agn-sb-maj');
     if (p) {
       p.hidden = !_majEnLigne;
-      if (_majEnLigne) p.querySelector('span').textContent = 'La version ' + _majEnLigne + ' est disponible.';
+      if (_majEnLigne) p.querySelector('span').textContent = trf('La version {v} est disponible.', { v: _majEnLigne });
     }
     const b = document.getElementById('agn-maj');
     if (!b) return;
@@ -6360,6 +6360,225 @@
         "Termina",
       "Annuler":
         "Annulla",
+      // ── Onglet Scripts, boites et messages composes (audit du 25/09/2026) ──
+      "Installer":
+        "Installa",
+      "Audit du nommage et de l'adressage des voies d'une commune, selon les règles du pays regardé. Les écarts s'affichent dans la fenêtre de travail.":
+        "Verifica della denominazione e degli indirizzi delle strade di un comune, secondo le regole del paese visualizzato. Le anomalie compaiono nella finestra di lavoro.",
+      "Afficher la fenêtre":
+        "Mostra la finestra",
+      "Réaffiche la fenêtre de travail si tu l'as fermée":
+        "Mostra di nuovo la finestra di lavoro se l'hai chiusa",
+      "Analyse":
+        "Analisi",
+      "Affichage":
+        "Visualizzazione",
+      "Données":
+        "Dati",
+      "Ce que l'analyse regarde":
+        "Ciò che l'analisi esamina",
+      "Où et comment les écarts se voient":
+        "Dove e come si vedono le anomalie",
+      "Contours, sauvegarde et partage":
+        "Confini, salvataggio e condivisione",
+      "Fil Discuss":
+        "Discussione su Discuss",
+      "Replier ou déplier cette section":
+        "Chiudi o apri questa sezione",
+      "⚡ Le script dépose ses corrections dans l'éditeur : rien n'est enregistré sans toi.":
+        "⚡ Lo script deposita le correzioni nell'editor: nulla viene salvato senza di te.",
+      "🔒 Le script ne modifie jamais la carte.":
+        "🔒 Lo script non modifica mai la mappa.",
+      "La version {v} est disponible.":
+        "La versione {v} è disponibile.",
+      "Seuil de rattachement":
+        "Soglia di attribuzione",
+      "Part de longueur au-delà de laquelle un segment à cheval est rattaché d'office à un côté. En dessous, il est signalé comme à couper.":
+        "Quota di lunghezza oltre la quale un segmento a cavallo viene attribuito d'ufficio a un lato. Al di sotto, viene segnalato come da tagliare.",
+      "Inclure parkings et voies privées":
+        "Includi parcheggi e strade private",
+      "Parkings et voies privées sont exclus par défaut : une absence de nom n'y est pas une anomalie. Les inclure les audite comme n'importe quelle voie (nom, rédaction, zone). ⚠️ Sans cocher, une ville en trop hors agglomération est signalée quand même : c'est une faute quel que soit le type de voie.":
+        "Parcheggi e strade private sono esclusi per impostazione predefinita: la mancanza di un nome non vi è un'anomalia. Includerli li verifica come qualsiasi strada (nome, redazione, zona). ⚠️ Anche senza attivarlo, una città di troppo fuori dal centro abitato viene segnalata comunque: è un errore qualunque sia il tipo di strada.",
+      "Signaler les noms alternatifs surnuméraires":
+        "Segnala i nomi alternativi in eccesso",
+      "Un nom alternatif en trop est souvent légitime (voie connue sous plusieurs noms) : désactivé par défaut pour ne pas noyer les vrais écarts.":
+        "Un nome alternativo in più è spesso legittimo (strada nota con più nomi): disattivato per impostazione predefinita per non sommergere le vere anomalie.",
+      "Contrôles":
+        "Controlli",
+      "Correction":
+        "Correzione",
+      "Correction activée — {motifs}.<br>Les corrections ne sont <b>jamais enregistrées</b> automatiquement.":
+        "Correzione attivata — {motifs}.<br>Le correzioni non vengono <b>mai salvate</b> automaticamente.",
+      "Correction désactivée : réservée aux L5, L6, Global Editors et staff (ton rang : {rang}).":
+        "Correzione disattivata: riservata a L5, L6, Global Editor e staff (il tuo livello: {rang}).",
+      "Lecture du profil en cours…":
+        "Lettura del profilo in corso…",
+      "Où voir les résultats":
+        "Dove vedere i risultati",
+      "ℹ️ Tableau et carte":
+        "ℹ️ Tabella e mappa",
+      "Tableau et carte se choisissent séparément. La carte ne suit plus l'onglet ouvert : on peut lister les numéros en gardant les segments surlignes.":
+        "Tabella e mappa si scelgono separatamente. La mappa non segue più la scheda aperta: si possono elencare i numeri civici mantenendo evidenziati i segmenti.",
+      "tableau":
+        "tabella",
+      "carte":
+        "mappa",
+      "Adresses":
+        "Indirizzi",
+      "Panneaux":
+        "Cartelli",
+      "Lister les écarts de nommage dans l'onglet Segments":
+        "Elenca le anomalie di denominazione nella scheda Segmenti",
+      "Surligner les segments en écart sur la carte":
+        "Evidenzia sulla mappa i segmenti con anomalie",
+      "Lister les écarts d'adressage dans l'onglet Numérotation":
+        "Elenca le anomalie di indirizzo nella scheda Numerazione",
+      "Marquer les numéros de rue et POI en écart sur la carte : disque plein pour un numéro hors agglomération, anneau pour un RPP en agglomération":
+        "Segna sulla mappa i numeri civici e i luoghi con anomalie: disco pieno per un numero fuori dal centro abitato, anello per un RPP nel centro abitato",
+      "Lister les écarts d'adresse des vrais POI dans l'onglet POI":
+        "Elenca le anomalie di indirizzo dei veri luoghi nella scheda Luoghi",
+      "Marquer sur la carte les POI dont l'adresse est en écart":
+        "Segna sulla mappa i luoghi il cui indirizzo presenta un'anomalia",
+      "Afficher les panneaux d'entrée et de sortie d'agglomération relevés : vert dans un polygone, rouge dehors, gris si aucun polygone n'est tracé":
+        "Mostra i cartelli di ingresso e di uscita del centro abitato rilevati: verde dentro un poligono, rosso fuori, grigio se nessun poligono è tracciato",
+      "Surlignage sur la carte":
+        "Evidenziazione sulla mappa",
+      "Surligner les écarts sur la carte":
+        "Evidenzia le anomalie sulla mappa",
+      "Peint les segments et les points en écart directement sur la carte":
+        "Colora i segmenti e i punti con anomalie direttamente sulla mappa",
+      "ℹ️ Disque et anneau":
+        "ℹ️ Disco e anello",
+      "Numéro de rue hors agglo = disque plein · RPP en agglo = anneau.":
+        "Numero civico fuori dal centro abitato = disco pieno · RPP nel centro abitato = anello.",
+      "Infobulle au survol":
+        "Suggerimento al passaggio del mouse",
+      "Affiche le détail de l'écart dans une infobulle quand la souris passe sur un segment ou un point signalé. À décocher si un autre script pose déjà sa propre infobulle au survol : les deux se recouvrent.":
+        "Mostra il dettaglio dell'anomalia in un suggerimento quando il mouse passa su un segmento o un punto segnalato. Da disattivare se un altro script mostra già il proprio suggerimento: i due si sovrappongono.",
+      "Couleurs par défaut":
+        "Colori predefiniti",
+      "Remet les couleurs d'origine":
+        "Ripristina i colori originali",
+      "Couleur de cette famille d'écarts sur la carte":
+        "Colore di questa famiglia di anomalie sulla mappa",
+      "Navigation":
+        "Navigazione",
+      "Guidage pas à pas":
+        "Guida passo passo",
+      "Met en avant le geste suivant tant qu'il reste quelque chose à faire : choisir la commune, délimiter l'agglomération, lancer l'analyse. À décocher quand l'outil est dans les doigts.":
+        "Mette in evidenza il gesto successivo finché resta qualcosa da fare: scegliere il comune, delimitare il centro abitato, avviare l'analisi. Da disattivare quando lo strumento è ormai familiare.",
+      "Cadrer sur le segment au clic":
+        "Inquadra il segmento al clic",
+      "Recentre la carte sur le segment quand tu cliques un écart":
+        "Ricentra la mappa sul segmento quando clicchi un'anomalia",
+      "Zoom maximal":
+        "Zoom massimo",
+      "Le zoom s'adapte à l'emprise des segments ; cette valeur en est le plafond.":
+        "Lo zoom si adatta all'estensione dei segmenti; questo valore ne è il massimo.",
+      "Contours communaux":
+        "Confini comunali",
+      "Charger tout seul le département visible":
+        "Carica da solo il territorio visibile",
+      "Interroge geo.api.gouv.fr pour savoir quel département est sous les yeux, et télécharge ses contours s'ils manquent.":
+        "Interroga geo.api.gouv.fr per sapere quale dipartimento è sotto gli occhi, e ne scarica i confini se mancano.",
+      "ℹ️ Contours cumulés":
+        "ℹ️ Confini cumulati",
+      "Les contours se cumulent : charger un département n'efface pas les autres.":
+        "I confini si sommano: caricare un territorio non cancella gli altri.",
+      "Décharger les départements éloignés":
+        "Scarica dalla memoria i territori lontani",
+      "Retire de la mémoire les départements que tu as quittés. Ceux que tu regardes, celui de la commune en cours et les derniers utilisés sont toujours gardés — et un département retiré se recharge tout seul si tu y reviens.":
+        "Toglie dalla memoria i territori che hai lasciato. Quelli che stai guardando, quello del comune in corso e gli ultimi usati sono sempre conservati — e un territorio tolto si ricarica da solo se ci torni.",
+      "En garder":
+        "Conservarne",
+      "Nombre de départements récemment utilisés qu'on garde en plus de ceux sous les yeux.":
+        "Numero di territori usati di recente conservati oltre a quelli sotto gli occhi.",
+      "Sauvegarde & partage":
+        "Salvataggio e condivisione",
+      "ℹ️ Où tes données sont gardées":
+        "ℹ️ Dove sono conservati i tuoi dati",
+      "Polygones, communes « sans agglo » et coches « traité » sont conservés dans le gestionnaire de scripts (survit au nettoyage du navigateur), avec repli local.":
+        "Poligoni, comuni « senza centro abitato » e spunte « trattato » sono conservati nel gestore di script (resiste alla pulizia del browser), con riserva locale.",
+      "Socle : <b>gestionnaire de scripts</b> — résistant au nettoyage du navigateur.":
+        "Base: <b>gestore di script</b> — resiste alla pulizia del browser.",
+      "⚠️ Socle : <b>localStorage</b> seul (gestionnaire non accordé) — un nettoyage du navigateur effacerait tout. Réinstalle le script dans Tampermonkey.":
+        "⚠️ Base: solo <b>localStorage</b> (gestore non concesso) — una pulizia del browser cancellerebbe tutto. Reinstalla lo script in Tampermonkey.",
+      "⬇️ Exporter (polygones + communes)":
+        "⬇️ Esporta (poligoni + comuni)",
+      "⬆️ Importer un fichier":
+        "⬆️ Importa un file",
+      "Ajoute les communes d'un fichier reçu. ⚠️ Tes communes existantes ne sont JAMAIS écrasées : seules les absentes sont ajoutées.":
+        "Aggiunge i comuni di un file ricevuto. ⚠️ I tuoi comuni esistenti non vengono MAI sovrascritti: si aggiungono solo quelli mancanti.",
+      "Importer depuis une URL":
+        "Importa da un URL",
+      "Adresse https d'un fichier de partage (les autres protocoles sont refusés)":
+        "Indirizzo https di un file di condivisione (gli altri protocolli sono rifiutati)",
+      "🌐 Importer depuis l'URL":
+        "🌐 Importa dall'URL",
+      "Télécharge ce fichier et ajoute les communes qui te manquent":
+        "Scarica questo file e aggiunge i comuni che ti mancano",
+      "Import refusé : {raison}":
+        "Importazione rifiutata: {raison}",
+      "fichier illisible (pas du JSON).":
+        "file illeggibile (non è JSON).",
+      "ce fichier n'est pas un partage WME Naming Auditor.":
+        "questo file non è una condivisione di WME Naming Auditor.",
+      "ce fichier vient d'un autre script.":
+        "questo file viene da un altro script.",
+      "fichier vide.":
+        "file vuoto.",
+      "lecture du fichier impossible.":
+        "lettura del file impossibile.",
+      "téléchargement impossible (URL joignable ? domaine autorisé ?).":
+        "download impossibile (URL raggiungibile? dominio autorizzato?).",
+      "cette adresse n'est pas une URL valide.":
+        "questo indirizzo non è un URL valido.",
+      "seules les adresses https:// sont acceptées.":
+        "sono accettati solo gli indirizzi https://.",
+      "Exporté : {quoi}.":
+        "Esportato: {quoi}.",
+      "rien à exporter":
+        "niente da esportare",
+      "Export impossible : {motif}":
+        "Esportazione impossibile: {motif}",
+      "Colle d'abord une URL.":
+        "Incolla prima un URL.",
+      "Téléchargement…":
+        "Download…",
+      "Aucune adresse sur ce segment":
+        "Nessun indirizzo su questo segmento",
+      "Plusieurs adresses sur ce segment":
+        "Più indirizzi su questo segmento",
+      "Voie en limite communale":
+        "Strada al confine comunale",
+      "Ce segment ne porte qu'un numéro de route, qui ne fait pas une adresse.":
+        "Questo segmento porta solo un numero di strada, che non costituisce un indirizzo.",
+      "indéterminable":
+        "non determinabile",
+      "Nom de la rue":
+        "Nome della strada",
+      "Nom de la rue…":
+        "Nome della strada…",
+      "Ou saisir une autre adresse":
+        "Oppure inserisci un altro indirizzo",
+      "Commune selon la position de chaque numéro":
+        "Comune secondo la posizione di ogni numero",
+      "Utiliser cette adresse":
+        "Usa questo indirizzo",
+      "Le nom de voie à donner à cette adresse. Il sera écrit tel quel.":
+        "Il nome della strada da dare a questo indirizzo. Sarà scritto così com'è.",
+      "Laisse vide pour que chaque numéro prenne la commune où il tombe géographiquement":
+        "Lascia vuoto perché ogni numero prenda il comune in cui cade geograficamente",
+      "D'après les contours INSEE :":
+        "Secondo i confini INSEE:",
+      "Plusieurs noms possibles":
+        "Più nomi possibili",
+      "Ou saisir un autre nom":
+        "Oppure inserisci un altro nome",
+      "Utiliser ce nom":
+        "Usa questo nome",
+      "Les autres noms restent en alternatif.":
+        "Gli altri nomi restano come alternativi.",
       // ── Gabarits a marqueurs (trf), audit du 25/09/2026 ──
       'Le polygone tracé est entièrement HORS de {commune}.\n\nL\'enregistrer quand même ?':
         'Il poligono tracciato è interamente FUORI da {commune}.\n\nSalvarlo comunque?',
@@ -13959,19 +14178,19 @@
       const d = droits();
       zoneDroits.style.color = d.autorise ? '#2e7d32' : '#a34a00';
       zoneDroits.innerHTML = d.autorise
-        ? 'Correction activée — ' + esc(d.motifs.join(', ')) +
-          '.<br>Les corrections ne sont <b>jamais enregistrées</b> automatiquement.'
+        ? trf('Correction activée — {motifs}.<br>Les corrections ne sont <b>jamais enregistrées</b> automatiquement.',
+              { motifs: esc(d.motifs.join(', ')) })
         : d.rangsLus
-          ? 'Correction désactivée : réservée aux L5, L6, Global Editors et staff (ton rang : ' +
-            esc(d.niveau) + ').'
-          : 'Lecture du profil en cours…';
+          ? trf('Correction désactivée : réservée aux L5, L6, Global Editors et staff (ton rang : {rang}).',
+                { rang: esc(d.niveau) })
+          : tr('Lecture du profil en cours…');
       // ⭐ La mention du pied SUIT LE PROFIL (arbitrage de l'auteur, 25/09/2026) : « ne modifie
       //    jamais la carte » n'est vrai que pour qui n'a pas le ⚡.
       const mention = q('#agn-r-mention');
       if (mention) {
         mention.textContent = d.autorise
-          ? '⚡ Le script dépose ses corrections dans l\'éditeur : rien n\'est enregistré sans toi.'
-          : d.rangsLus ? '🔒 Le script ne modifie jamais la carte.' : '';
+          ? tr('⚡ Le script dépose ses corrections dans l\'éditeur : rien n\'est enregistré sans toi.')
+          : d.rangsLus ? tr('🔒 Le script ne modifie jamais la carte.') : '';
       }
       return d.rangsLus > 0;
     };
@@ -14001,7 +14220,7 @@
       'url-non-https': 'seules les adresses https:// sont acceptées.'
     };
     const apresImport = r => {
-      if (!r.ok) { dire('Import refusé : ' + (RAISONS[r.raison] || r.raison), true); return; }
+      if (!r.ok) { dire(trf('Import refusé : {raison}', { raison: tr(RAISONS[r.raison] || r.raison) }), true); return; }
       // ⚠️ Un rejet ne doit JAMAIS être silencieux : un import qui n'a pris que
       // la moitié du fichier, sans le dire, laisse croire à un zonage complet.
       const rejet = r.rejetes ? ' ⚠️ ' + r.rejetes + ' entrée(s) écartée(s) : code ' + instituts() + ', ' +
@@ -14019,8 +14238,8 @@
 
     q('#agn-r-exporter').onclick = async () => {
       try { const r = await exporterPartage();
-            dire('Exporté : ' + (r.cles.join(' + ') || 'rien à exporter') + '.'); }
-      catch (e) { dire('Export impossible : ' + e.message, true); }
+            dire(trf('Exporté : {quoi}.', { quoi: r.cles.join(' + ') || tr('rien à exporter') })); }
+      catch (e) { dire(trf('Export impossible : {motif}', { motif: e.message }), true); }
     };
     const inputPartage = q('#agn-r-fichier-partage');
     q('#agn-r-importer-f').onclick = () => inputPartage.click();
@@ -14031,8 +14250,8 @@
     };
     q('#agn-r-importer-u').onclick = async () => {
       const url = (q('#agn-r-url').value || '').trim();
-      if (!url) { dire('Colle d\'abord une URL.', true); return; }
-      dire('Téléchargement…');
+      if (!url) { dire(tr('Colle d\'abord une URL.'), true); return; }
+      dire(tr('Téléchargement…'));
       apresImport(await importerPartageURL(url));
     };
 

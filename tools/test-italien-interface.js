@@ -49,6 +49,8 @@ const casses = Object.entries(TEXTES.it).filter(([k, v]) => /\{\w+\}/.test(k) &&
 verifier('aucune traduction ne perd ou n\'invente un marqueur', casses, []);
 
 console.log('\n=== Branchements ===');
+// Le dictionnaire, lui, GARDE ses cles en « INSEE » : c'est par elles que passe la bascule ISTAT.
+const horsDico = src.replace(objet('const TEXTES = {'), '{}');
 const b = (titre, re) => verifier(titre, re.test(src), true);
 b('l\'onglet Scripts est traduit et observe', /traduireDOM\(pane\);\s*\n\s*observerTraduction\(pane\);/);
 b('le volet est observe une fois dans le body', /document\.body\.appendChild\(ui\.volet\);[\s\S]{0,400}observerTraduction\(ui\.volet\);/);
@@ -57,7 +59,7 @@ verifier('les trois boites sont traduites', (src.match(/traduireDOM\(boite\)/g) 
 verifier('plus aucun confirm en dur', /confirm\('/.test(src), false);
 verifier('plus aucun « INSEE » en dur dans un texte affiche par le code', [
   /contour INSEE \(' \+/, /commune INSEE qui est appliquée/, /D'après les contours INSEE/, /\(contour INSEE\)/,
-  /code INSEE, ' \+/, /rangees par code INSEE/].filter(re => re.test(src)).length, 0);
+  /code INSEE, ' \+/, /rangees par code INSEE/].filter(re => re.test(horsDico)).length, 0);
 
 console.log('\n=== Temoin ===');
 const mutant = src.replace("if (t || !/\\bISTAT\\b/.test(cle)) return t;", 'return t;');
