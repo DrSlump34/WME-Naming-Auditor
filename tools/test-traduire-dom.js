@@ -45,12 +45,12 @@ const ATTRS = JSON.parse(mAttrs[1].replace(/'/g, '"'));
 //    tests historiques portent sur le dictionnaire seul.
 function monter(TEXTES, LANGUE, MOTIFS) {
   return new Function('TEXTES', 'LANGUE', 'ATTRS_VISIBLES', 'MOTIFS',
-    extraire('traduireMotif') + '\n' + extraire('traduireAttribut') + '\n' +
+    extraire('traduireMotif') + '\n' + extraire('chercherTrad') + '\n' + extraire('traduireAttribut') + '\n' +
     extraire('traduireDOM') + '\nreturn traduireDOM;')(TEXTES, LANGUE, ATTRS, MOTIFS || {});
 }
 function monterAttr(TEXTES, LANGUE, MOTIFS) {
   return new Function('TEXTES', 'LANGUE', 'MOTIFS',
-    extraire('traduireMotif') + '\n' + extraire('traduireAttribut') +
+    extraire('traduireMotif') + '\n' + extraire('chercherTrad') + '\n' + extraire('traduireAttribut') +
     '\nreturn traduireAttribut;')(TEXTES, LANGUE, MOTIFS || {});
 }
 

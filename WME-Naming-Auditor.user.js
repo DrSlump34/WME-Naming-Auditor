@@ -3403,7 +3403,8 @@
   }
 
   function montrerBulle(f) {
-    if (!bulle) { bulle = el('<div id="agn-bulle"></div>'); document.body.appendChild(bulle); }
+    // ⚠️ Audit du 25/09/2026 : la bulle vit dans le `body` — hors de toute traduction jusque-la.
+    if (!bulle) { bulle = el('<div id="agn-bulle"></div>'); document.body.appendChild(bulle); observerTraduction(bulle); }
     bulle.innerHTML =
       `<div class="agn-b-t"><span class="agn-pastille" style="background:${
         options.couleurs[familleDe(f)] || '#888'}"></span>${esc(f.libelle)}
@@ -4283,7 +4284,7 @@
                    value="${esc(commune)}" autocomplete="off"
                    placeholder="Choisis une ville, ou saisis un nom">
             <div class="agn-note" id="agn-na-apercu"></div>
-            <label class="agn-sb-c"><input type="checkbox" id="agn-na-rat" title="Village rattaché : le nom appliqué devient « Village (Commune) » au lieu du seul nom de la commune INSEE">
+            <label class="agn-sb-c"><input type="checkbox" id="agn-na-rat" title="Village rattaché : le nom appliqué devient « Village (Commune) » au lieu du seul nom de la commune ${instituts()}">
               Village rattaché (ville = « Village (Commune) »)</label>
             <button class="agn-btn primary" id="agn-na-ok">Créer ce polygone</button>
             <button class="agn-btn" id="agn-na-hameau" title="Un hameau ou un lieu-dit reste hors agglomération, même équipé de panneaux : pas de polygone, et le script ne le réclamera plus">C'est un hameau</button>
@@ -4574,8 +4575,8 @@
       const ring = extractRing(await sdk.Map.drawPolygon());
       if (!ring || ring.length < 4) throw new Error('tracé inexploitable');
       const dedans = ring.filter(c => pointInGeom(c[0], c[1], communeActive.geom)).length;
-      if (dedans === 0 && !confirm('Le polygone tracé est entièrement HORS de ' +
-        communeActive.nom + '.\n\nL\'enregistrer quand même ?')) return;
+      if (dedans === 0 && !confirm(trf('Le polygone tracé est entièrement HORS de {commune}.\n\nL\'enregistrer quand même ?',
+        { commune: communeActive.nom }))) return;
       if (!agglos[communeActive.code]) agglos[communeActive.code] = [];
       agglos[communeActive.code].push({ id: 'a' + Date.now(), label: communeActive.nom, rattache: false, ring });
       saveAgglos(); redrawAgglos(); renderAgglos();
@@ -6359,6 +6360,37 @@
         "Termina",
       "Annuler":
         "Annulla",
+      // ── Gabarits a marqueurs (trf), audit du 25/09/2026 ──
+      'Le polygone tracé est entièrement HORS de {commune}.\n\nL\'enregistrer quand même ?':
+        'Il poligono tracciato è interamente FUORI da {commune}.\n\nSalvarlo comunque?',
+      'Retirer {nom} ({n} communes, {poids}) ?\n\nLes agglomérations que tu as tracées sont conservées.\nLe département se rechargera tout seul si tu y reviens.':
+        'Togliere {nom} ({n} comuni, {poids})?\n\nI centri abitati che hai tracciato sono conservati.\nSi ricaricherà da solo se ci torni.',
+      'Vider tous les contours en base ({n} communes, {poids}) ?\n\nLes agglomérations tracées, elles, sont conservées : elles sont rangées par code {institut}.':
+        'Svuotare tutti i confini in memoria ({n} comuni, {poids})?\n\nI centri abitati tracciati restano: sono archiviati per codice {institut}.',
+      'Appliquer {n} correction(s) sur {s} segment(s) ?':
+        'Applicare {n} correzione/i su {s} segmento/i?',
+      '{k} autre(s) avec un doute ne sont pas incluses : à faire une par une.':
+        '{k} altra/e con un dubbio non sono incluse: da fare una per una.',
+      'Rien ne sera enregistré : tu reliras dans WME avant de cliquer sur Enregistrer.':
+        'Nulla verrà salvato: rileggerai in WME prima di cliccare su Salva.',
+      '⛔ À RÉGLER AVANT D\'ENREGISTRER':
+        '⛔ DA SISTEMARE PRIMA DI SALVARE',
+      '⚠ Série interrompue.':
+        '⚠ Serie interrotta.',
+      '<b>{ok}</b> correction(s) appliquée(s) sur <b>{n}</b> {unites}.':
+        '<b>{ok}</b> correzione/i applicata/e su <b>{n}</b> {unites}.',
+      'segment(s)': 'segmento/i',
+      'numéro(s)': 'numero/i',
+      '<b>{n}</b> segment(s) ignoré(s), verrouillé(s) au-dessus de ton niveau.':
+        '<b>{n}</b> segmento/i ignorato/i, bloccato/i sopra il tuo livello.',
+      '<b>{n}</b> point(s) d\'entrée repris du numéro sur le POI.':
+        '<b>{n}</b> punto/i di ingresso ripreso/i dal numero sul luogo.',
+      '<b>{n}</b> modification(s) en attente dans WME —':
+        '<b>{n}</b> modifica/he in attesa in WME —',
+      '<b>rien n\'est enregistré</b> : relis, puis clique sur Enregistrer dans WME.':
+        '<b>nulla è salvato</b>: rileggi, poi clicca su Salva in WME.',
+      'Échecs ({n}) :':
+        'Errori ({n}):',
       "Polygone supprimé.":
         "Poligono eliminato.",
       "Bourg, village, ancienne commune : chaque agglomération de la commune a son propre polygone. La carte se cadre sur le prochain secteur d'entrées à couvrir — sauf si tu l'as déjà sous les yeux.":
@@ -6564,8 +6596,8 @@
       [/^(\d+) commune\(s\) avec polygone, (\d+) « sans agglo » et (\d+) avec hameaux déclarés ajoutée\(s\)\. Tes communes existantes n'ont pas été touchées\.(.*)$/,
         (t, a, b, c, reste) => a + ' comune/i con poligono, ' + b + ' « senza centro abitato » e ' + c +
           ' con hameau dichiarati aggiunto/i. I tuoi comuni esistenti non sono stati toccati.' +
-          (reste ? reste.replace(/^ ⚠️ (\d+) entrée\(s\) écartée\(s\) : code INSEE, polygone ou hameau invalide \(le fichier est peut-être abîmé\)\.$/,
-            ' ⚠️ $1 voce/i scartata/e: codice INSEE, poligono o hameau non valido (il file è forse danneggiato).') : '')]
+          (reste ? reste.replace(/^ ⚠️ (\d+) entrée\(s\) écartée\(s\) : code (INSEE|ISTAT), polygone ou hameau invalide \(le fichier est peut-être abîmé\)\.$/,
+            ' ⚠️ $1 voce/i scartata/e: codice $2, poligono o hameau non valido (il file è forse danneggiato).') : '')]
     ]
   };
 
@@ -6603,7 +6635,35 @@
   /** Le texte dans la langue de l'editeur — le francais s'il n'y a rien. */
   function tr(fr) {
     const d = TEXTES[LANGUE];
-    return (d && d[fr]) || fr;
+    return (d && chercherTrad(d, fr)) || fr;
+  }
+
+  /**
+   * Traduit un GABARIT a marqueurs {nom}, puis le remplit (audit du 25/09/2026).
+   * ⚠️ Pour les phrases qui portent des NOMBRES ou des NOMS : aucune cle fixe ne peut les atteindre
+   *    apres coup — le bilan d'une correction change a chaque fois. La cle est le gabarit francais,
+   *    marqueurs compris, et la traduction les deplace a sa guise.
+   */
+  function trf(fr, vals) {
+    return tr(fr).replace(/\{(\w+)\}/g, (m, k) => (vals && vals[k] != null) ? String(vals[k]) : m);
+  }
+
+  /**
+   * La recherche dans le dictionnaire, UNE seule pour tous les appelants.
+   * ⭐ INSEE OU ISTAT (audit du 25/09/2026) : le sigle suit le REFERENTIEL, pas la langue. Un texte
+   *    « … code ISTAT … » introuvable est cherche sous sa forme « INSEE », et le sigle est remis dans
+   *    la traduction : une seule cle sert aux deux pays, et le francais dit enfin ISTAT en Italie.
+   */
+  function chercherTrad(d, cle) {
+    const t = d[cle] || d[cle.replace(/\s+/g, ' ')] || traduireMotif(cle.replace(/\s+/g, ' '));
+    if (t || !/\bISTAT\b/.test(cle)) return t;
+    const u = chercherTrad(d, cle.replace(/\bISTAT\b/g, 'INSEE'));
+    return u ? u.replace(/\bINSEE\b/g, 'ISTAT') : u;
+  }
+
+  /** Le sigle de l'institut qui fait foi pour les communes du referentiel courant : INSEE ou ISTAT. */
+  function instituts() {
+    return (typeof REF !== 'undefined' && REF && REF.libelleCode) ? REF.libelleCode.split(' ').pop() : 'INSEE';
   }
 
   /**
@@ -6682,7 +6742,7 @@
     const marque = n.__agnTr || (n.__agnTr = {});
     if (marque[a] === v) return;
     const cle = String(v).trim();
-    const t = d[cle] || d[cle.replace(/\s+/g, ' ')] || traduireMotif(cle.replace(/\s+/g, ' '));
+    const t = chercherTrad(d, cle);
     if (t && t !== v) { marque[a] = t; n.setAttribute(a, t); }
   }
 
@@ -6705,8 +6765,7 @@
         //    en forme du fichier — un jour ou quelqu'un reindente ce bloc, la
         //    traduction tombe en silence. On cherche donc aussi la version aux
         //    espaces normalises, qui est celle qu'un humain sait ecrire.
-        const trad = d[cle] || d[cle.replace(/\s+/g, ' ')] ||
-          traduireMotif(cle.replace(/\s+/g, ' '));
+        const trad = chercherTrad(d, cle);
         // ⚠️ On remplace DANS le texte brut : « Segments <span> » perdrait son
         //    espace de fin, et deux mots se colleraient.
         if (trad) n.nodeValue = brut.replace(cle, trad);
@@ -6744,8 +6803,7 @@
       const balise = Array.prototype.some.call(enfants0, c => c && c.nodeType === 1);
       const dedans = balise ? n.innerHTML : '';
       if (dedans && dedans.length <= 4000) {
-        const blocTrad = d[dedans.trim()] || d[dedans.trim().replace(/\s+/g, ' ')] ||
-          traduireMotif(dedans.trim().replace(/\s+/g, ' '));
+        const blocTrad = chercherTrad(d, dedans.trim());
         if (blocTrad) {
           // ⚠️ La marque AVANT l'ecriture : l'observateur peut etre appele
           //    avant que la ligne suivante ne s'execute.
@@ -7726,6 +7784,11 @@
       //    italien devant une liste de departements francais, donc sans aucun
       //    moyen de charger ses communes (mesure a Bergamo, 08/09).
       try { peindreControles(); } catch (e) { /* panneau pas encore construit */ }
+      // ⚠️ Le filtre des communes nomme le code de l'institut du pays (INSEE / ISTAT).
+      try {
+        const f = ui && ui.overlay && ui.overlay.querySelector('#agn-commune-f');
+        if (f) f.placeholder = 'filtrer par nom ou code ' + instituts() + '…';
+      } catch (e) { /* fenetre pas encore construite */ }
       try {
         if (ui && ui.peindreSourceContours) ui.peindreSourceContours();
       } catch (e) { /* panneau pas encore construit */ }
@@ -9091,10 +9154,10 @@
               'à cette distance ce peut être celui du voisin. Le script ne l\'applique jamais.'
             : 'Aucun numéro à moins de ' + POI_PORTEE_NUM_M + ' m sur cette voie : à saisir à la main.',
           (propose.fiable && propose.candidats.length === 1)
-            ? 'La commune appliquée est celle du contour INSEE (' + commune.nom + '), pas celle du segment.'
+            ? 'La commune appliquée est celle du contour ' + instituts() + ' (' + commune.nom + '), pas celle du segment.'
             : '⚡ ouvre la liste des noms relevés autour du lieu — le plus probable en tête, ' +
               'les numéros de route ensuite, et une saisie libre. La commune appliquée sera ' +
-              'celle du contour INSEE (' + commune.nom + ').'
+              'celle du contour ' + instituts() + ' (' + commune.nom + ').'
         ] : null,
         // La provenance de la position est DITE : un verdict fonde sur une part de
         // surface n'a pas la meme force qu'un point d'acces explicite.
@@ -9378,7 +9441,7 @@
                   ') : la commune de chaque numéro sera demandée'
                 : rue.villeSeg
                   ? 'le segment porte la ville « ' + rue.villeSeg + ' » alors que le contour donne « ' +
-                    communeActive.nom + ' » : c\'est la commune INSEE qui est appliquée au POI'
+                    communeActive.nom + ' » : c\'est la commune ' + instituts() + ' qui est appliquée au POI'
                   : null
         });
         }
@@ -11143,7 +11206,7 @@
                     ? 'aux <b>' + f.hns.length + '</b> numéros' : 'au numéro <b>' + esc(f.hns[0].number) + '</b>') + '.'
                 : 'Quelle adresse donner ' + (f.hns.length > 1
                     ? 'aux <b>' + f.hns.length + '</b> numéros' : 'au numéro <b>' + esc(f.hns[0].number) + '</b>') + ' ?'}
-              <div class="agn-modale-geo">D'après les contours INSEE :${
+              <div class="agn-modale-geo">D'après les contours ${instituts()} :${
                 detail || '<div class="agn-d">indéterminable</div>'}</div>
             </div>
             ${options.map((o, i) => `<button class="agn-btn ${o.fort ? 'primary' : ''}" data-i="${i}">${o.libelle}</button>`).join('')}
@@ -11160,6 +11223,9 @@
           </div>
         </div>`);
       document.body.appendChild(boite);
+      // ⚠️ Audit du 25/09/2026 : cette boite vit dans le `body`, hors de la fenetre observee —
+      //    elle restait en francais en Italie. Meme remede que la boite des propositions.
+      traduireDOM(boite); observerTraduction(boite);
       // Deplacable par son titre : ces boites masquent l'endroit de la carte
       // dont elles parlent (demande de l'auteur, 26/07).
       rendreDeplacable(boite.querySelector('.agn-modale-in'),
@@ -11233,7 +11299,7 @@
           (routes ? ' Les numéros de route sont en dernier : ce ne sont pas des adresses postales.' : '')
         : 'Un seul nom a été relevé autour du lieu.',
       libelle: f.libelle,
-      note: 'La commune appliquée sera <b>' + esc(op.ville) + '</b> (contour INSEE)' +
+      note: 'La commune appliquée sera <b>' + esc(op.ville) + '</b> (contour ' + instituts() + ')' +
             (op.numeroPropose
               ? ', et le n° ' + esc(op.numeroPropose) + ' reste à saisir à la main après vérification.'
               : '.'),
@@ -11281,6 +11347,9 @@
           </div>
         </div>`);
       document.body.appendChild(boite);
+      // ⚠️ Audit du 25/09/2026 : cette boite vit dans le `body`, hors de la fenetre observee —
+      //    elle restait en francais en Italie. Meme remede que la boite des propositions.
+      traduireDOM(boite); observerTraduction(boite);
       // Deplacable par son titre : ces boites masquent l'endroit de la carte
       // dont elles parlent (demande de l'auteur, 26/07).
       rendreDeplacable(boite.querySelector('.agn-modale-in'),
@@ -12658,6 +12727,9 @@
     // les querySelector ci-dessus le parcourent encore ; deplacer plus tot
     // casserait le branchement des contours, de la commune et de l'agglo.
     document.body.appendChild(ui.volet);
+    // ⚠️⚠️ Audit du 25/09/2026 : sorti de la fenetre, le volet n'etait PLUS observe — tout ce que
+    //    `renderAgglos` y reecrit (liste des agglomerations, panneaux, guidage) repassait en francais.
+    observerTraduction(ui.volet);
   }
 
   /**
@@ -13932,7 +14004,7 @@
       if (!r.ok) { dire('Import refusé : ' + (RAISONS[r.raison] || r.raison), true); return; }
       // ⚠️ Un rejet ne doit JAMAIS être silencieux : un import qui n'a pris que
       // la moitié du fichier, sans le dire, laisse croire à un zonage complet.
-      const rejet = r.rejetes ? ' ⚠️ ' + r.rejetes + ' entrée(s) écartée(s) : code INSEE, ' +
+      const rejet = r.rejetes ? ' ⚠️ ' + r.rejetes + ' entrée(s) écartée(s) : code ' + instituts() + ', ' +
         'polygone ou hameau invalide (le fichier est peut-être abîmé).' : '';
       if (!r.ajoutPoly && !r.ajoutSans && !r.ajoutHameaux) {
         dire('Rien de nouveau : les communes du fichier étaient déjà chez toi.' + rejet, !!r.rejetes);
@@ -13965,6 +14037,11 @@
     };
 
     q('#agn-rouvrir').onclick = ouvrirOverlay;
+    // ⚠️⚠️ Audit du 25/09/2026 : l'onglet Scripts n'etait JAMAIS traduit — ni a sa construction, ni
+    //    quand il se reecrit (droits, partage, departements). Un editeur italien le lisait en entier
+    //    en francais. En dernier : tout le contenu synchrone est pose ; l'observateur prend la suite.
+    traduireDOM(pane);
+    observerTraduction(pane);
   }
 
   function ouvrirOverlay() {
@@ -14283,9 +14360,8 @@
         if (!e) return;
         // ⚠️ On demande AVANT : c'est une suppression, meme si elle se repare
         // par un rechargement. Le message dit ce qui NE PART PAS.
-        if (!confirm('Retirer ' + e.nom + ' (' + e.communes + ' communes, ' + direPoids(e.octets) + ') ?\n\n'
-          + 'Les agglomérations que tu as tracées sont conservées.\n'
-          + 'Le département se rechargera tout seul si tu y reviens.')) return;
+        if (!confirm(trf('Retirer {nom} ({n} communes, {poids}) ?\n\nLes agglomérations que tu as tracées sont conservées.\n' +
+          'Le département se rechargera tout seul si tu y reviens.', { nom: e.nom, n: e.communes, poids: direPoids(e.octets) }))) return;
         b.disabled = true;
         await retirerDepartements([d]);
       };
@@ -14293,9 +14369,9 @@
 
     const v = ui.statutContours.querySelector('#agn-vider');
     if (v) v.onclick = () => {
-      if (confirm('Vider tous les contours en base (' + communes.length + ' communes, '
-        + direPoids(total) + ') ?\n\n'
-        + 'Les agglomérations tracées, elles, sont conservées : elles sont rangees par code INSEE.')) viderContours();
+      if (confirm(trf('Vider tous les contours en base ({n} communes, {poids}) ?\n\n' +
+        'Les agglomérations tracées, elles, sont conservées : elles sont rangées par code {institut}.',
+        { n: communes.length, poids: direPoids(total), institut: instituts() }))) viderContours();
     };
   }
 
@@ -14530,7 +14606,7 @@
                  title="Choisis dans les villes que WME connait, ou saisis librement."
                  placeholder="Étiquette (repérage seul)" value="${esc(a.label)}">
           <div class="agn-row">
-            <label title="Le nom appliqué devient « Village (Commune) » au lieu du seul nom de la commune INSEE. Le village est lu sur la City du segment."><input type="checkbox" class="agn-ratt" ${a.rattache ? 'checked' : ''}> village rattaché</label>
+            <label title="Le nom appliqué devient « Village (Commune) » au lieu du seul nom de la commune ${instituts()}. Le village est lu sur la City du segment."><input type="checkbox" class="agn-ratt" ${a.rattache ? 'checked' : ''}> village rattaché</label>
             <button class="agn-mini agn-edit${edition && edition.agglo === a ? ' agn-edit-on' : ''}" title="${
               edition && edition.agglo === a
                 ? 'Enregistrer le tracé modifié · Échap pour annuler'
@@ -14807,7 +14883,7 @@
     let ok = 0, segments = 0, bloques = 0, reprises = 0;
     crees = [];                 // on ne selectionne que les POI de CETTE serie
     // Une conversion d'adresses compte des NUMEROS, pas des segments.
-    const unite = liste.every(f => f.adresse) ? 'numero' : 'segment';
+    const unite = liste.every(f => f.adresse) ? 'numéro' : 'segment';
     const echecs = [];
     // ⚠️⚠️ Messages CRITIQUES : ceux qui signalent une carte laissee dans un
     // mauvais etat (adresse en double, POI sans adresse). Tenus a part pour etre
@@ -14877,19 +14953,22 @@
     // suite. Les noyer dans la liste tronquee des echecs revenait a ne pas les
     // dire (v2.09).
     const blocCritique = crit.length
-      ? `<div class="agn-alerte-bloc"><b>⛔ À RÉGLER AVANT D'ENREGISTRER</b><br>` +
+      ? `<div class="agn-alerte-bloc"><b>${tr('⛔ À RÉGLER AVANT D\'ENREGISTRER')}</b><br>` +
         crit.map(esc).join('<br>') + '</div>'
       : '';
     ui.bandeauFix.innerHTML = blocCritique +
       `<div class="agn-stat ${echecs.length ? 'agn-alerte' : 'agn-ok'}">
-        ${interrompu ? '<b>⚠ Série interrompue.</b> ' : ''}
-        <b>${ok}</b> correction(s) appliquée(s) sur <b>${segments}</b> ${(unite || 'segment')}(s).
-        ${bloques ? '<b>' + bloques + '</b> segment(s) ignoré(s), verrouillé(s) au-dessus de ton niveau. ' : ''}
-        ${reprises ? '<b>' + reprises + '</b> point(s) d\'entrée repris du numéro sur le POI. ' : ''}
-        ${enAttente != null ? '<b>' + enAttente + '</b> modification(s) en attente dans WME — ' : ''}
-        <b>rien n'est enregistré</b> : relis, puis clique sur Enregistrer dans WME.
-        ${echecs.length ? '<br>Échecs : ' + echecs.slice(0, 3).map(esc).join(' ; ') +
-          (echecs.length > 3 ? ' …' : '') : ''}
+        ${interrompu ? '<b>' + tr('⚠ Série interrompue.') + '</b> ' : ''}
+        ${trf('<b>{ok}</b> correction(s) appliquée(s) sur <b>{n}</b> {unites}.',
+              { ok, n: segments, unites: tr(unite === 'numéro' ? 'numéro(s)' : 'segment(s)') })}
+        ${bloques ? trf('<b>{n}</b> segment(s) ignoré(s), verrouillé(s) au-dessus de ton niveau.', { n: bloques }) + ' ' : ''}
+        ${reprises ? trf('<b>{n}</b> point(s) d\'entrée repris du numéro sur le POI.', { n: reprises }) + ' ' : ''}
+        ${enAttente != null ? trf('<b>{n}</b> modification(s) en attente dans WME —', { n: enAttente }) + ' ' : ''}
+        ${tr('<b>rien n\'est enregistré</b> : relis, puis clique sur Enregistrer dans WME.')}
+        ${echecs.length
+          // ⚠️ Audit du 25/09/2026 : trois echecs affiches, sans le total — on ne savait pas combien chercher.
+          ? '<br>' + trf('Échecs ({n}) :', { n: echecs.length }) + ' ' + echecs.slice(0, 3).map(esc).join(' ; ') +
+            (echecs.length > 3 ? ' …' : '') : ''}
       </div>`;
   }
 
@@ -15851,9 +15930,9 @@
         const nbSeg = aFaire.reduce((n, x) => n + Math.max(0, (x.nb || 1) - (x.verrouilles || 0)), 0);
         const douteux = membres.filter(x => planDeCorrection(x) && !corrigeableEnGroupe(x) &&
                                             !(x.verrouilles && x.verrouilles >= (x.nb || 1))).length;
-        if (!confirm('Appliquer ' + aFaire.length + ' correction(s) sur ' + nbSeg + ' segment(s) ?\n\n' +
-          (douteux ? douteux + ' autre(s) avec un doute ne sont pas incluses : à faire une par une.\n\n' : '') +
-          'Rien ne sera enregistré : tu reliras dans WME avant de cliquer sur Enregistrer.')) return;
+        if (!confirm(trf('Appliquer {n} correction(s) sur {s} segment(s) ?', { n: aFaire.length, s: nbSeg }) + '\n\n' +
+          (douteux ? trf('{k} autre(s) avec un doute ne sont pas incluses : à faire une par une.', { k: douteux }) + '\n\n' : '') +
+          tr('Rien ne sera enregistré : tu reliras dans WME avant de cliquer sur Enregistrer.'))) return;
         corriger(aFaire, aFaire.map(x => corps.querySelector('.agn-item[data-idx="' + findings.indexOf(x) + '"]')));
       };
 

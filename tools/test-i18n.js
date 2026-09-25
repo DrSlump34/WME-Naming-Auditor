@@ -45,8 +45,12 @@ const TEXTES = monterTextes();
 function monterTr(langue) {
   const i = src.indexOf('function tr(fr) {');
   const fin = src.indexOf('}', src.indexOf('return', i)) + 1;
-  return new Function('TEXTES', 'LANGUE',
-    src.slice(i, fin) + '\nreturn tr;')(TEXTES, langue);
+  // ⚠️ 2.50 : `tr` passe par `chercherTrad` (INSEE/ISTAT), qui essaie aussi les motifs.
+  const fn = nom => { const a = src.indexOf('function ' + nom + '('); let n = 0, b = src.indexOf('{', a);
+    for (; b < src.length; b++) { if (src[b] === '{') n++; else if (src[b] === '}') { n--; if (!n) break; } }
+    return src.slice(a, b + 1); };
+  return new Function('TEXTES', 'LANGUE', 'MOTIFS',
+    src.slice(i, fin) + '\n' + fn('chercherTrad') + '\n' + fn('traduireMotif') + '\nreturn tr;')(TEXTES, langue, {});
 }
 
 titre('Le dictionnaire s\'évalue');

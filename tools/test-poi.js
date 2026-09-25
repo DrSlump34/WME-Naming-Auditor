@@ -82,6 +82,8 @@ function monter(controles) {
     '  poiCategoriesAutoroute: POI_CATEGORIES_AUTOROUTE };',
     extraire('numeroLePlusProche'), extraire('proposerAdressePoi'),
     extraire('auditerPoi'),
+    // 2.50 : le sigle de l'institut suit le referentiel (INSEE en France).
+    extraire('instituts'),
     'return { auditerPoi, positionPoi, poiDansCommune, proposerAdressePoi };'
   ].join('\n');
   return new Function(code)();
