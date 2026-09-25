@@ -1016,6 +1016,11 @@
    */
   let hameaux = {};
   let communeActive = null;
+  // ⚠️ AUDIT DU 25/09/2026 : la commune est FIGEE pendant une analyse. `scan()` attend une
+  //    quinzaine de fois (API, balayage qui DEPLACE la carte) ; entre deux attentes, « la carte a
+  //    quitte la commune », une purge ou le selecteur la changeaient, et l'analyse finissait sur une
+  //    autre commune — ou sur `null`.
+  let analyseEnCours = false;
   let findings = [];
   let lastScan = null;
   let ui = {};
@@ -1868,7 +1873,7 @@
     depsVus = depsVus.filter(d => !set.has(d));
 
     // La commune en cours vivait peut-etre dans un departement retire.
-    if (communeActive && set.has(depDuCode(communeActive.code))) {
+    if (communeActive && !analyseEnCours && set.has(depDuCode(communeActive.code))) {
       ui.communePerdue = communeActive.nom;
       communeActive = null; oublierPanneaux(); redrawCommune();
       replierSection('commune', true);
@@ -1995,6 +2000,7 @@
 
   /** Repart de zero : l'editeur doit pouvoir vider ce qu'il a accumule. */
   async function viderContours() {
+    if (analyseEnCours) return;          // la base sert a l'analyse en cours
     communes = []; metaContours = null; communeActive = null; oublierPanneaux();
     depsTentes.clear();
     try { await idbSet('communes', []); await idbSet('meta', null); }
@@ -3090,7 +3096,7 @@
         `<optgroup label="Commune en cours">${opt(communeActive)}</optgroup>`);
       ui.selCommune.value = avant;
     }
-    else if (communeActive) {
+    else if (communeActive && !analyseEnCours) {
       // ⚠️⚠️ LA CARTE A QUITTE LA COMMUNE. On la lachait deja, mais en silence :
       // le volet restait ouvert sur « Agglomeration », dont les boutons venaient
       // de se griser, et rien ne disait pourquoi (auteur, 27/07). On RAMENE donc
@@ -12912,13 +12918,17 @@
     ui.btnScan.onclick = async () => {
       const btn = ui.btnScan, texte = btn.textContent;
       btn.disabled = true; btn.textContent = 'Analyse en cours…';
+      analyseEnCours = true; ui.selCommune.disabled = true;
       try { await scan(); }
       catch (e) {
         log('analyse impossible', e);
         ui.stats.innerHTML = '<div class="agn-stat agn-alerte">Analyse impossible : ' +
           esc(e.message || String(e)) + '</div>';
       }
-      finally { btn.disabled = false; btn.textContent = texte; }
+      finally {
+        btn.disabled = false; btn.textContent = texte;
+        analyseEnCours = false; ui.selCommune.disabled = false;
+      }
     };
     ui.selCommune.onchange = () => {
       communeActive = communes.find(c => c.code === ui.selCommune.value) || null;
