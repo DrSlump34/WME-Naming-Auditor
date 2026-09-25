@@ -12064,6 +12064,40 @@
   }
 
   /**
+   * RAMENE UNE FENETRE DANS LES BORNES DE LA CARTE — calcul PUR, repris tel quel de WPEU (charte
+   * commune des scripts, audit du 25/09/2026). Avant, le glissement laissait la fenetre sortir
+   * jusqu'a n'en garder que 120 px a droite et 40 px en bas, sous la colonne des boutons de carte
+   * et le pied de page ; et le redimensionnement n'etait pas borne du tout.
+   * ⚠️ Le plancher (280 × 120) ne passe jamais devant la carte : sur une carte etroite, la
+   * fenetre prend la place disponible, pas plus.
+   */
+  function bornerFenetre(geo, bornes) {
+    const dispoL = bornes.droite - bornes.gauche;
+    const dispoH = bornes.bas - bornes.haut;
+    const largeur = Math.min(Math.max(Math.min(geo.w, dispoL), 280), dispoL);
+    const hauteur = Math.min(Math.max(Math.min(geo.h, dispoH), 120), dispoH);
+    const x = Math.max(bornes.gauche, Math.min(geo.x, bornes.droite - largeur));
+    const y = Math.max(bornes.haut, Math.min(geo.y, bornes.bas - hauteur));
+    return { x, y, w: largeur, h: hauteur,
+             tenait: x === geo.x && y === geo.y && largeur === geo.w && hauteur === geo.h };
+  }
+
+  /**
+   * Ou poser le volet des donnees de reference (300 px), contre la fenetre `r`. PUR.
+   * ⚠️ Audit du 25/09/2026 : il se bornait a l'ECRAN, pas a la carte — ouvert a gauche il passait
+   *    sur le panneau lateral de WME, a droite sur la colonne des boutons de carte. Ordre : a gauche
+   *    s'il tient, sinon a droite s'il tient, sinon au bord gauche de la carte (par-dessus la
+   *    fenetre plutot que par-dessus WME). Hauteur : celle de la fenetre, sans passer le pied.
+   */
+  function positionVolet(r, bornes, L, marge) {
+    const left = (r.left - L - marge >= bornes.gauche) ? r.left - L - marge
+               : (r.right + marge + L <= bornes.droite) ? r.right + marge
+               : bornes.gauche;
+    return { left: Math.round(left), top: Math.round(r.top),
+             height: Math.round(Math.max(120, Math.min(r.height, bornes.bas - r.top))) };
+  }
+
+  /**
    * Place et dimensionne la fenetre en la RAMENANT dans les bornes.
    * ⚠️ Une position memorisee n'est pas parole d'evangile : l'auteur a vu la
    * fenetre s'ouvrir « tout a gauche, par-dessus le volet de WME ». Une
@@ -12466,10 +12500,9 @@
       if (!drag) return;
       // Meme regle a la souris qu'au demarrage : la fenetre ne va pas se ranger
       // sous le volet gauche de WME ni sur son pied de page.
-      const z = bornesCarte();
-      const x = Math.min(Math.max(z.gauche, e.clientX - drag.dx), Math.max(z.gauche, z.droite - 120));
-      const y = Math.min(Math.max(z.haut, e.clientY - drag.dy), Math.max(z.haut, z.bas - 40));
-      o.style.left = x + 'px'; o.style.top = y + 'px';
+      const g = bornerFenetre({ x: e.clientX - drag.dx, y: e.clientY - drag.dy,
+                                w: o.offsetWidth, h: o.offsetHeight }, bornesCarte());
+      o.style.left = g.x + 'px'; o.style.top = g.y + 'px';
       placerVolet();                    // le volet reste colle a la fenetre
       e.preventDefault();
     });
@@ -12482,6 +12515,14 @@
     });
 
     new ResizeObserver(() => {
+      // ⚠️ Audit du 25/09/2026 : la poignee native (`resize: both`) n'a pas de bornes. On ramene
+      //    la taille a la carte apres coup ; le nouveau reglage retombe dans les bornes, donc
+      //    l'observateur ne boucle pas.
+      if (!o.classList.contains('agn-replie')) {
+        const r = o.getBoundingClientRect(), z = bornesCarte();
+        if (r.right > z.droite + 1) o.style.width = Math.max(280, z.droite - r.left) + 'px';
+        if (r.bottom > z.bas + 1) o.style.height = Math.max(120, z.bas - r.top) + 'px';
+      }
       placerVolet();
       clearTimeout(ui.tResize); ui.tResize = setTimeout(saveUI, 400);
     }).observe(o);
@@ -12586,12 +12627,10 @@
    */
   function placerVolet() {
     if (!ui.volet || !ui.volet.classList.contains('agn-volet-ouvert')) return;
-    const r = ui.overlay.getBoundingClientRect();
-    const L = 300, marge = 8;
-    const aGauche = r.left >= L + marge;
-    ui.volet.style.left = (aGauche ? r.left - L - marge : Math.min(r.right + marge, window.innerWidth - L - 4)) + 'px';
-    ui.volet.style.top = r.top + 'px';
-    ui.volet.style.height = r.height + 'px';
+    const p = positionVolet(ui.overlay.getBoundingClientRect(), bornesCarte(), 300, 8);
+    ui.volet.style.left = p.left + 'px';
+    ui.volet.style.top = p.top + 'px';
+    ui.volet.style.height = p.height + 'px';
   }
 
   /**
