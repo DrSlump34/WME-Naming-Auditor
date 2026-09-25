@@ -14455,12 +14455,16 @@
    * L'etat est PERSISTE (WMEPrefs) et suit l'editeur d'un poste a l'autre.
    * Cette fonction sera aussi le point d'entree de la correction automatique.
    */
-  function marquerTraite(f, node, force) {
+  function marquerTraite(f, node, force, persister) {
     f.traite = force !== undefined ? force : !f.traite;
     node.classList.toggle('agn-traite', !!f.traite);
     // Persistance : on repercute sur `traites[INSEE]` puis on sauve.
+    // ⚠️⚠️ AUDIT DU 25/09/2026 (A12) : SEUL le ✓ de l'editeur se retient. La coche posee par une
+    // correction ne dit pas que la carte est juste — un Ctrl+Z, un refus a l'enregistrement, et
+    // l'ecart est revenu. Retenue, elle le rebarrait a la prochaine analyse, sur tous les postes :
+    // un faux negatif durable. Elle ne vit donc que le temps de la session (`persister === false`).
     const insee = communeActive && communeActive.code;
-    if (insee) {
+    if (insee && persister !== false) {
       const t = traites[insee] || (traites[insee] = {});
       const cs = clesTraite(f);
       if (f.traite) cs.forEach(c => { t[c] = true; });
@@ -14562,7 +14566,13 @@
           reprises += (res.reprises || 0);
           // Une conversion partielle laisse du travail : on ne barre pas la ligne.
           if (res.partiel) echecs.push(f.libelle + ' — ' + res.avertissement);
-          else if (noeuds && noeuds[i]) marquerTraite(f, noeuds[i], true);
+          else if (noeuds && noeuds[i]) {
+            // ⚠️ A12 : une correction qui laisse des ecarts a la main ne barre pas la ligne.
+            const reste = resteAlaMain(f);
+            if (reste) echecs.push(f.libelle + ' — corrigé en partie : ' + reste +
+                                   ' écart(s) restent à faire à la main');
+            else marquerTraite(f, noeuds[i], true, false);
+          }
         } else echecs.push(f.libelle + ' — ' + res.motif);
         traites++;
         prog.fixer(i + 1);
