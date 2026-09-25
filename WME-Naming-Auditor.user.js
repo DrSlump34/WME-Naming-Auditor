@@ -1810,8 +1810,11 @@
 
   /** « 15,5 Mo », « 480 Ko ». Un seul endroit qui met en forme un poids. */
   function direPoids(octets) {
-    if (octets >= 1048576) return (octets / 1048576).toFixed(1).replace('.', ',') + ' Mo';
-    return Math.round(octets / 1024) + ' Ko';
+    // ⚠️ Audit du 25/09/2026 : l'unite suit la LANGUE — « Mo / Ko » en francais, « MB / KB » en
+    //    italien. La virgule decimale vaut pour les deux.
+    const [mo, ko] = (typeof LANGUE !== 'undefined' && LANGUE === 'it') ? ['MB', 'KB'] : ['Mo', 'Ko'];
+    if (octets >= 1048576) return (octets / 1048576).toFixed(1).replace('.', ',') + ' ' + mo;
+    return Math.round(octets / 1024) + ' ' + ko;
   }
 
   /**

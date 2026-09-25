@@ -66,6 +66,12 @@ b('un démarrage raté se DIT à l\'écran (role=alert), pas seulement dans la c
 verifier('… et son message est traduit',
   !!TEXTES.it['{nom} n\'a pas pu démarrer : {motif}. Recharge la page ; si ça persiste, signale-le sur le fil Discuss. (Clic pour fermer.)'], true);
 
+const poids = (s, langue) => new Function('LANGUE', fn(s, 'direPoids') + '\nreturn direPoids;')(langue);
+verifier('les unités suivent la langue (Mo en français, MB en italien)',
+  [poids(src, 'fr')(3 * 1048576), poids(src, 'it')(3 * 1048576), poids(src, 'it')(270 * 1024)], ['3,0 Mo', '3,0 MB', '270 KB']);
+const sansUnite = src.replace("(typeof LANGUE !== 'undefined' && LANGUE === 'it') ? ['MB', 'KB'] : ['Mo', 'Ko']", "['Mo', 'Ko']");
+verifier('TEMOIN : sans la bascule, l\'italien affiche « Mo »', sansUnite !== src && poids(sansUnite, 'it')(3 * 1048576), '3,0 Mo');
+
 console.log('\n=== Temoin ===');
 const mutant = src.replace("if (t || !/\\bISTAT\\b/.test(cle)) return t;", 'return t;');
 if (mutant === src) { ko++; console.log('  ECHEC temoin introuvable'); }
