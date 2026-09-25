@@ -10822,6 +10822,21 @@
     return propres.length ? propres : null;
   }
 
+  /**
+   * Un report peut-il partir avec le ⚡ de GROUPE ? (audit du 25/09/2026, A4)
+   * ⚠️⚠️ Un report marque d'un DOUTE se corrige un par un, jamais en lot : SPECIFICATIONS §11
+   * points 4 et 5. Avant, le ⚡ de groupe l'appliquait comme les autres — un boulevard urbain
+   * nomme « Rocade … » perdait sa ville en lot. Le seul « doute » qui n'en est pas un est celui
+   * du cartouche sur principal : il PREVIENT que la rue est partagee, il ne met rien en question.
+   * Un report dont tous les segments sont verrouilles n'a pas de ⚡ individuel : pas en lot non plus.
+   * PURE.
+   */
+  function corrigeableEnGroupe(f) {
+    if (!planDeCorrection(f)) return false;
+    if (f.verrouilles && f.verrouilles >= (f.nb || 1)) return false;
+    return !(f.doute && !f.cartouche);
+  }
+
   /** Ce qui restera a faire a la main apres application. */
   function resteAlaMain(f) {
     const plan = planDeCorrection(f) || [];
@@ -14507,7 +14522,7 @@
       if (!b) return;
       const membres = [...grp.querySelectorAll('.agn-item')]
         .map(n => findings[parseInt(n.dataset.idx, 10)]).filter(Boolean);
-      b.style.display = membres.some(planDeCorrection) ? '' : 'none';
+      b.style.display = membres.some(corrigeableEnGroupe) ? '' : 'none';
     });
   }
 
@@ -15543,8 +15558,8 @@
             <span class="agn-pastille" style="background:${options.couleurs[cle] || fam.defaut}"></span>
             <b>${esc(fam.libelle)}</b>
             ${_ft() && _fv() && cle !== 'adresse' && cle !== 'rpp' && cle !== 'poiAdresse' &&
-              membres.some(planDeCorrection)
-              ? '<button class="agn-fix-grp" title="Appliquer toutes les corrections automatisables de ce groupe">⚡ corriger</button>' : ''}
+              membres.some(corrigeableEnGroupe)
+              ? '<button class="agn-fix-grp" title="Appliquer les corrections automatisables de ce groupe (celles qui portent un doute se font une par une)">⚡ corriger</button>' : ''}
             <span class="agn-grp-n">${membres.length}</span>
           </div>
           <div class="agn-grp-c" style="display:none"></div></div>`);
@@ -15553,9 +15568,13 @@
       const fixGrp = grp.querySelector('.agn-fix-grp');
       if (fixGrp) fixGrp.onclick = e => {
         e.stopPropagation();
-        const aFaire = membres.filter(planDeCorrection);
-        const nbSeg = aFaire.reduce((n, x) => n + (x.nb || 1), 0);
+        const aFaire = membres.filter(corrigeableEnGroupe);
+        // ⚠️ A4 : les segments verrouilles ne seront pas touches — les compter gonflait le lot.
+        const nbSeg = aFaire.reduce((n, x) => n + Math.max(0, (x.nb || 1) - (x.verrouilles || 0)), 0);
+        const douteux = membres.filter(x => planDeCorrection(x) && !corrigeableEnGroupe(x) &&
+                                            !(x.verrouilles && x.verrouilles >= (x.nb || 1))).length;
         if (!confirm('Appliquer ' + aFaire.length + ' correction(s) sur ' + nbSeg + ' segment(s) ?\n\n' +
+          (douteux ? douteux + ' autre(s) avec un doute ne sont pas incluses : à faire une par une.\n\n' : '') +
           'Rien ne sera enregistré : tu reliras dans WME avant de cliquer sur Enregistrer.')) return;
         corriger(aFaire, aFaire.map(x => corps.querySelector('.agn-item[data-idx="' + findings.indexOf(x) + '"]')));
       };
