@@ -62,7 +62,7 @@ function monter(suffixe) {
   const n = c => c + suffixe;               // '' => France, '_IT' => Italie
   return new Function([
     relire(n('RE_ROUTE')), relire(n('RE_COMMUNALE')), relire(n('RE_AUTOROUTE')),
-    relire(n('RE_NOM_COMPOSITE')),
+    relire(n('RE_NOM_COMPOSITE')), relire('normSansAccent'),   // villeAgglo l'emploie (25/09/2026)
     'const REF = { reRoute: ' + n('RE_ROUTE') + ', reCommunale: ' + n('RE_COMMUNALE') +
     ', reAutoroute: ' + n('RE_AUTOROUTE') + ', reNomComposite: ' + n('RE_NOM_COMPOSITE') +
     // ⚠️ Le format du village rattaché est national : parenthèses en France,

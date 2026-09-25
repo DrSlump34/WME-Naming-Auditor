@@ -42,7 +42,7 @@ function verifier(titre, obtenu, attendu) {
 }
 
 const api = new Function(
-  relire('fmt') + '\n' +
+  relire('fmt') + '\n' + relire('normSansAccent') + '\n' +   // villeAgglo l'emploie (25/09/2026)
   // ⚠️ v2.40 : le format du village rattaché appartient au référentiel —
   //    « Village (Commune) » en France, « frazione, comune » en Italie.
   'const REF = { reVillageDansVille: /^\\s*(.+?)\\s*\\(/,' +
