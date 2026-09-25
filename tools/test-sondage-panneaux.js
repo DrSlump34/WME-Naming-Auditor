@@ -63,7 +63,7 @@ const S_ZOOM = val('SONDAGE_ZOOM_MAX'), S_BUDGET = val('SONDAGE_BUDGET');
  * Rejoue `chargerPanneauxAgglo` sur une source SIMULEE.
  * `pleines(zoom)` dit si une cellule de ce zoom rend 500 items.
  */
-async function jouer(limites, pleines, panneaux) {
+async function jouer(limites, pleines, panneaux, brut) {
   const appels = [];
   const charger = new Function(
     'ZOOM_PANNEAUX_DEPART', 'ZOOM_PANNEAUX_MAX', 'PLAFOND_API', 'demiEmprise',
@@ -78,6 +78,7 @@ async function jouer(limites, pleines, panneaux) {
     async url => {
       const zoom = Number(url.match(/zoom=(\d+)/)[1]);
       appels.push(zoom);
+      if (brut) return brut;                  // reponse imposee telle quelle (format change)
       const n = pleines(zoom) ? PLAFOND : 3;
       const rs = [];
       for (let i = 0; i < n; i++) rs.push({ panneau_code: 'B14', latitude: 0, longitude: 0 });
@@ -154,6 +155,16 @@ titre('Verrous sur le SOURCE');
     /zoomMax: SONDAGE_ZOOM_MAX, budget: SONDAGE_BUDGET/.test(src), true);
   verifier('17. ⚠️ l\'ancien drapeau `sansSubdivision` a disparu partout',
     /sansSubdivision/.test(src), false);
+}
+
+titre('⚠️ Audit du 25/09/2026 : un format de réponse CHANGÉ n\'est pas « aucun panneau »');
+{
+  const essai = async corps => { try { await jouer(SONDAGE, jamaisPleine, {}, corps); return 'lu'; }
+                                 catch (e) { return 'erreur'; } };
+  verifier('18. réponse vide mesurée ({"rs":[]}) : lue normalement', await essai('{"rs":[]}'), 'lu');
+  verifier('19. ⚠️ clé renommée ({"results":[…]}) : ERREUR, pas « aucun panneau »',
+    await essai('{"results":[{"latitude":1,"longitude":1,"panneau_code":"EB10"}]}'), 'erreur');
+  verifier('20. ⚠️ champs renommés : ERREUR', await essai('{"rs":[{"lat":1,"lng":1,"code":"EB10"}]}'), 'erreur');
 }
 
 console.log(lignes.join('\n'));

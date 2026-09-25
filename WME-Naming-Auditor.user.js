@@ -2354,7 +2354,14 @@
         if (e instanceof AnnulationDemandee) throw e;
         throw new Error('api.wazefrance.com : ' + e.message);
       }
-      const liste = (data && data.rs) || [];
+      // ⚠️ AUDIT DU 25/09/2026 : une reponse au format CHANGE se lisait « aucun panneau », mis en
+      //    memoire pour la session. On exige la forme mesuree le 25/09 (`{"rs":[…]}`, vide compris) ;
+      //    sinon c'est une ERREUR, que le sondage traduit en « incertain », jamais en « aucun ».
+      if (!data || !Array.isArray(data.rs)) throw new Error('api.wazefrance.com : format de réponse inattendu');
+      const liste = data.rs;
+      if (liste.length && !liste.some(p => p && 'panneau_code' in p && 'latitude' in p)) {
+        throw new Error('api.wazefrance.com : champs de réponse inattendus');
+      }
       // On ne garde QUE les entrees/sorties d'agglo : les B14 (limitations de
       // vitesse) ne nous apprennent rien et font l'essentiel du volume.
       for (const p of liste) {
