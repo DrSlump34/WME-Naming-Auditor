@@ -506,7 +506,7 @@ comparés **sans accents**.
     laisse des écarts à la main (`resteAlaMain`) ne barre pas la ligne.
 15. **Un avertissement n'est pas un verrou** : la suppression d'un polygone passe par « Polygone
     supprimé — Annuler » (6 s) avant l'enregistrement, pas par un `confirm`.
-16. **La charte commune des scripts** (WCT, WRP, WDA, WJN) s'applique : Rubik, #2196f3 / #2d3748,
+16. **La charte commune des scripts** (WCT, WRP, WDA, WJN) s'applique : Rubik, #2196f3 (titres, rail des interrupteurs) / #1976d2 (pastilles pleines à texte blanc, arbitrage du 25/09 : 4,60:1) / #2d3748,
     pilules, interrupteurs, fenêtre **bornée à la carte à chaque geste** (calcul de WPEU), icône
     unique, mention du pied **selon le profil** (« ⚡ dépose ses corrections… » pour un correcteur,
     « 🔒 ne modifie jamais la carte » sinon).
