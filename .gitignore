@@ -21,3 +21,6 @@ tools/ambigus-a-la-main.txt
 tools/a-isoles.txt
 tools/mots-restants.txt
 __pycache__/
+
+# Rapports d audit : conservés en local
+Audits/

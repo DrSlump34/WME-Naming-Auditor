@@ -21,7 +21,8 @@
 const fs = require('fs');
 const vm = require('vm');
 
-const src = fs.readFileSync('WME-Naming-Auditor.user.js', 'utf8');
+// Un autre fichier peut etre passe en argument (temoin : une copie volontairement cassee).
+const src = fs.readFileSync(process.argv[2] || 'WME-Naming-Auditor.user.js', 'utf8');
 
 /** Objet qui accepte tout, pour ne pas mourir sur un detail d'API. */
 function complaisant(nom) {
@@ -29,6 +30,8 @@ function complaisant(nom) {
     get(c, p) {
       if (p === Symbol.toPrimitive || p === 'toString') return () => nom;
       if (p === 'then') return undefined;              // ne pas passer pour une promesse
+      // Parcourable, et avec UN element : `[...pane.querySelectorAll(…)][0]` doit exister.
+      if (p === Symbol.iterator) return function* () { yield complaisant(nom + '[0]'); };
       if (p === 'length') return 0;
       if (p === 'style' || p === 'dataset' || p === 'classList') return complaisant(nom + '.' + String(p));
       return complaisant(nom + '.' + String(p));
@@ -46,11 +49,15 @@ const elem = () => ({
   appendChild(x) { return x; }, append() {}, prepend() {}, remove() {},
   insertBefore(x) { return x; }, setAttribute() {}, getAttribute() { return null; },
   removeAttribute() {}, addEventListener() {}, removeEventListener() {},
-  querySelector() { return null; }, querySelectorAll() { return []; },
+  querySelector() { return elem(); }, querySelectorAll() { return [elem()]; },
   closest() { return null; }, scrollIntoView() {}, focus() {}, click() {},
   getBoundingClientRect() { return { top:0, left:0, width:0, height:0, right:0, bottom:0 }; },
   innerHTML: '', outerHTML: '', textContent: '', value: '', checked: false, disabled: false,
-  options: [], files: [], onclick: null, onchange: null
+  options: [], files: [], onclick: null, onchange: null,
+  // `el()` du script rend `div.firstChild`, puis on y cherche des elements par id : la doublure
+  // doit les fournir, sans quoi le banc casse sur SA pauvrete et non sur un defaut du script.
+  get firstChild() { return elem(); }, get firstElementChild() { return elem(); }, parentElement: null,
+  cloneNode() { return elem(); }, replaceWith() {}, insertAdjacentHTML() {}, contains() { return false; }
 });
 
 const doc = {
@@ -63,15 +70,30 @@ const doc = {
   addEventListener() {}, removeEventListener() {}, hasFocus: () => true
 };
 
+// La console du bac a sable est ECOUTEE : `init()` est asynchrone, et ses echecs partent dans
+// console.error (« echec du demarrage »), sa reussite dans le journal (« pret »). Audit du 25/09/2026 :
+// ce banc sortait des la fin du chargement du FICHIER, sans attendre `init()` — un script qui ne
+// demarrait plus repondait « ok ».
+const journal = [];
 const sandbox = {
-  console: { log(){}, warn(){}, error(){}, info(){}, debug(){} },
+  console: { log: (...a) => journal.push(['log', a.map(String).join(' ')]), warn(){},
+             error: (...a) => journal.push(['error', a.map(x => (x && x.stack) || String(x)).join(' ')]), info(){}, debug(){} },
   document: doc,
   navigator: { language: 'fr-FR', languages: ['fr-FR'], clipboard: { readText: async () => '' },
                storage: { estimate: async () => ({ usage:0, quota:0 }) }, userAgent: 'node' },
   location: { href: 'https://www.waze.com/fr/editor', hostname: 'www.waze.com', search: '' },
   localStorage: { getItem: () => null, setItem() {}, removeItem() {}, key: () => null, length: 0 },
   sessionStorage: { getItem: () => null, setItem() {}, removeItem() {}, length: 0 },
-  indexedDB: complaisant('indexedDB'),
+  // Une base VIDE qui repond : `restaurerContours` l'attend au demarrage, et un objet qui ne
+  // declenche jamais `onsuccess` laissait init() suspendu pour toujours.
+  indexedDB: { open() {
+    const store = {}, req = { result: null };
+    const db = { createObjectStore() {}, transaction() { const tx = { objectStore: () => ({
+      get(k) { const r = {}; setTimeout(() => { r.result = store[k]; r.onsuccess && r.onsuccess(); }, 0); return r; },
+      put(v, k) { store[k] = v; setTimeout(() => tx.oncomplete && tx.oncomplete(), 0); } }) }; return tx; } };
+    req.result = db;
+    setTimeout(() => req.onsuccess && req.onsuccess(), 0);
+    return req; } },
   performance: { now: () => 0, memory: { usedJSHeapSize:0, totalJSHeapSize:0, jsHeapSizeLimit:0 } },
   MutationObserver: class { observe() {} disconnect() {} },
   ResizeObserver:  class { observe() {} disconnect() {} },
@@ -92,6 +114,8 @@ const sandbox = {
   SDK_INITIALIZED: Promise.resolve(true),
   W: complaisant('W')
 };
+sandbox.addEventListener = () => {}; sandbox.removeEventListener = () => {};
+sandbox.innerWidth = 1920; sandbox.innerHeight = 1080;
 sandbox.window = sandbox;
 sandbox.unsafeWindow = sandbox;
 sandbox.globalThis = sandbox;
@@ -115,5 +139,23 @@ if (erreur) {
   console.log('     et que rien ne le dira : la console de Tampermonkey n est pas tracee.\n');
   process.exit(1);
 }
-console.log('\n  ok   le script se charge sans lever  (1 verification)\n');
-process.exit(0);
+console.log('\n  ok   le script se charge sans lever');
+
+// Puis on ATTEND la fin de `init()` : « pret » dans le journal, ou « echec du demarrage ».
+const debut = Date.now();
+(function attendre() {
+  const echec = journal.find(([k, m]) => k === 'error' && /echec du demarrage/.test(m));
+  const pret = journal.find(([k, m]) => k === 'log' && /\bpret\b/.test(m));
+  if (echec) {
+    console.log('\n  ECHEC — init() a leve pendant le demarrage :\n');
+    console.log('  ' + echec[1].split('\n').slice(0, 5).join('\n  '));
+    console.log('\n  ⚠️ Le fichier se charge, mais le script ne DEMARRE pas dans WME.\n');
+    process.exit(1);
+  }
+  if (pret) { console.log('  ok   init() est alle jusqu au bout  (2 verifications)\n'); process.exit(0); }
+  if (Date.now() - debut > 15000) {
+    console.log('\n  ECHEC — init() ne s est ni termine ni plante en 15 s (une attente qui ne rend jamais la main ?).\n');
+    process.exit(1);
+  }
+  setTimeout(attendre, 50);
+})();

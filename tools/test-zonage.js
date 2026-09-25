@@ -13,7 +13,7 @@
 'use strict';
 const fs = require('fs');
 
-const src = fs.readFileSync('WME-Naming-Auditor.user.js', 'utf8');
+const src = fs.readFileSync(process.argv[2] || 'WME-Naming-Auditor.user.js', 'utf8');
 
 /** Extrait le texte d'une fonction nommee, accolades equilibrees. */
 function extraire(nom) {
@@ -29,7 +29,7 @@ function extraire(nom) {
 }
 
 // ⚠️ `partCote` doit etre extraite AVANT `partDedans`, qui l'appelle.
-const NOMS = ['pointInRing', 'pointInRings', 'pointInGeom', 'longueur', 'partCote', 'partDedans'];
+const NOMS = ['pointInRing', 'pointInRings', 'pointInGeom', 'longueur', 'partCote', 'partDedans', 'localiser'];
 const code = NOMS.map(extraire).join('\n\n');
 // ⚠️ Les constantes dont dependent ces fonctions sont RELUES dans le source, pas
 // recopiees : une valeur figee ici testerait autre chose que ce qui tourne.
@@ -39,9 +39,11 @@ const CONSTANTES = ['PROF_SUBDIV'].map(n => {
   return 'const ' + n + ' = ' + m[1] + ';';
 }).join('\n');
 const ctx = {};
-new Function('ctx', CONSTANTES + '\n' + code + '\n' +
+// `localiser` lit la commune ACTIVE (variable du script) : le banc la fournit par ctx.setCommune.
+new Function('ctx', CONSTANTES + '\n' +
+             'let communeActive = null; ctx.setCommune = c => { communeActive = c; };\n' + code + '\n' +
              NOMS.map(n => `ctx.${n}=${n};`).join('')).call(null, ctx);
-const { pointInRing, pointInRings, pointInGeom, longueur, partDedans } = ctx;
+const { pointInRing, pointInRings, pointInGeom, longueur, partDedans, localiser } = ctx;
 
 // ── outils de test ─────────────────────────────────────────────────────────
 let ok = 0, ko = 0;
@@ -142,14 +144,14 @@ verifier('MultiPolygon, entre les deux', pointInGeom(3, 3, MP), false);
 verifier('geometrie absente', pointInGeom(0, 0, null), false);
 verifier('type inconnu (LineString)', pointInGeom(0, 0, { type: 'LineString', coordinates: [] }), false);
 
-// ── recomposition de `localiser` : on reproduit SA formule pour mesurer le
-// comportement du cumul de parts sur des polygones qui se chevauchent.
+// ── `localiser` lui-meme, EXTRAIT du script. Jusqu'au 25/09/2026 cette section RECOPIAIT sa
+// formule (« on reproduit SA formule »), et un retour au defaut v2.08 (somme des parts) passait
+// au vert — mesure par mutation lors de l'audit. Seule l'ANCIENNE formule reste ecrite ici, en temoin.
 console.log('\n=== 7. POLYGONES QUI SE CHEVAUCHENT : le cumul des parts ===');
-// Depuis la v2.08, `localiser` mesure la part de l'UNION et non la somme des
-// parts. On reproduit les DEUX formules pour montrer ce que le correctif change.
+// La commune active couvre tout : seule la part d'agglomeration est en jeu.
+ctx.setCommune({ geom: { type: 'Polygon', coordinates: [[[-10, -10], [10, -10], [10, 10], [-10, 10], [-10, -10]]] } });
 function partUnion(coords, anneaux) {
-  const rr = partDedans(coords, (x, y) => anneaux.some(ring => pointInRings(x, y, [ring])));
-  return rr.total ? rr.dans / rr.total : 0;
+  return localiser(coords, anneaux.map(ring => ({ ring }))).partAgglo;
 }
 function partSommeAncienne(coords, anneaux) {
   let s = 0;

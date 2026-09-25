@@ -24,7 +24,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const FICHIER = path.join(__dirname, '..', 'WME-Naming-Auditor.user.js');
+const FICHIER = process.argv[2] || path.join(__dirname, '..', 'WME-Naming-Auditor.user.js');
 const src = fs.readFileSync(FICHIER, 'utf8');
 
 // Formes sans ambiguite grammaticale, reprises du dictionnaire de tools/accentuer.py.
@@ -74,9 +74,21 @@ const guidage = iG < 0 ? [] :
 // l apostrophe TYPOGRAPHIQUE ; l apostrophe droite et le + n appartiennent qu au code.
 const estPhrase = t => /\s\S+\s/.test(t)
     && !/[;(){}[\]=+'"\\]|\/\/|\$\{/.test(t);
-const morceaux = [...titres, ...balises, ...guidage]
+// ⚠️ Troisieme resserrage (audit du 25/09/2026) : depuis l'italien, le controle etait ROUGE EN
+// PERMANENCE — ses 14 alertes portaient toutes sur « numero », qui s'ecrit ainsi en italien.
+// Un controle toujours rouge ne voit plus rien. Une phrase qui porte un mot-outil italien est
+// ecartee (et comptee : le perimetre le dit).
+// Pas de « il » ni de « porta » : ils sont aussi francais (« il porta »), et une phrase francaise
+// ecartee a tort serait une faute invisible.
+const RE_ITALIEN = /(^|[^a-zà-ÿ])(di|della|dello|dei|degli|nel|nella|dalla|dal|senza|strada|civico|abitato|uscita|unito|fuori|luogo|preciso|mancante|è)(?=$|[^a-zà-ÿ])/i;
+// Marques FRANCAISES qui ne peuvent pas etre italiennes (« è », « la », « le » le peuvent).
+const estItalien = t => RE_ITALIEN.test(t) && !/[éêç]|\b(les|des|du|une|est|aux)\b/i.test(t);
+const tous = [...titres, ...balises, ...guidage]
     .map(t => t.replace(/\s+/g, ' ').trim())
     .filter(t => t.length >= 12 && estPhrase(t));
+const italiens = tous.filter(estItalien);
+const morceaux = tous.filter(t => !estItalien(t));
+console.log('  (phrases italiennes ecartees : ' + italiens.length + ')');
 
 console.log('\n— Ce qui a ete lu —');
 console.log('  infobulles title= : ' + titres.length);
