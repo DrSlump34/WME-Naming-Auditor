@@ -4747,15 +4747,21 @@
     // On le ramene donc a son nom seul AVANT tout raisonnement : si le bon nom
     // existe deja ailleurs, les deux se confondent et il n'y a plus d'ecart
     // fantome ; s'il est le seul, la cible proposee est le nom PROPRE.
+    // ⚠️⚠️ AUDIT DU 25/09/2026 (A2) : le composite porte DEUX informations, pas une. Ne garder
+    // que le nom jetait le numero : « D980 - Route de Bagnols » SEUL hors agglomeration donnait
+    // pour cible « Route de Bagnols » sans ville en principal — un nom de rue la ou la regle veut
+    // le numero — et le ⚡ l'ecrivait, effacant la D980 du segment. On le scinde donc en ses deux
+    // morceaux, et les cas C/R/H ci-dessous les rangent comme s'ils etaient deja separes.
     const nettoyer = e => {
       const m = (e.name || '').match(REF.reNomComposite);
-      return m ? { name: m[2].trim(), cityName: e.cityName,
-                   signText: e.signText, signType: e.signType } : e;
+      return m ? [{ name: m[1].replace(/\s+/g, ''), cityName: e.cityName,
+                    signText: e.signText, signType: e.signType },
+                  { name: m[2].trim(), cityName: e.cityName }] : [e];
     };
     const vues = new Set();
     const entries = [nam.primary, ...nam.alts]
       .filter(e => e.name || e.cityName)
-      .map(nettoyer)
+      .flatMap(nettoyer)
       // Le nettoyage peut creer des doublons (« N580 - Route d'Avignon » et
       // « Route d'Avignon » deviennent identiques) : on les fond en un seul,
       // sinon le doute « plusieurs noms de rue » se declencherait a tort.
@@ -4768,9 +4774,13 @@
     const noms = entries.filter(e => e.name && !isRoute(e));
     const route = routes[0] || null, nomRue = noms[0] || null;
 
+    // ⚠️ On compte des LIBELLES, pas des entrees (audit du 25/09/2026) : « D980 » sans ville en
+    // principal et « D980 / commune » en alternatif, c'est le nommage H6 CONFORME — un seul
+    // numero. Compte en entrees, il levait « plusieurs numeros » sur tous les segments justes.
+    const libelles = l => new Set(l.map(e => (e.name || '').trim().toLowerCase())).size;
     let doute = null;
-    if (routes.length > 1) doute = 'plusieurs numéros de route sur le segment';
-    else if (noms.length > 1) doute = 'plusieurs noms de rue — noms alternatifs reels ?';
+    if (libelles(routes) > 1) doute = 'plusieurs numéros de route sur le segment';
+    else if (libelles(noms) > 1) doute = 'plusieurs noms de rue — noms alternatifs reels ?';
 
     const P = (name, city) => ({ name: name || '', cityName: city || '' });
 

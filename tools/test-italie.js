@@ -207,8 +207,10 @@ titre('🔴 Le nom composite est LÉGITIME en Italie (et interdit en France)');
     rIt.primary.name, 'A4 – Bergamo');
 
   const rFr = FR.expectedNaming(nam(['A4 – Bergamo', 'X']), ZONE, 'X');
-  verifier('33. ⚠️ … là où la règle FR l\'ampute — le défaut évité',
-    rFr.primary.name, 'Bergamo');
+  // ⚠️ Audit du 25/09/2026 (A2) : la règle FR ne jette plus le numéro, elle SCINDE le composite ;
+  //    « A4 » est une autoroute, donc cas A. L'Italie, elle, garde le nom INTACT (32).
+  verifier('33. ⚠️ … là où la règle FR le scinde — le défaut évité',
+    rFr.primary.name, 'A4');
 
   const rFr2 = FR.expectedNaming(nam(['D980 - Route de Bagnols', 'X']), ZONE, 'X');
   verifier('34. … et la règle FR reste juste chez elle',
