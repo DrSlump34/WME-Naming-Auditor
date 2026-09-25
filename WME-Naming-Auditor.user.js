@@ -10803,7 +10803,8 @@
     const red = cur.find(e => e.champ === 'rédaction (dictionnaire FR)');
     if (red && red.apres && !red.sansProposition &&
         !ops.some(o => o.type === 'principal')) {
-      ops.push({ type: 'principal', nom: red.apres, ville: f.villeActuelle || '' });
+      // `garderVille` : a l'ecriture, la ville est RELUE sur le segment (audit 25/09/2026, A10).
+      ops.push({ type: 'principal', nom: red.apres, ville: f.villeActuelle || '', garderVille: true });
     }
     for (const e of cur) {
       if (e.champ !== 'alt manquant') continue;
@@ -11350,6 +11351,16 @@
         : 'segment(s) verrouille(s) au-dessus de ton niveau' };
     }
     const bloques = tous.length - ids.length;
+    // ⚠️⚠️ AUDIT DU 25/09/2026 (A5, C1, A8, A10) : TOUT CE QUI PEUT ECHOUER SE VERIFIE AVANT LA
+    // PREMIERE ECRITURE. Avant, le principal s'ecrivait d'abord ; si l'alternatif echouait
+    // ensuite (« commune absente »), le bilan disait « Échec » alors qu'une ecriture attendait
+    // l'enregistrement. Et le principal, ecrit en clair, ne verifiait meme pas que sa ville
+    // existe — la doctrine « on ne cree jamais de commune » ne tenait que pour l'alternatif.
+    const preparation = preparerEcriture(plan, ids);
+    if (preparation.motif) return { ok: false, motif: preparation.motif + ' — rien n\'a été écrit' };
+    const { adresses, nomsAvant } = preparation;
+    const avertissements = [];
+    let ecrits = 0;
     try {
       for (const op of plan) {
         if (op.type === 'cartouchePrincipal') {
@@ -11358,15 +11369,23 @@
           if (!ecrireCartouche(op.streetId, op.signText, op.signType)) {
             throw new Error('cartouche : la rue n\'est pas encore chargée — réessaie');
           }
+          ecrits++;
         } else if (op.type === 'principal') {
           // Nom principal : ecriture BRUTE (SDK v2.359). Plus besoin de resoudre
           // ni de creer City/Street — et « sans nom » / « sans ville » s'ecrivent
           // avec une chaine vide, au lieu de retrouver les objets vides.
-          ids.forEach(id => sdk.DataModel.Segments.updateAddress({
-            segmentId: id,
-            addressData: Object.assign({ streetName: op.nom || '', cityName: op.ville || '' },
-                                       contexteAdresse(id))
-          }));
+          // ⚠️ A10 : une correction de REDACTION garde la ville RELUE a l'instant sur le segment,
+          //    pas celle de l'analyse — perimee, ou vide si l'API n'avait pas livre les villes.
+          ids.forEach(id => {
+            const a = adresses.get(id);
+            sdk.DataModel.Segments.updateAddress({
+              segmentId: id,
+              addressData: { streetName: op.nom || '',
+                             cityName: op.garderVille ? a.ville : (op.ville || ''),
+                             stateId: a.stateId, countryId: a.countryId }
+            });
+            ecrits++;
+          });
         } else {
           // Alternatif : `addAlternateStreet` veut un ID, donc on resout encore.
           // On n'utilise PAS `alternateStreetIds` de `addressData` : il REMPLACE
@@ -11374,22 +11393,65 @@
           const rue = resoudreStreet(op.nom, op.ville);
           if (!rue) throw new Error('rue « ' + op.nom + ' » introuvable');
           sdk.DataModel.Segments.addAlternateStreet({ segmentIds: ids, streetId: rue.id });
+          ecrits++;
           // Le cartouche ne suit pas tout seul : voir `cartoucheAReprendre`.
           // On ne touche a rien si la rue en porte deja un — elle est PARTAGEE,
           // et l'ecraser deborderait sur tous les segments qui l'utilisent.
+          // ⚠️ A8 : la source se cherche dans les nommages lus AVANT toute ecriture. Relus ici,
+          //    ils avaient deja perdu le principal « D26 » qui portait l'ecusson, remplace par le
+          //    nom de rue une op plus tot — et le numero arrivait en alternatif tout nu.
           if (!cartoucheDeStreet(rue.id)) {
-            const src = cartoucheAReprendre(op.nom, ids.map(id => {
-              try { return readNaming({ id: id }); } catch (e) { return null; }
-            }));
-            if (src) ecrireCartouche(rue.id, src.signText, src.signType);
+            const src = cartoucheAReprendre(op.nom, nomsAvant);
+            if (src && !ecrireCartouche(rue.id, src.signText, src.signType)) {
+              avertissements.push('cartouche de « ' + op.nom + ' » non reporté : pose-le à la main');
+            }
           }
         }
       }
-      return { ok: true, nb: ids.length, ops: plan.length, bloques };
+      return { ok: true, nb: ids.length, ops: plan.length, bloques,
+               partiel: avertissements.length > 0, avertissement: avertissements.join(' · ') };
     } catch (e) {
       log('correction impossible', e);
-      return { ok: false, motif: e.message || String(e) };
+      return { ok: false, motif: (e.message || String(e)) + (ecrits
+        ? ' — ⚠️ ' + ecrits + ' écriture(s) déjà posée(s) : Ctrl+Z pour les annuler avant d\'enregistrer'
+        : '') };
     }
+  }
+
+  /**
+   * Ce qu'il faut savoir AVANT d'ecrire (audit du 25/09/2026, A5/C1/A8/A10). Rend
+   * `{ motif }` si la correction doit etre refusee en bloc, sinon `{ adresses, nomsAvant }` :
+   * le contexte administratif et la ville actuelle de chaque segment, et les nommages tels
+   * qu'ils sont avant la premiere ecriture.
+   */
+  function preparerEcriture(plan, ids) {
+    const adresses = new Map();
+    for (const id of ids) {
+      let a = null;
+      try { a = sdk.DataModel.Segments.getAddress({ segmentId: id }); } catch (e) { a = null; }
+      // ⚠️ `updateAddress` REFUSE une adresse brute sans `stateId` (v2.09).
+      if (!a || !a.state || a.state.id == null) {
+        return { motif: 'contexte administratif introuvable (État/pays) sur le segment ' + id +
+                        ' : zoome sur la zone puis réessaie' };
+      }
+      adresses.set(id, { stateId: a.state.id, countryId: a.country && a.country.id,
+                         ville: (a.city && !a.city.isEmpty && a.city.name) ? a.city.name : '' });
+    }
+    // ⚠️⚠️ ON NE CREE JAMAIS DE COMMUNE (doctrine de l'auteur, 25/07) — ni en alternatif, ni en
+    // principal. Une ville absente de Waze arrete TOUT le plan, avant la moindre ecriture.
+    for (const op of plan) {
+      if ((op.type !== 'principal' && op.type !== 'alt') || op.garderVille) continue;
+      if (op.ville) {
+        let c = null;
+        try { c = sdk.DataModel.Cities.getCity({ cityName: op.ville }); } catch (e) { c = null; }
+        if (!c) return { motif: 'commune « ' + op.ville + ' » absente de Waze : le script ne crée ' +
+                                'pas de commune. Vérifie ou crée-la à la main, puis relance' };
+      } else if (op.type === 'alt' && !villeVide()) {
+        return { motif: 'ville vide introuvable dans la zone chargée : zoome puis réessaie' };
+      }
+    }
+    const nomsAvant = ids.map(id => { try { return readNaming({ id: id }); } catch (e) { return null; } });
+    return { adresses, nomsAvant };
   }
 
   function nbModifsEnAttente() {

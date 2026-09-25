@@ -65,7 +65,7 @@ verifier('principal + alternatif manquant : deux ecritures, dans cet ordre',
          sansCandidats(plan(CAS.principalEtAlt)),
          [{ type: 'principal', nom: 'D26', ville: '' }, { type: 'alt', nom: 'Route de Bagnols', ville: 'Bollène' }]);
 verifier('redaction : le nom redresse, la ville reprise telle quelle',
-         sansCandidats(plan(CAS.redaction)), [{ type: 'principal', nom: 'Rue des Écoles', ville: 'Bollène' }]);
+         sansCandidats(plan(CAS.redaction)), [{ type: 'principal', nom: 'Rue des Écoles', ville: 'Bollène', garderVille: true }]);
 verifier('redaction sans proposition (capitales) : rien', plan(CAS.redactionCapitales), null);
 
 console.log('\n=== 3. Ce qui ne doit JAMAIS ecrire ===');

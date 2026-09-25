@@ -224,7 +224,7 @@ const RED = { champ: 'rédaction (dictionnaire FR)', avant: 'Av. du Chateau',
 
 verifier('13. ⚡ la redaction devient une operation sur le nom principal',
   api.planDeCorrection(report([RED])),
-  [{ type: 'principal', nom: 'Avenue du Château', ville: 'Nîmes' }]);
+  [{ type: 'principal', nom: 'Avenue du Château', ville: 'Nîmes', garderVille: true }]);
 
 verifier('14. ⚠️⚠️ la VILLE est reprise telle quelle — l\'omettre l\'EFFACERAIT',
   api.planDeCorrection(report([RED], { villeActuelle: 'Uzès' }))[0].ville, 'Uzès');
@@ -265,7 +265,7 @@ verifier('20. le report deja traite ne fabrique plus rien',
 verifier('21. la redaction se cumule avec un alternatif manquant',
   api.planDeCorrection(report([RED,
     { champ: 'alt manquant', avant: '', apres: 'D62 / ‹sans ville›' }])),
-  [{ type: 'principal', nom: 'Avenue du Château', ville: 'Nîmes' },
+  [{ type: 'principal', nom: 'Avenue du Château', ville: 'Nîmes', garderVille: true },
    { type: 'alt', nom: 'D62', ville: '' }]);
 
 // ---------------------------------------------------------------------------
@@ -293,7 +293,7 @@ verifier('22a. ⚠️⚠️ la fabrique du socle pose bien `villeActuelle`',
 verifier('22b. ⚠️⚠️ `villeActuelle` n\'a qu\'UNE source dans tout le script',
   (src.match(/villeActuelle:/g) || []).length === 1, true);
 verifier('23. ⚠️ l\'ecriture passe par `updateAddress` (le segment), pas par un renommage de Street',
-  /op\.type === 'principal'[\s\S]{0,400}updateAddress/.test(src), true);
+  /op\.type === 'principal'[\s\S]{0,900}updateAddress/.test(src), true);
 
 console.log(lignes.join('\n'));
 console.log('\n' + (ok + ko) + ' verifications OK, ' + ko + ' ECHEC(S)\n');

@@ -240,7 +240,7 @@ verifier('36. les espaces autour du nom ne font pas rater la source',
 // Verrou de CONTRAT : la pose doit être branchée là où l'alternatif s'écrit,
 // et NE PAS écraser le cartouche d'une Street existante (elle est partagée).
 verifier('37. la reprise est branchée après addAlternateStreet',
-  /addAlternateStreet\(\{ segmentIds: ids, streetId: rue\.id \}\);\s*\n(?:\s*\/\/[^\n]*\n)*\s*if \(!cartoucheDeStreet\(rue\.id\)\)/.test(src), true);
+  /addAlternateStreet\(\{ segmentIds: ids, streetId: rue\.id \}\);\s*\n(?:\s*ecrits\+\+;\s*\n)?(?:\s*\/\/[^\n]*\n)*\s*if \(!cartoucheDeStreet\(rue\.id\)\)/.test(src), true);
 verifier('38. une Street qui porte déjà un cartouche n\'est jamais réécrite',
   /if \(!cartoucheDeStreet\(rue\.id\)\)/.test(src), true);
 
