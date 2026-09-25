@@ -2674,11 +2674,11 @@
     if (prog) prog.etape('Téléchargement des contours', liste.length);
     for (let i = 0; i < liste.length; i++) {
       const d = liste[i];
-      if (prog) { prog.verifier(); prog.fixer(i).sous('departement ' + d); await prog.respirer(true); }
+      if (prog) { prog.verifier(); prog.fixer(i).sous('département ' + d); await prog.respirer(true); }
       try {
         const fc = JSON.parse(await telecharger(REF.sourceContours.url(d), prog));
         const lot = (fc.features || []).filter(f => f && f.geometry);
-        if (!lot.length) throw new Error('aucun contour renvoye');
+        if (!lot.length) throw new Error('aucun contour renvoyé');
         features.push(...lot);
       } catch (e) {
         if (e && e.annulation) throw e;
@@ -2686,7 +2686,7 @@
       }
       if (prog) prog.fixer(i + 1);
     }
-    if (!features.length) throw new Error('rien de recupere' + (echecs.length ? ' — ' + echecs[0] : ''));
+    if (!features.length) throw new Error('rien de récupéré' + (echecs.length ? ' — ' + echecs[0] : ''));
     if (prog) { prog.etape('Mise en base des contours', 0).sous(features.length + ' communes'); await prog.respirer(true); }
     const nomSource = REF.sourceContours.nomSource(liste);
     const res = chargerFeatureCollection({ type: 'FeatureCollection', features }, nomSource);
@@ -5493,7 +5493,7 @@
       'Filtrer une province…': 'Filtra una provincia…',
       'Province ISTAT (Bergamo = 16, Milano = 15…). ~270 Ko par province.':
         'Provincia ISTAT (Bergamo = 16, Milano = 15…). ~270 KB per provincia.',
-      'Sigles écrites avec un espace (« SS 12 » au lieu de « SS12 »)':
+      'Sigles écrits avec un espace (« SS 12 » au lieu de « SS12 »)':
         'Sigle scritte con uno spazio (« SS 12 » invece di « SS12 »)',
       'Dates en chiffres romains (« Via IV Novembre »)':
         'Date in numeri romani (« Via IV Novembre »)',
@@ -6308,8 +6308,6 @@
         'filtra per nome o codice INSEE…',
       'La commune sur laquelle porte l\'analyse. Celle qui est sous le centre de la carte est remontée en tête de liste.':
         'Il comune su cui verte l\'analisi. Quello sotto il centro della mappa è portato in cima all\'elenco.',
-      'Récupère les panneaux EB10 / EB20 (entrée et sortie d\'agglomération) et les confronte aux polygones traces.':
-        'Recupera i cartelli EB10 / EB20 (ingresso e uscita del centro abitato) e li confronta con i poligoni tracciati.',
       'Fabrique un polygone par groupe d\'entrées d\'agglomération. Tracé grossier, à ajuster aux poignées.':
         'Crea un poligono per ogni gruppo di ingressi del centro abitato. Tracciato approssimativo, da regolare con le maniglie.',
       'Entoure à la main, sur la carte, la zone bâtie — celle entre les panneaux d\'entrée et de sortie d\'agglomération, PAS la limite de commune (double-clic pour fermer le tracé)':
@@ -6525,7 +6523,7 @@
         "Dove vedere i risultati",
       "ℹ️ Tableau et carte":
         "ℹ️ Tabella e mappa",
-      "Tableau et carte se choisissent séparément. La carte ne suit plus l'onglet ouvert : on peut lister les numéros en gardant les segments surlignes.":
+      "Tableau et carte se choisissent séparément. La carte ne suit plus l'onglet ouvert : on peut lister les numéros en gardant les segments surlignés.":
         "Tabella e mappa si scelgono separatamente. La mappa non segue più la scheda aperta: si possono elencare i numeri civici mantenendo evidenziati i segmenti.",
       "tableau":
         "tabella",
@@ -8061,7 +8059,7 @@
         { cle: 'majuscule', portee: 'forme',
           libelle: 'Nom commençant par une minuscule' },
         { cle: 'sigleEspace', portee: 'forme',
-          libelle: 'Sigles écrites avec un espace (« SS 12 » au lieu de « SS12 »)' },
+          libelle: 'Sigles écrits avec un espace (« SS 12 » au lieu de « SS12 »)' },
         // ⚠️ Ne touche QUE les dates : les papes et les rois gardent leurs
         //    chiffres romains (« Papa Giovanni XXIII »).
         { cle: 'dateRomaine', portee: 'forme',
@@ -12894,7 +12892,7 @@
               <div class="agn-sb-n" id="agn-voies">Délimite la <b>zone bâtie</b> — entre les panneaux
                 d’entrée et de sortie d’agglo, pas la limite de commune. Relève les panneaux,
                 tires-en un tracé, ou dessine à la main.</div>
-              <button class="agn-btn" id="agn-panneaux" disabled title="Récupère les panneaux EB10 / EB20 (entrée et sortie d'agglomération) et les confronte aux polygones traces.">🪧 Panneaux d'agglomération</button>
+              <button class="agn-btn" id="agn-panneaux" disabled title="Récupère les panneaux EB10 / EB20 (entrée et sortie d'agglomération) et les confronte aux polygones tracés.">🪧 Panneaux d'agglomération</button>
               <button class="agn-btn" id="agn-pretrace" disabled title="Fabrique un polygone par groupe d'entrées d'agglomération. Tracé grossier, à ajuster aux poignées.">✏️ Proposer un tracé</button>
               <button class="agn-btn" id="agn-tracer" disabled title="Entoure à la main, sur la carte, la zone bâtie — celle entre les panneaux d'entrée et de sortie d'agglomération, PAS la limite de commune (double-clic pour fermer le tracé)">＋ Tracer l'agglomération</button>
               <div id="agn-prog-panneaux"></div>
@@ -14109,7 +14107,7 @@
           ${sect('resultats', 'Où voir les résultats', `
             ${aide('ℹ️ Tableau et carte', `Tableau et carte se choisissent séparément. La carte
               ne suit plus l'onglet ouvert : on peut lister les numéros en gardant
-              les segments surlignes.`)}
+              les segments surlignés.`)}
             <div class="agn-sb-oc"><b>Segments</b>
               <label class="agn-sb-c"><input type="checkbox" id="agn-r-segtable" title="Lister les écarts de nommage dans l'onglet Segments"> tableau</label>
               <label class="agn-sb-c"><input type="checkbox" id="agn-r-segcarte" title="Surligner les segments en écart sur la carte"> carte</label></div>
