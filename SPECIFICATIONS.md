@@ -1,7 +1,8 @@
 # WNA — WME Naming Auditor · Dossier de spécifications
 
-> **Version du code décrite ici : 2.39.00** (lue dans le bloc `==UserScript==` de
-> `WME-Naming-Auditor.user.js`).
+> **Version du code décrite ici : 2.50.03** (lue dans le bloc `==UserScript==` de
+> `WME-Naming-Auditor.user.js`). **France et Italie** — le portage italien est en phase de test.
+> Mise à jour du 25/09/2026, après l'audit `Audits/AUDIT-2026-09-25.md` (non versionné).
 > Diffusé sur **GreasyFork 588554**, dépôt `github.com/DrSlump34/WME-Naming-Auditor`,
 > fil Discuss **410907**.
 
@@ -11,7 +12,7 @@
 
 Ce document est le **dossier de reprise** du projet : il doit permettre à quelqu'un — humain ou
 IA — qui n'a jamais vu ce code de comprendre **ce que fait l'outil, pourquoi il est fait ainsi, et
-ce qu'il ne faut pas casser**, sans lire les 12 675 lignes du script.
+ce qu'il ne faut pas casser**, sans lire les 16 400 lignes du script.
 
 | Document | Rôle |
 |---|---|
@@ -92,7 +93,8 @@ aires d'autoroute, pour lesquelles WNA exigeait d'ajouter une ville que la règl
 - Confronter les noms au **dictionnaire communautaire français** de *WME Check Road Name*.
 - Auditer l'**adressage** : numéros de rue (HN), POI résidentiels (RPP), et l'**adresse des vrais
   POI** (rue, commune, numéro).
-- Charger les **contours communaux** — par département, directement depuis `geo.api.gouv.fr`, ou
+- Charger les **contours communaux** — en France par département, directement depuis
+  `geo.api.gouv.fr` ; en Italie par province, depuis `openpolis/geojson-italy` (limites ISTAT) ; ou
   depuis un fichier GeoJSON fourni par l'éditeur.
 - **Sonder les panneaux EB10** de la commune pour proposer un pré-tracé d'agglomération.
 - **Partager** les polygones tracés via un dépôt communautaire.
@@ -106,8 +108,10 @@ aires d'autoroute, pour lesquelles WNA exigeait d'ajouter une ville que la règl
 - **Il n'écrit pas la norme, il l'applique.** Un contrôle qui exprimerait une préférence et non une
   règle écrite est livré comme une **mesure** — décoché par défaut, sans bouton de correction, et
   le report dit explicitement que ce n'est pas un écart (`hnSurRoute`).
-- **Il ne travaille qu'en France** (§ 10), et refuse de le faire ailleurs plutôt que d'appliquer
-  des règles françaises à un autre pays.
+- **Il ne travaille qu'en France et en Italie** (§ 10), chacune avec **son** référentiel, et refuse
+  de le faire ailleurs plutôt que d'appliquer les règles d'un pays à un autre.
+- **Il ne crée jamais de commune.** Une ville absente de Waze arrête la correction entière, avant la
+  moindre écriture (§ 11).
 - **Il n'envoie aucun contenu.** Les six hôtes joints sont en lecture seule ; les seuls paramètres
   transmis sont un numéro de département et les coordonnées de la vue.
 
@@ -127,13 +131,16 @@ aires d'autoroute, pour lesquelles WNA exigeait d'ajouter une ville que la règl
 | **Report** | Un écart constaté, avec son état actuel, son état cible et son explication. |
 | **Famille** | Regroupement de reports par nature, chacune avec sa couleur sur la carte. |
 | **CRN** | *WME Check Road Name* — le script tiers dont WNA emprunte le dictionnaire de rédaction FR. |
-| **Référentiel** | L'objet qui porte **tout le franco-français** (`REFERENTIELS.FR`). |
+| **Référentiel** | L'objet qui porte **tout ce qui est national** : `REFERENTIELS.FR`, `REFERENTIELS.IT`. |
+| **Institut** | L'organisme dont les contours font foi : **INSEE** en France, **ISTAT** en Italie (`REF.libelleCode`). |
 
 ---
 
 ## 4. Utilisateurs
 
-Des **éditeurs Waze français**, du débutant au rang élevé. Le script est employé commune par
+Des **éditeurs Waze français et italiens**, du débutant au rang élevé. L'interface et l'aide
+existent en **français et en italien** (langue du profil WME) ; la langue est un axe indépendant du
+pays regardé — un éditeur italien qui travaille en France lit les règles françaises en italien. Le script est employé commune par
 commune : on charge les contours, on trace l'agglomération une fois, on analyse, on corrige, on
 enregistre soi-même.
 
@@ -151,7 +158,8 @@ Deux exigences d'interface qui viennent de retours réels :
 
 ### 5.1 Un seul fichier livré
 
-`WME-Naming-Auditor.user.js` — **12 675 lignes, ~700 Ko**, aucun `@require`.
+`WME-Naming-Auditor.user.js` — **~16 400 lignes, ~990 Ko**, aucun `@require`. L'en-tête déclare
+`@downloadURL` et `@updateURL` (GreasyFork 588554) : le gestionnaire de scripts suit les mises à jour.
 
 `@grant` : `GM_xmlhttpRequest`, `GM_getValue`, `GM_setValue`. `@run-at document-idle`.
 
@@ -164,11 +172,11 @@ script est chargé autrement (test).
 
 | Hôte | Usage |
 |---|---|
-| `geo.api.gouv.fr` | Contours communaux (API Découpage administratif) |
-| `api.wazefrance.com` | Source de contours alternative |
+| `geo.api.gouv.fr` | Contours communaux français (API Découpage administratif), et le département sous la vue |
+| `api.wazefrance.com` | **Panneaux EB10 / EB20** relevés (§ 13), **sondés automatiquement** pour la commune choisie |
 | `docs.google.com`, `googleusercontent.com` | Dictionnaire de rédaction FR |
-| `raw.githubusercontent.com` | Import d'un fichier de partage par son adresse |
-| `update.greasyfork.org` | Savoir si une version plus récente est publiée |
+| `raw.githubusercontent.com` | **Contours italiens** (`openpolis/geojson-italy`, branche `master` non épinglée) et import d'un fichier de partage par son adresse |
+| `update.greasyfork.org` | Savoir si une version plus récente est publiée — **au plus une fois par 24 h** |
 
 **Ce sont toutes des lectures.** Rien de ce que l'éditeur édite ne quitte le navigateur.
 
@@ -228,7 +236,7 @@ segment est signalé **à couper**, puisque le bon nommage dépend de l'endroit 
 
 **Le bilan les compte à part plutôt que de les taire.**
 
-### 6.4 L'état cible — `expectedNaming(nam, agglo, nomCommune)`
+### 6.4 L'état cible — `expectedNaming(nam, agglo, nomCommune, opts)`
 
 Fonction **pure**, cœur du logigramme C/R/H (commune / rue / hors agglo). Elle rend l'état de
 nommage attendu, plus un éventuel `doute`.
@@ -236,16 +244,21 @@ nommage attendu, plus un éventuel `doute`.
 Trois règles à préserver :
 
 1. **Un nom composite « Dxxx - Nom de la route » ne sert jamais de cible.** Ce format est
-   **interdit** (ancienne règle FR abandonnée). Avant tout raisonnement, il est ramené à son nom
-   seul (`RE_NOM_COMPOSITE`). Sans ce nettoyage, le script réclamait d'**ajouter**
-   « N580 - Route d'Avignon » en alternatif — c'est-à-dire de créer le format interdit — tout en
-   demandant par ailleurs de le supprimer. **Deux consignes contradictoires sur le même segment**
-   (corrigé en v2.14, vu en direct à Saint-Laurent-des-Arbres).
-2. **Le nettoyage peut créer des doublons** : ils sont fondus, sinon le doute « plusieurs noms de
-   rue » se déclencherait à tort.
+   **interdit** (ancienne règle FR abandonnée). Avant tout raisonnement, il est **scindé en ses deux
+   morceaux** — le numéro et le nom (`RE_NOM_COMPOSITE`) — que les cas C/R/H rangent comme s'ils
+   étaient déjà séparés. Sans ce nettoyage, le script réclamait d'**ajouter** « N580 - Route
+   d'Avignon » en alternatif (v2.14, Saint-Laurent-des-Arbres). ⚠️ Jusqu'à la 2.49, seul le nom était
+   gardé : un composite **seul** perdait son numéro, et le ⚡ effaçait la D980 du segment (A2).
+2. **Le nettoyage peut créer des doublons** : ils sont fondus. Et le doute « plusieurs numéros /
+   plusieurs noms » compte des **libellés distincts**, pas des entrées : « D980 » sans ville et
+   « D980 / commune » sont UN numéro — le nommage H6 conforme ne doit pas lever de doute.
 3. **Plusieurs candidats ⇒ on demande.** « La correction automatique prend le premier. Pas bon »
    (auteur, 22/07). La liste est exposée et `appliquerCorrection` interroge l'éditeur — pour les
    noms de rue comme pour les numéros de route.
+4. **Le TYPE fait foi pour l'autoroute** : `opts.autoroute` (type 3) envoie au cas A — aucune ville
+   nulle part — même un tronçon nommé « N165 » (A9).
+5. **Village rattaché** : si le segment ne porte que le nom de la **commune**, on ne l'érige pas en
+   village (« Coursan (Coursan) ») : la cible reste la commune, avec un doute (A3).
 
 ---
 
@@ -272,7 +285,11 @@ se construit à partir de ce que le référentiel déclare.*
 ```
 
 `REF` démarre sur la France et s'ajuste dès que WME dit dans quel pays on travaille
-(`choisirReferentiel`).
+(`choisirReferentiel`). **`REFERENTIELS.IT`** est le second bloc : écrit d'après la Wazeopedia
+italienne (376292 « Denominazione delle strade », 376277 « Centro abitato & City Boundary »), **pas
+traduit du français** — frazione au format « frazione, comune », province = trois premiers chiffres
+du code ISTAT, pas de source de panneaux (`sourcePanneaux: null`), et un `RE_NOM_COMPOSITE_IT` qui
+**ne coupe jamais** « A4 – Bergamo » (forme officielle italienne).
 
 ### 7.1 Les expressions du vocabulaire routier
 
@@ -442,7 +459,9 @@ exacte des giratoires de la v2.11.**
 
 ## 10. Garde-fou territorial
 
-Le script **ne travaille qu'en France** (v2.03), et le vérifie sur le pays de la **zone regardée**.
+Le script **ne travaille qu'en France et en Italie** (v2.03, Italie depuis la v2.40), et le
+vérifie sur le pays de la **zone regardée** — au moment d'afficher, et **de nouveau au moment
+d'écrire** (`appliquerCorrection`).
 
 ⚠️⚠️ **L'outre-mer n'est pas « la France » dans le modèle Waze** : Guadeloupe, Martinique, Guyane,
 Réunion, Mayotte y sont des **pays à part entière**, avec leur propre identifiant et leurs propres
@@ -471,6 +490,26 @@ comparés **sans accents**.
    elle reste éteinte hors ligne.
 9. **Ne pas retirer à l'éditeur ce qu'il a chargé** sans qu'il l'ait demandé (§ 12.3).
 10. **Aucun contenu ne quitte le navigateur.**
+11. 🔴 **`e.champ` et les clés du moteur restent en FRANÇAIS.** La traduction se fait **à la sortie**
+    (`traduireDOM`, `tr`, `trf`, motifs), jamais dans le moteur : `planDeCorrection` reconnaît un
+    écart à son `champ` (« principal », « alt manquant »…). Traduire un champ, c'est casser la
+    correction **en silence**. Même règle pour les valeurs françaises qui servent aussi de clés.
+12. **Tout le plan d'une correction se vérifie avant la première écriture** (`preparerEcriture`) :
+    contexte État/pays de chaque segment, et **existence de chaque commune visée — principal
+    compris**. Une seule manque : rien n'est écrit. Si une écriture est quand même partie avant un
+    échec, le message le dit (Ctrl+Z). **Jamais de commune créée.**
+13. **Un report marqué d'un doute ne part pas en lot** (`corrigeableEnGroupe`) : il se corrige un par
+    un, et la confirmation du lot dit combien sont laissés de côté. Le seul « doute » admis en lot est
+    la note du cartouche sur principal, qui prévient sans rien mettre en question.
+14. **Seul le ✓ de l'éditeur se retient.** La coche posée par une correction ne vit que la session :
+    après un Ctrl+Z ou un refus à l'enregistrement, l'écart doit réapparaître. Une correction qui
+    laisse des écarts à la main (`resteAlaMain`) ne barre pas la ligne.
+15. **Un avertissement n'est pas un verrou** : la suppression d'un polygone passe par « Polygone
+    supprimé — Annuler » (6 s) avant l'enregistrement, pas par un `confirm`.
+16. **La charte commune des scripts** (WCT, WRP, WDA, WJN) s'applique : Rubik, #2196f3 / #2d3748,
+    pilules, interrupteurs, fenêtre **bornée à la carte à chaque geste** (calcul de WPEU), icône
+    unique, mention du pied **selon le profil** (« ⚡ dépose ses corrections… » pour un correcteur,
+    « 🔒 ne modifie jamais la carte » sinon).
 
 ---
 
@@ -559,8 +598,10 @@ Dépôt séparé : `C:\Users\drslu\Projets\WME-Naming-Auditor-Partage` →
   `modele.json`.
 - Import dans le script : **☰ Données → Réglages → Sauvegarde & partage → Importer depuis une URL**,
   avec l'URL *raw*.
-- **L'import n'écrase jamais le travail local** : une commune déjà tracée n'est pas touchée, seules
-  les communes absentes sont ajoutées.
+- **L'import n'écrase jamais le travail local** : une commune où l'éditeur a **décidé** n'est pas
+  touchée — tracée, **vidée de ses polygones** (clé vide), **déclarée ou décochée « sans agglo »**.
+  Seules les communes absentes sont ajoutées, et une commune dont **un** polygone est invalide est
+  écartée **en entier** (jamais de zonage partiel).
 - **Les coches « traité » ne sont jamais partagées.**
 - Une vérification automatique (GitHub Actions) contrôle le format avant fusion ; `CONTRIBUTING.md`
   décrit la contribution, `DONNEES-LICENCE.md` la licence des données.
@@ -569,7 +610,13 @@ Dépôt séparé : `C:\Users\drslu\Projets\WME-Naming-Auditor-Partage` →
 
 ## 15. Protocole de vérification
 
-**~30 scripts de test Node** dans `tools/`, sans dépendance :
+**48 bancs Node** dans `tools/`, sans dépendance, rejoués d'un coup par
+**`node tools/rejouer-bancs.js`** (code de sortie non nul au premier échec). ⚠️ **Enchaîner le commit
+sur ce code de sortie**, jamais à travers un `| grep` qui le masquerait.
+
+Chaque banc **extrait** les fonctions du fichier servi (jamais de recopie de constante), et chaque
+contrôle ajouté depuis l'audit du 25/09/2026 a un **témoin** : la mutation qui retire le correctif
+doit le faire échouer.
 
 | Famille | Scripts |
 |---|---|
@@ -579,7 +626,10 @@ Dépôt séparé : `C:\Users\drslu\Projets\WME-Naming-Auditor-Partage` →
 | Panneaux et pré-tracé | `test-sondage-panneaux.js`, `test-pretrace.js`, `couverture-eb10.js` |
 | Données et persistance | `test-chargement.js`, `test-fusion-prefs.js`, `test-purge-contours.js`, `test-ville-sans-polygone.js` |
 | Interface | `test-ui-sections.js`, `test-bandeau-erreur.js`, `test-guidage.js`, `check-accents-visibles.js` |
-| Territoire et mise à jour | `test-territoire.js`, `test-maj.js` |
+| Territoire et mise à jour | `test-territoire.js`, `test-maj.js`, `test-pastille-maj.js` |
+| Italie et traduction | `test-italie.js`, `test-i18n.js`, `test-traduire-dom.js`, `test-italien-interface.js`, `test-zone-trace-it.js` ; mesures : `couverture-i18n.js` (aide), `couverture-interface.js` (onglet, boîtes, volet) |
+| Écriture (audit 25/09) | `test-ecriture-preparee.js`, `test-lot-doute.js`, `test-coche-correction.js`, `test-composite-seul.js`, `test-autoroute-type.js`, `test-village-rattache.js`, `test-suppression-polygone.js` |
+| Charte et fenêtre | `test-fenetre-bornee.js`, `test-clavier-boites.js`, `test-voisines-perf.js` (plafond de temps) |
 
 ### 15.1 Les outils d'accentuation
 
@@ -610,7 +660,7 @@ la quasi-totalité des règles citées dans ce dossier.
 ## 16. Publication
 
 Quatre canaux : **GreasyFork 588554**, le dépôt **GitHub**, le fil **Discuss 410907**
-(`[Script] WME Naming Auditor — France only`, catégorie **3984**), et le dépôt de partage.
+(`[Script] WME Naming Auditor — France & Italie`, catégorie **3984**), et le dépôt de partage.
 
 Points de méthode acquis :
 
@@ -631,8 +681,11 @@ Points de méthode acquis :
 
 ## 17. Ce qui reste ouvert
 
-- **Aucun autre pays n'est pris en charge.** L'architecture le prévoit (§ 7), rien n'est écrit.
-  La description du script le dit explicitement : *« FRANCE UNIQUEMENT (pour l'instant) »*.
+- **L'Italie est en phase de test.** Les traductions italiennes (interface et aide) restent à faire
+  **relire par Silvio** ; les contours openpolis ne sont pas épinglés sur un commit daté.
+- **Mineurs de l'audit du 25/09/2026 encore ouverts** : drapeau « analyse en cours », `anonymous:
+  true` sur les requêtes, filtre ReDoS sur les règles publiques, rôles ARIA, insécables posées à la
+  sortie, département en échec retenté, format EB10 contrôlé.
 - **La couverture EB10 varie du simple au triple selon le département** (§ 13.1) — c'est mesuré,
   et c'est l'interface qui porte le guidage en conséquence.
 - **`bretelleForme` attend une mesure sur du terrain réel** avant d'être coché d'office.
