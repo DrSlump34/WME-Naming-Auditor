@@ -6642,6 +6642,8 @@
         "Usa questo nome",
       "Les autres noms restent en alternatif.":
         "Gli altri nomi restano come alternativi.",
+      "WME ne descend que les segments présents dans la vue : ceux restés dehors ne peuvent pas être sélectionnés. Dézoome d'un cran, puis reclique sur cette ligne.":
+        "WME carica solo i segmenti presenti nella vista: quelli rimasti fuori non possono essere selezionati. Riduci lo zoom di un livello, poi riclicca su questa riga.",
       // ── Gabarits a marqueurs (trf), audit du 25/09/2026 ──
       'Le polygone tracé est entièrement HORS de {commune}.\n\nL\'enregistrer quand même ?':
         'Il poligono tracciato è interamente FUORI da {commune}.\n\nSalvarlo comunque?',
@@ -6824,6 +6826,8 @@
     it: [
       // --- volet -------------------------------------------------------------
       [/^(\d+) commune\(s\) dans la vue sur (\d+)$/, '$1 comune/i nella vista su $2'],
+      [/^⚠ (\d+) \/ (\d+) sélectionnés? — dézoome d'un cran, puis reclique sur la ligne$/,
+        '⚠ $1 / $2 selezionato/i — riduci lo zoom di un livello, poi riclicca sulla riga'],
       [/^(\d+) communes$/, '$1 comuni'],
       [/^(\d+) polygones?$/, (t, n) => n === '1' ? '1 poligono' : n + ' poligoni'],
       [/^(\d+) sommets — ville appliquée :$/, '$1 vertici — città applicata:'],
@@ -15401,7 +15405,9 @@
   function direSelection(n, total) {
     if (!ui.selinfo) return;
     if (!total || n >= total) { ui.selinfo.textContent = ''; ui.selinfo.title = ''; return; }
-    ui.selinfo.textContent = '⚠ ' + n + ' / ' + total + ' sélectionné' + (n > 1 ? 's' : '');
+    // ⚠️ Audit du 25/09/2026 : le remede ne vivait que dans l'infobulle — invisible sans survol.
+    ui.selinfo.textContent = '⚠ ' + n + ' / ' + total + ' sélectionné' + (n > 1 ? 's' : '') +
+      ' — dézoome d\'un cran, puis reclique sur la ligne';
     ui.selinfo.title = 'WME ne descend que les segments présents dans la vue : ceux restés ' +
       'dehors ne peuvent pas être sélectionnés. Dézoome d\'un cran, puis reclique sur cette ligne.';
   }
