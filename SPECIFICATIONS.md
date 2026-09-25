@@ -1,6 +1,6 @@
 # WNA — WME Naming Auditor · Dossier de spécifications
 
-> **Version du code décrite ici : 2.50.05** (lue dans le bloc `==UserScript==` de
+> **Version du code décrite ici : 2.50.06** (lue dans le bloc `==UserScript==` de
 > `WME-Naming-Auditor.user.js`). **France et Italie** — le portage italien est en phase de test.
 > Mise à jour du 25/09/2026, après l'audit `Audits/AUDIT-2026-09-25.md` (non versionné).
 > Diffusé sur **GreasyFork 588554**, dépôt `github.com/DrSlump34/WME-Naming-Auditor`,
@@ -683,7 +683,7 @@ Points de méthode acquis :
 
 - **L'Italie est en phase de test.** Les traductions italiennes (interface et aide) restent à faire
   **relire par Silvio**.
-- **Mineurs de l'audit du 25/09/2026 encore ouverts** : drapeau « analyse en cours », `anonymous:
+- **Mineurs de l'audit du 25/09/2026** : tous traités en 2.50.06. Restent la relecture italienne par Silvio et la correction de `anonymous` dans `WMEPrefs` (bibliothèque d'origine).
   true` sur les requêtes, filtre ReDoS sur les règles publiques, rôles ARIA, insécables posées à la
   sortie, département en échec retenté, format EB10 contrôlé.
 - **La couverture EB10 varie du simple au triple selon le département** (§ 13.1) — c'est mesuré,
