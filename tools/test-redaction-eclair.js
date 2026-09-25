@@ -76,6 +76,7 @@ const api = new Function([
   // ⚠️ APRES l'IIFE : le dictionnaire n'existe pas avant, et une clef posee
   //    trop tot leverait une erreur de zone morte temporelle.
   'REF.dicoFonctions = DICO_FONCTIONS;',
+  relire('RE_QUANTIF_IMBRIQUE'), relire('SEUIL_REGLE_LENTE_MS'), extraire('regleDangereuse'),
   extraire('initialeIsolee'), extraire('analyserDictionnaire'),
   extraire('appliquerDictionnaire'), extraire('nomEnCapitales'),
   extraire('ecartDeRedaction'),

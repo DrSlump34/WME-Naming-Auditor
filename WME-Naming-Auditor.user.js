@@ -855,9 +855,37 @@
    * un commentaire, la virgule separe les colonnes et « @ » y represente une
    * virgule litterale (contrainte du format CSV cote redacteurs).
    */
+  /**
+   * Une regle du dictionnaire peut-elle FIGER WME ? (audit du 25/09/2026) PURE.
+   * La feuille « public » vit sans validation : un motif a quantificateurs imbriques — « (a+)+ » —
+   * peut, sur un nom de rue, backtracker en temps exponentiel. Et un `replace` ne s'interrompt pas :
+   * un budget de temps autour de lui ne sert a rien, il faut ecarter la regle AVANT.
+   * ⚠️ Le motif seul ne suffit pas a juger : mesure du 25/09/2026, il designe 5 regles REELLES de la
+   *    feuille publique (parkings, echangeurs) qui restent a 0-1 ms sur des pieges. Il ne fait donc
+   *    que DESIGNER les suspectes ; chacune est ensuite essayee sur un etalon fait de ses propres
+   *    mots, repetes de 10 a 30 fois. Une regle exponentielle depasse alors largement le seuil ; une
+   *    regle saine reste a 0 ms. L'essai lui-meme est borne : 24 repetitions, une seule fois.
+   */
+  const RE_QUANTIF_IMBRIQUE = /\((?:[^()\\]|\\.)*[+*](?:[^()\\]|\\.)*\)[+*{]/;
+  const SEUIL_REGLE_LENTE_MS = 25;
+  function regleDangereuse(re) {
+    const m = re.source.match(RE_QUANTIF_IMBRIQUE);
+    if (!m) return false;
+    const mot = m[0].replace(/\\./g, '').replace(/[^A-Za-zÀ-ÿ0-9 ]/g, '').slice(0, 6) || 'a';
+    // Par pas de 2 : une regle exponentielle quadruple a chaque pas, on s'arrete au premier
+    // depassement — l'essai coute au plus quelques fois le seuil (mesure : 1,3 s en un seul saut a 24).
+    for (let k = 10; k <= 30; k += 2) {
+      const etalon = ' ' + mot.repeat(k) + '\u0001';
+      const t = Date.now();
+      etalon.replace(re, '');
+      if (Date.now() - t > SEUIL_REGLE_LENTE_MS) return true;
+    }
+    return false;
+  }
+
   function analyserDictionnaire(texte, depart) {
     const regles = [];
-    let ignorees = 0, invalides = 0;
+    let ignorees = 0, invalides = 0, dangereuses = 0;
     const lignes = String(texte || '').replace(/\t\t/g, '\t').replace(/\r/g, '\n').split('\n');
     lignes.forEach((brute, i) => {
       let ligne = brute;
@@ -884,9 +912,10 @@
       } else { return; }
       let re;
       try { re = new RegExp(motif, flags); } catch (e) { invalides++; return; }
+      if (regleDangereuse(re)) { dangereuses++; return; }
       regles.push({ ligne: i + depart, re, remplacement });
     });
-    return { regles, ignorees, invalides };
+    return { regles, ignorees, invalides, dangereuses };
   }
 
   /** Nettoyage d'encadrement de CRN (`genericCorrection`), avant ET apres la
@@ -2137,6 +2166,9 @@
         if (s.err) { soucis.push(s.f.nom + ' : ' + s.err.message); return; }
         regles.push(...s.res.regles);
         ignorees += s.res.ignorees;
+        // Une regle ecartee pour sa lenteur ne l'est jamais en silence.
+        if (s.res.dangereuses) soucis.push(s.f.nom + ' : ' + s.res.dangereuses +
+          ' règle(s) écartée(s), trop lente(s) — elles pourraient figer WME');
         ok++;
         if (s.f.nom === 'principal') principaleLa = true;
       });

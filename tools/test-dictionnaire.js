@@ -70,6 +70,7 @@ const api = new Function([
   //    pays — le moteur le lit par REF, plus par la globale.
   'const REF = { dicoFonctions: DICO_FONCTIONS };',
   relire('nettoyerNom'),
+  relire('RE_QUANTIF_IMBRIQUE'), relire('SEUIL_REGLE_LENTE_MS'), extraire('regleDangereuse'),
   extraire('analyserDictionnaire'), extraire('appliquerDictionnaire'),
   extraire('nomEnCapitales'), extraire('ecartDeRedaction'),
   'return { DICO_FONCTIONS, nettoyerNom, analyserDictionnaire, appliquerDictionnaire,',
