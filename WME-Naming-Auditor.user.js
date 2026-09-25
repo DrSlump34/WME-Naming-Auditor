@@ -4368,7 +4368,7 @@
       majDatalistVilles();
       const boite = el(`
         <div id="agn-modale">
-          <div class="agn-modale-in">
+          <div class="agn-modale-in" role="dialog" aria-modal="true">
             <div class="agn-modale-t">Polygone ${rang} / ${total} — quel nom ?</div>
             <div class="agn-modale-c">
               Ce tracé vient de <b>${prop.portes}</b> entrée(s) d'agglomération
@@ -11533,7 +11533,7 @@
 
       const boite = el(`
         <div id="agn-modale">
-          <div class="agn-modale-in">
+          <div class="agn-modale-in" role="dialog" aria-modal="true">
             <div class="agn-modale-t">${r.saisieRequise
               ? 'Aucune adresse sur ce segment'
               : r.plusieursNoms ? 'Plusieurs adresses sur ce segment' : 'Voie en limite communale'}</div>
@@ -11664,7 +11664,7 @@
       const cands = o.candidats;
       const boite = el(`
         <div id="agn-modale">
-          <div class="agn-modale-in">
+          <div class="agn-modale-in" role="dialog" aria-modal="true">
             <div class="agn-modale-t">${esc(o.titre)}</div>
             <div class="agn-modale-c">
               ${o.intro}
@@ -12904,6 +12904,11 @@
     ui.bandeauPays = o.querySelector('#agn-pays');
     ui.stats = o.querySelector('#agn-stats');
     ui.bandeauFix = o.querySelector('#agn-fix');
+    // ⚠️ Audit du 25/09/2026 (accessibilite) : ces zones changent SANS que l'editeur y soit —
+    //    bilans, statuts, erreurs. `role=status` les fait annoncer par un lecteur d'ecran.
+    [ui.stats, ui.bandeauFix, ui.statutContours, ui.zoneInfo, ui.bilanPanneaux].forEach(z => {
+      if (z) { z.setAttribute('role', 'status'); z.setAttribute('aria-live', 'polite'); }
+    });
     ui.results = o.querySelector('#agn-results');
     ui.corps = o.querySelector('#agn-corps');
     ui.volet = o.querySelector('#agn-volet');
@@ -14331,6 +14336,7 @@
         'du navigateur effacerait tout. Réinstalle le script dans Tampermonkey.';
 
     const etatPartage = q('#agn-r-partage-etat');
+    etatPartage.setAttribute('role', 'status'); etatPartage.setAttribute('aria-live', 'polite');
     const dire = (txt, err) => { etatPartage.textContent = txt; etatPartage.style.color = err ? '#c62828' : '#2e7d32'; };
     const RAISONS = {
       'json-invalide': 'fichier illisible (pas du JSON).',
@@ -14791,7 +14797,30 @@
     ui.listeAgglos.appendChild(bandeau);
   }
 
+  /**
+   * Le focus clavier survit au redessin de la liste des agglomerations (audit du 25/09/2026).
+   * `renderAgglos` refait tout le HTML : sans ceci, cocher « village rattaché » au clavier ou
+   * supprimer un polygone renvoyait le focus en haut de la page. On retient QUEL controle de
+   * QUEL polygone l'avait, et on le rend a son equivalent (au suivant si le polygone est parti).
+   */
+  function memoFocus(racine) {
+    const a = document.activeElement;
+    if (!racine || !a || !racine.contains(a)) return null;
+    const poly = a.closest && a.closest('.agn-poly');
+    const polys = [...racine.querySelectorAll('.agn-poly')];
+    return { i: poly ? polys.indexOf(poly) : -1,
+             cls: [...(a.classList || [])].find(c => c.indexOf('agn-') === 0) || null };
+  }
+  function rendreFocus(racine, m) {
+    if (!racine || !m || !m.cls) return;
+    const polys = [...racine.querySelectorAll('.agn-poly')];
+    const base = m.i >= 0 ? polys[Math.min(m.i, polys.length - 1)] : racine;
+    const cible = base && base.querySelector('.' + m.cls);
+    if (cible && cible.focus) cible.focus();
+  }
+
   function renderAgglos() {
+    const focusAvant = memoFocus(ui.listeAgglos);
     // Garde-fou territorial (v2.03). ⚠️⚠️ DEUX cas a ne pas confondre :
     //  - « hors » (etranger DEMONTRE) : on ferme tout, tracage compris ;
     //  - « inconnu » : on ne ferme QUE l'analyse. Bloquer le tracage y serait
@@ -15005,6 +15034,7 @@
     suite.onclick = tracerAgglo;
     ui.listeAgglos.appendChild(suite);
     ui.listeAgglos.appendChild(avertissementExhaustivite());
+    rendreFocus(ui.listeAgglos, focusAvant);
     // ⚠️ Point d'accroche du guidage : `renderAgglos` est rappelee a CHAQUE
     // changement d'etat (contours charges, commune choisie, polygone ajoute ou
     // retire). Le brancher ici evite d'oublier un chemin.
