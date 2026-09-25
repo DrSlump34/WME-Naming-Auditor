@@ -61,6 +61,7 @@ function monter(villes, interrompu, seuil, repertoire, active) {
   if (!mn) throw new Error('normSansAccent introuvable');
   const code = 'const PART_MIN_EN_POLYGONE = ' + mc[1] + ';\n' +
                'const normSansAccent = ' + mn[1] + ';\n' +
+               'const _indexNoms = new WeakMap();\n' + extraire('indexCommunesParNom') + '\n' +
                extraire('communeVoisineDeNom') + '\n' +
                extraire('villesSansPolygone') + '\n' +
                extraire('villesPolygoneManquant') + '\n' +
@@ -233,6 +234,8 @@ const GARD = [
   // `communesVoisinesDuSegment` (qui rend les CODES, necessaires pour retrouver
   // le zonage d'une voisine) : il faut donc extraire les deux.
   const etr = new Function('normSansAccent', 'nam', 'liste', 'code',
+    // 2.50 (P1) : la recherche passe par un index des noms, extrait lui aussi.
+    'const _indexNoms = new WeakMap();\n' + extraire('indexCommunesParNom') + '\n' +
     extraire('communeVoisineDeNom') + '\n' + extraire('communesVoisinesDuSegment') +
     '\n' + extraire('communesEtrangeresDuSegment') +
     '\nreturn communesEtrangeresDuSegment(nam, liste, code);');

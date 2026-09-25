@@ -2768,8 +2768,29 @@
   function communeVoisineDeNom(nom, liste, codeActif) {
     const brut = String(nom || '').trim();
     if (!brut || brut.includes('(')) return null;   // « Village (Commune) » : pas une voisine
-    const n = normSansAccent(brut);
-    return (liste || []).find(c => c && c.code !== codeActif && normSansAccent(c.nom) === n) || null;
+    // ⚠️⚠️ AUDIT DU 25/09/2026 (P1) : l'ancienne recherche parcourait TOUTE la base pour chaque nom
+    // de chaque segment, en renormalisant chaque commune — 9 s pour 4 113 communes, 25 s pour
+    // 10 000 (mesure sous node). Un index par nom normalise, construit une fois par liste, rend le
+    // MEME resultat : la premiere commune de la liste, hors commune active.
+    const candidates = indexCommunesParNom(liste).get(normSansAccent(brut)) || [];
+    return candidates.find(c => c.code !== codeActif) || null;
+  }
+
+  /** Nom normalise → communes, dans l'ordre de la liste ; refait si la liste change de taille. */
+  const _indexNoms = new WeakMap();
+  function indexCommunesParNom(liste) {
+    if (!liste) return new Map();
+    const memo = _indexNoms.get(liste);
+    if (memo && memo.n === liste.length) return memo.index;
+    const index = new Map();
+    for (const c of liste) {
+      if (!c || !c.nom) continue;
+      const k = normSansAccent(c.nom);
+      if (!index.has(k)) index.set(k, []);
+      index.get(k).push(c);
+    }
+    _indexNoms.set(liste, { n: liste.length, index });
+    return index;
   }
 
   /**
