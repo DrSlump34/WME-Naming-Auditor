@@ -2845,6 +2845,27 @@
   }
 
   /**
+   * Les ecarts de nommage d'une voie mitoyenne, SELON la decision ci-dessus.
+   *
+   * ⚠️⚠️ AUDIT DU 25/09/2026 : la decision 'voisine' etait CALCULEE PUIS IGNOREE — l'appelant ne
+   * testait que 'inconnu'. La cible restait celle d'ICI, et le ⚡ remplacait « Rue / Montfaucon »
+   * par « Rue / ‹sans ville› » : exactement le cas de la Rue de la Republique (regle de l'auteur,
+   * 27/07). Le meme defaut jouait cote actif EN agglo : la ville d'ici etait gardee en principal
+   * contre la decision.
+   *
+   * ⭐ Le script n'ECRIT PAS « nom / voisine » a la place : la ville de la voisine n'existe
+   * peut-etre pas dans Waze, et avec plusieurs voisines on ne sait pas laquelle. Il retire l'ecart
+   * « principal » (comme dans le cas indecis) et la note dit pourquoi ; les ALTERNATIFS, surs,
+   * restent proposes.
+   *
+   * PURE. Rend les ecarts a garder.
+   */
+  function ecartsSelonMitoyennete(decision, ecartsNom) {
+    if (decision === 'inconnu' || decision === 'voisine') return ecartsNom.filter(e => e.champ !== 'principal');
+    return ecartsNom;
+  }
+
+  /**
    * La commune reellement SOUS LE CENTRE de la carte, ou null.
    *
    * ⚠️⚠️ NE PAS CONFONDRE avec `communeActive` : le script GARDE la commune en
@@ -10085,20 +10106,22 @@
                             partLeLongDeLaLimite(coords, communeActive) > 0;
       let exp = REF.etatCible(nam, enAgglo ? loc.agglo : null, communeActive.nom);
       // ⭐ Qui porte le principal ? Voir `decisionPrincipalMitoyen`.
-      let mitoyenIndecis = null;
+      let mitoyenIndecis = null, mitoyenVoisine = null, decisionMitoyenne = 'ici';
       if (longeLaLimite) {
-        const decision = decisionPrincipalMitoyen(
-          voisines.map(cv => zonageChezLaVoisine(coords, cv.code)));
-        if (decision === 'inconnu') mitoyenIndecis = etrangeres.join(' », « ');
+        const zonagesVoisins = voisines.map(cv => zonageChezLaVoisine(coords, cv.code));
+        decisionMitoyenne = decisionPrincipalMitoyen(zonagesVoisins);
+        if (decisionMitoyenne === 'inconnu') mitoyenIndecis = etrangeres.join(' », « ');
+        // Les voisines EN agglo de leur cote : ce sont elles qui portent le principal.
+        if (decisionMitoyenne === 'voisine') {
+          mitoyenVoisine = voisines.filter((cv, k) => zonagesVoisins[k] === 'agglo').map(cv => cv.nom).join(' », « ');
+        }
         exp = conserverAdressesVoisines(nam, exp, etrangeres);
       }
       let ecartsNom = c.nommageZone ? diffNaming(nam, exp) : [];
-      // ⚠️⚠️ « Tant qu'on sait pas, on fait comme si on savait pas » (l'auteur,
-      // 27/07). Le zonage de la voisine n'a jamais ete trace : on ne peut donc
-      // pas savoir si c'est ELLE qui doit porter le principal. On retire l'ecart
-      // plutot que de proposer d'effacer une adresse peut-etre juste — les
-      // ALTERNATIFS, eux, restent proposes : ceux-la sont surs.
-      if (mitoyenIndecis) ecartsNom = ecartsNom.filter(e => e.champ !== 'principal');
+      // ⚠️⚠️ « Tant qu'on sait pas, on fait comme si on savait pas » (l'auteur, 27/07) — et quand on
+      // SAIT que c'est la voisine qui porte le principal, on ne l'efface pas non plus. Voir
+      // `ecartsSelonMitoyennete`.
+      ecartsNom = ecartsSelonMitoyennete(decisionMitoyenne, ecartsNom);
       // ⚠️ Un CONTEXTE est passé en second argument (v2.40) : certains
       //    contrôles nationaux portent sur le segment lui-même et sur la zone,
       //    pas seulement sur son nommage — l'obligation italienne d'allumer
@@ -10156,6 +10179,10 @@
             'agglomération de ce côté-là, c\'est cette commune qui doit porter le nom ' +
             'principal. Le script ne connaît pas son zonage — trace son agglomération ' +
             'pour qu\'il puisse conclure. En attendant, il ne touche pas au principal.'
+          : mitoyenVoisine
+          ? 'longe la limite avec « ' + mitoyenVoisine + ' », en agglomération de ce côté-là : ' +
+            'c\'est cette commune qui porte le nom principal. Le script ne l\'écrit pas à ta ' +
+            'place — vérifie-le et pose-le à la main ; il ne touche pas au principal.'
           : longeLaLimite
           ? 'longe la limite avec « ' + etrangeres.join(' », « ') + ' » : cette voie ' +
             'dessert les deux communes, son adresse est conservée en alternatif'

@@ -235,7 +235,8 @@ verifier('19. ⚠️⚠️ la conservation est CONDITIONNEE a « longe la limite
 // sans le zonage de la voisine, on ne touche PAS au principal — mais les
 // alternatifs restent proposes, eux sont surs.
 verifier('19 bis. ⭐ zonage voisin inconnu ⇒ l\'ecart de PRINCIPAL est retire',
-  /if \(mitoyenIndecis\) ecartsNom = ecartsNom\.filter\(e => e\.champ !== 'principal'\)/
+  // Depuis le 25/09/2026 le filtre vit dans `ecartsSelonMitoyennete` (voir 19 sexies, qui en teste l'EFFET).
+  /if \(decision === 'inconnu' \|\| decision === 'voisine'\) return ecartsNom\.filter\(e => e\.champ !== 'principal'\)/
     .test(src), true);
 // ⚠️ Cible le SEUL filtre pose sur `ecartsNom` : chercher « alt manquant »
 // dans tout le fichier tombait sur `planDeCorrection`, qui l'utilise
@@ -247,6 +248,32 @@ verifier('19 quater. le zonage d\'une voisine JAMAIS tracee vaut « inconnu »',
   /return sansAgglo\[code\] \? 'hors' : 'inconnu'/.test(src), true);
 verifier('19 quinquies. une agglo chez la voisine lui donne le principal',
   /if \(zonages\.some\(z => z === 'agglo'\)\) return 'voisine'/.test(src), true);
+
+// ── 19 sexies. CE QUE LA DECISION FAIT AUX ECARTS — un vrai test de COMPORTEMENT.
+// Audit du 25/09/2026 : 'voisine' etait calculee puis IGNOREE (l'appelant ne testait que
+// 'inconnu'), et le ⚡ effacait « Montfaucon » du principal de la Rue de la Republique. Le test
+// regex ci-dessus ne pouvait pas le voir : il lisait le texte de la decision, pas son effet.
+{
+  const decision = new Function(extraire('decisionPrincipalMitoyen') + '\nreturn decisionPrincipalMitoyen;')();
+  const regle = new Function(extraire('ecartsSelonMitoyennete') + '\nreturn ecartsSelonMitoyennete;')();
+  const ECARTS = [{ champ: 'principal', avant: 'Rue de la République / Montfaucon', apres: 'Rue de la République / ‹sans ville›' },
+                  { champ: 'alt manquant', avant: '', apres: 'Rue de la République / Saint-Geniès' }];
+  const champs = z => regle(decision(z), ECARTS).map(e => e.champ).join(',');
+  verifier('19 sexies a. voisine en agglo (cote actif hors agglo) : principal INTOUCHE, alternatif garde',
+    champs(['agglo']), 'alt manquant');
+  verifier('19 sexies b. voisine en agglo et une autre hors : principal intouche',
+    champs(['hors', 'agglo']), 'alt manquant');
+  verifier('19 sexies c. zonage de la voisine inconnu : principal intouche',
+    champs(['inconnu']), 'alt manquant');
+  verifier('19 sexies d. hors agglo des deux cotes : l\'ecart du principal reste propose',
+    champs(['hors']), 'principal,alt manquant');
+  // Temoin : l'ancienne regle (seul 'inconnu' filtrait) devait echouer sur a.
+  const ancienne = (d, e) => d === 'inconnu' ? e.filter(x => x.champ !== 'principal') : e;
+  verifier('19 sexies e. TEMOIN : l\'ancienne regle laissait le ⚡ effacer la ville',
+    ancienne(decision(['agglo']), ECARTS).some(e => e.champ === 'principal'), true);
+  verifier('19 sexies f. l\'appelant passe bien par la regle',
+    /ecartsNom = ecartsSelonMitoyennete\(decisionMitoyenne, ecartsNom\)/.test(src), true);
+}
 verifier('20. et « longe la limite » est MESURE, pas suppose',
   /partLeLongDeLaLimite\(coords, communeActive\) > 0/.test(src), true);
 verifier('21. la note ne dit plus « alors que ce segment est dans X » a tort',
