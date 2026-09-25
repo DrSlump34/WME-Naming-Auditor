@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.50.00
+// @version      2.50.01
 // @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies selon les règles du pays regardé (agglomération / centro abitato, contours communaux INSEE / ISTAT). Interface et aide en français et en italien. ⚠️ Le portage italien est en phase de TEST.
 // @author       DrSlump34
 // @license      MIT
@@ -266,6 +266,14 @@
 
   const SCRIPT_ID = 'wme-naming-auditor';
   const SCRIPT_NAME = 'WME Naming Auditor';
+  // ⭐ Charte commune (arbitrage de l'auteur, 25/09/2026) : la MEME icone partout — onglet, titre du
+  //    panneau, bouton de carte, en-tete de la fenetre — et c'est celle de l'en-tete (@icon), vue sur
+  //    GreasyFork. Embarquee (icon-64.png, 8 Ko) : aucun chargement exterieur a l'affichage.
+  const ICONE_PNG = 'data:image/png;base64,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';
+  const icone = (px, style) => '<img src="' + ICONE_PNG + '" width="' + px + '" height="' + px +
+    '" alt="" style="display:block;' + (style || '') + '">';
+  const URL_DISCUSS = 'https://www.waze.com/discuss/t/script-wme-naming-auditor-france-italie/410907';
+  const URL_GH = 'https://github.com/DrSlump34/WME-Naming-Auditor';
   // ⚠️ Ancien identifiant (jusqu'a la v2.01, « WME Agglo Naming ») : sert
   // UNIQUEMENT a reprendre le stockage existant au renommage — voir
   // `chargerPrefs`. Ne rien ecrire dessus, ne l'utiliser pour rien d'autre.
@@ -401,6 +409,12 @@
 
   /** Pose ou retire la pastille. Sans overlay, il n'y a rien a peindre. */
   function _majRender() {
+    // ⭐ Charte : la pastille se voit AUSSI dans l'onglet Scripts, fenetre fermee (comme WRP/WDA).
+    const p = document.getElementById('agn-sb-maj');
+    if (p) {
+      p.hidden = !_majEnLigne;
+      if (_majEnLigne) p.querySelector('span').textContent = 'La version ' + _majEnLigne + ' est disponible.';
+    }
     const b = document.getElementById('agn-maj');
     if (!b) return;
     b.style.display = _majEnLigne ? 'flex' : 'none';
@@ -11514,10 +11528,10 @@
      ⚠️ Chaque usage porte son fallback — var(--agn-bleu, #1e88e5) — pour
      qu'une variable manquante ne fasse jamais disparaitre une couleur. */
   :root{
-    --agn-texte:#1f2933; --agn-gris:#546e7a; --agn-gris-clair:#78909c;
+    --agn-texte:#2d3748; --agn-gris:#546e7a; --agn-gris-clair:#78909c;
     --agn-gris-titre:#607d8b; --agn-gris-pale:#b0bec5;
-    --agn-bord:#cfd8dc; --agn-fond-doux:#eceff1; --agn-fond-survol:#f5f7f9;
-    --agn-bleu:#1e88e5; --agn-bleu-fonce:#1565c0;
+    --agn-bord:#dde3ea; --agn-fond-doux:#eceff1; --agn-fond-survol:#f5f7f9;
+    --agn-bleu:#2196f3; --agn-bleu-fonce:#1565c0;
     --agn-vert:#2e7d32; --agn-rouge:#c62828; --agn-orange:#e65100;
     --agn-brun:#a34a00; --agn-ambre:#ffb300;
   }
@@ -11528,12 +11542,14 @@
   /* ⚠️ Hauteur fixee en JS d'après les bornes MESUREES de la carte : un
      calc(100vh - …) ignore le pied de page de WME (« Conditions | Mentions
      legales | … », 20 px) et la fenêtre passait dessus. */
+  /* ⭐ Charte commune (25/09/2026) : les valeurs de WRP, MESUREES dans WME — cadre #dde3ea, rayon
+     12 px, ombre double, Rubik 12 px, texte #2d3748. */
   #agn-overlay{position:fixed;z-index:9000;width:400px;min-width:300px;min-height:200px;
-    background:#fff;border:1px solid var(--agn-gris-pale, #b0bec5);border-radius:8px;
-    box-shadow:0 6px 26px rgba(0,0,0,.28);display:flex;flex-direction:column;
-    font:12px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--agn-texte, #1f2933);
+    background:#fff;border:1px solid var(--agn-bord, #dde3ea);border-radius:12px;
+    box-shadow:0 8px 32px rgba(0,0,0,.22),0 2px 8px rgba(0,0,0,.12);display:flex;flex-direction:column;
+    font:12px/1.45 'Rubik','Open Sans',sans-serif;color:var(--agn-texte, #2d3748);
     resize:both;overflow:hidden}
-  #agn-main{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;overflow:hidden;border-radius:6px}
+  #agn-main{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;overflow:hidden;border-radius:11px}
   /* Repliee, la fenêtre se limite a son en-tete : le min-height de travail
      n'a plus lieu d'être. */
   #agn-overlay.agn-replie{min-height:0;height:auto}
@@ -11543,13 +11559,14 @@
      poignee de redimensionnement cesse alors de fonctionner. Sa position est
      donc calculee a la main (voir placerVolet). */
   #agn-volet{position:fixed;z-index:9001;width:300px;
-    background:#fff;border:1px solid var(--agn-gris-pale, #b0bec5);border-radius:8px;box-shadow:0 6px 26px rgba(0,0,0,.28);
+    background:#fff;border:1px solid var(--agn-bord, #dde3ea);border-radius:12px;
+    box-shadow:0 8px 32px rgba(0,0,0,.22),0 2px 8px rgba(0,0,0,.12);
     display:none;flex-direction:column;overflow:hidden;
-    font:12px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--agn-texte, #1f2933)}
+    font:12px/1.45 'Rubik','Open Sans',sans-serif;color:var(--agn-texte, #2d3748)}
   #agn-volet.agn-volet-ouvert{display:flex}
   #agn-volet-in{padding:10px 12px 14px;overflow-y:auto;flex:1 1 auto;min-height:0}
   .agn-volet-t{font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.05em;
-    color:var(--agn-gris, #546e7a);margin-bottom:8px;border-bottom:1px solid var(--agn-fond-doux, #eceff1);padding-bottom:5px}
+    color:var(--agn-bleu, #2196f3);margin-bottom:8px;border-bottom:1px solid var(--agn-fond-doux, #eceff1);padding-bottom:5px}
   /* Le bouton du volet vit dans la barre d'onglets, PAS dans l'en-tete : la
      ligne de titre n'a pas la place et il la rendait illisible des que la
      fenêtre retrecissait (signale par l'auteur). */
@@ -11567,17 +11584,21 @@
   .agn-tab-n{display:inline-block;min-width:16px;padding:0 5px;margin-left:3px;border-radius:8px;
     background:var(--agn-gris-pale, #b0bec5);color:#fff;font-size:10px;font-weight:700}
   .agn-tab.agn-tab-on .agn-tab-n{background:var(--agn-bleu, #1e88e5)}
-  #agn-tete{display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--agn-bleu, #1e88e5);color:#fff;
-    border-radius:6px 6px 0 0;cursor:move;user-select:none;flex:0 0 auto;overflow:hidden}
+  /* ⭐ Charte (WRP) : degrade #1e88e5 → #1565c0, titre 13 px 700, boutons ronds de 24 px. */
+  #agn-tete{display:flex;align-items:center;gap:8px;padding:8px 12px;
+    background:linear-gradient(135deg,#1e88e5 0%,#1565c0 100%);color:#fff;
+    cursor:move;user-select:none;flex:0 0 auto;overflow:hidden}
   #agn-tete button{flex:0 0 auto}
+  #agn-tete .agn-tete-ico{flex:0 0 auto;margin-right:-2px}
   /* Le titre cede la place plutot que de pousser les boutons hors de la vue. */
-  #agn-tete b{font-size:12px;flex:0 1 auto;min-width:0;overflow:hidden;
+  #agn-tete b{font-size:13px;font-weight:700;flex:0 1 auto;min-width:0;overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap}
-  #agn-tete .agn-v{opacity:.75;font-size:11px;flex:0 0 auto}
+  #agn-tete .agn-v{opacity:.9;font-size:11px;flex:0 0 auto}
   #agn-tete .agn-sp{flex:1}
   #agn-tete button{background:rgba(255,255,255,.18);border:none;color:#fff;cursor:pointer;
-    width:22px;height:22px;border-radius:4px;font-size:13px;line-height:1}
-  #agn-tete button:hover{background:rgba(255,255,255,.34)}
+    width:24px;height:24px;min-height:0;padding:0;border-radius:50%;font-size:12px;line-height:1;
+    display:flex;align-items:center;justify-content:center}
+  #agn-tete button:hover{background:rgba(255,255,255,.35)}
   /* Pastille de mise a jour : meme geometrie que ses voisines (reduire, fermer),
      fond rouge plein pour qu'elle se detache du bandeau bleu. Elle n'existe a
      l'ecran que quand une version plus recente est publiee, donc elle n'a pas de
@@ -11611,14 +11632,14 @@
      descendre sous la hauteur de son contenu, donc il pousse la fenêtre au
      lieu de faire defiler la liste. */
   #agn-corps{padding:10px 12px 14px;overflow-y:auto;flex:1 1 auto;min-height:0}
-  #agn-corps h3{font-size:11px;margin:13px 0 5px;text-transform:uppercase;letter-spacing:.05em;color:var(--agn-gris-titre, #607d8b)}
+  #agn-corps h3{font-size:11px;font-weight:700;margin:14px 0 6px;text-transform:uppercase;letter-spacing:.05em;color:var(--agn-bleu, #2196f3)}
   #agn-corps h3:first-child{margin-top:0}
-  .agn-sect{border:1px solid #e3e7ea;border-radius:4px;margin-bottom:6px;overflow:hidden}
+  .agn-sect{border:1px solid var(--agn-bord, #dde3ea);border-radius:8px;margin-bottom:6px;overflow:hidden}
   .agn-sect-t{display:flex;align-items:center;gap:7px;padding:6px 8px;background:var(--agn-fond-survol, #f5f7f9);
     cursor:pointer;user-select:none;font-size:11px}
   .agn-sect-t:hover{background:var(--agn-fond-doux, #eceff1)}
   .agn-sect-t .agn-chev{color:var(--agn-gris-clair, #78909c);width:9px;flex:0 0 auto}
-  .agn-sect-t b{flex:1;font-weight:600;text-transform:uppercase;letter-spacing:.03em;font-size:11px;color:var(--agn-gris, #546e7a)}
+  .agn-sect-t b{flex:1;font-weight:700;text-transform:uppercase;letter-spacing:.05em;font-size:11px;color:var(--agn-bleu, #2196f3)}
   .agn-sect-r{font-size:11px;color:var(--agn-bleu-fonce, #1565c0);font-weight:600;max-width:180px;overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap}
   .agn-sect-c{padding:7px 8px 9px}
@@ -11630,21 +11651,22 @@
      contenu, en gardant 32 px comme MINIMUM pour ne pas tasser les boutons
      courts. Meme famille que le box-sizing du panneau lateral : un style de WME
      qu'il faut neutraliser explicitement, jamais supposer absent. */
-  .agn-btn{display:block;width:100%;padding:6px 10px;margin:3px 0;border:1px solid #bbb;border-radius:4px;
-    background:#fff;cursor:pointer;font-size:12px;color:inherit;
-    height:auto;min-height:32px;line-height:1.45;white-space:normal;text-align:center}
-  .agn-btn:hover:not(:disabled){background:#f3f3f3}
+  /* ⭐ Charte (WRP) : la PILULE — rayon 50 px, 600 11 px Rubik, sans bordure. Neutre #dde3ea,
+     pleine #2196f3 (un seul bouton plein par ecran). Pleine largeur ici : la fenetre empile ses
+     boutons, et un libelle long passe a la ligne au lieu d'etre coupe. */
+  .agn-btn{display:block;width:100%;padding:4px 10px;margin:3px 0;border:none;border-radius:50px;
+    background:#dde3ea;cursor:pointer;font:600 11px/1.45 'Rubik','Open Sans',sans-serif;color:#2d3748;
+    height:auto;min-height:0;white-space:normal;text-align:center}
+  .agn-btn:hover:not(:disabled){filter:brightness(1.05)}
   .agn-btn:disabled{opacity:.45;cursor:default}
-  .agn-btn.primary{background:var(--agn-bleu, #1e88e5);color:#fff;border-color:#1976d2;font-weight:600}
+  .agn-btn.primary{background:var(--agn-bleu, #2196f3);color:#fff}
   /* ⚠️⚠️ SANS CETTE REGLE, LE BOUTON BLEU DEVENAIT ILLISIBLE AU SURVOL (signale
      par l'auteur, 27/07) : la regle de survol compte TROIS selecteurs
      (classe + hover + not) contre DEUX pour le bouton bleu (classe + classe) —
      elle l'emporte donc, et posait un fond gris clair sous un texte reste
      BLANC. Le bouton bleu s'assombrit desormais au lieu de perdre sa couleur.
      ⚠️ PAS DE BACKTICK DANS CE BLOC : le CSS est un template literal. */
-  .agn-btn.primary:hover:not(:disabled){background:var(--agn-bleu-fonce, #1565c0);
-    border-color:var(--agn-bleu-fonce, #1565c0);color:#fff}
-  .agn-btn.primary:disabled{background:#9e9e9e;border-color:#9e9e9e}
+  .agn-btn.primary:hover:not(:disabled){background:var(--agn-bleu, #2196f3);filter:brightness(1.08);color:#fff}
   .agn-sel{width:100%;box-sizing:border-box;padding:5px;font-size:12px;margin:3px 0;
     border:1px solid #bbb;border-radius:4px;background:#fff}
   .agn-sel optgroup{font-style:normal;font-weight:700;color:var(--agn-gris, #546e7a)}
@@ -11686,7 +11708,8 @@
   .agn-poly{border:1px solid #ddd;border-radius:4px;padding:6px;margin:5px 0;background:#fafafa}
   .agn-poly input[type=text]{width:100%;box-sizing:border-box;margin:2px 0;padding:3px 5px;font-size:12px}
   .agn-row{display:flex;gap:6px;align-items:center;margin-top:4px}
-  .agn-row label{flex:1;font-size:11px}
+  .agn-row label{flex:1;font-size:11px;display:flex;flex-direction:row-reverse;justify-content:flex-end;
+    align-items:center;gap:6px;cursor:pointer}
   .agn-mini{border:none;background:none;cursor:pointer;font-size:12px;padding:2px 4px;opacity:.7}
   .agn-mini:hover{opacity:1}
   .agn-stat{background:var(--agn-fond-doux, #eceff1);border-radius:4px;padding:6px 8px;margin:6px 0;font-size:11px}
@@ -11857,6 +11880,8 @@
   /* Le fond teinte est reserve aux boutons PALES, dont le texte est sombre :
      il les fait ressortir sans jamais toucher a un bouton deja colore. */
   .agn-btn.agn-guide:not(.primary){background-color:#e3f2fd}
+  /* La pilule garde sa forme quand le guidage la designe (le rayon de 5 px est pour le reste). */
+  .agn-btn.agn-guide, .agn-sb-b.agn-guide{border-radius:50px}
   .agn-sb-b.agn-guide{background-color:#e3f2fd}
   /* Le bandeau qui DIT quoi faire : le halo seul ne dit pas pourquoi. */
   #agn-guide{display:none;margin:0 0 6px;padding:7px 9px;border-radius:4px;
@@ -11889,10 +11914,10 @@
      en quatre colonnes cote a cote — « organise en cellules, illisible »
      (auteur, 27/07). La regle vaut pour TOUT label en flex qui melange du texte
      et des balises. */
-  .agn-sansagglo{display:flex;align-items:flex-start;gap:6px;margin-top:6px;
+  .agn-sansagglo{display:flex;flex-direction:row-reverse;align-items:center;gap:10px;margin-top:6px;
     font-style:normal;opacity:1;cursor:pointer;color:var(--agn-brun, #a34a00)}
   .agn-sansagglo span{flex:1;min-width:0}
-  .agn-sansagglo input{flex:0 0 auto;margin-top:2px}
+  .agn-sansagglo input{flex:0 0 auto}
   /* Secteurs d'entrees : la ou aucun contour ne se deduit, on donne au moins
      l'ordre de marche — un bouton par secteur, qui cadre la carte dessus. */
   .agn-secteurs{margin-top:8px}
@@ -11948,7 +11973,7 @@
      place après lui par l'ordre CSS. */
   #agn-fab-wrap{width:40px;height:40px;order:99}
   #agn-fab-btn{width:40px;height:40px;padding:0;border:none;border-radius:50%;cursor:pointer;
-    background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.3);font-size:19px;line-height:1;
+    background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.3);line-height:1;
     display:flex;align-items:center;justify-content:center}
   #agn-fab-btn:hover{background:#eef3f8}
   #agn-fab-btn.agn-fab-on{box-shadow:0 0 0 2px var(--agn-bleu, #1e88e5),0 2px 6px rgba(0,0,0,.3)}
@@ -11960,35 +11985,46 @@
      les libelles flex a retrecir au lieu de pousser la ligne dehors.
      ⚠️ Ce bloc CSS vit dans un template literal : PAS de backtick ici. */
   .agn-sb, .agn-sb *{box-sizing:border-box}
-  .agn-sb{font:12px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:2px;
+  /* ⭐ Charte commune (25/09/2026) : les valeurs de WRP et WDA, MESUREES dans WME — conteneur
+     10px 12px, Rubik 12 px #2d3748 ; titre h2 13 px 700 #2196f3 (police des h2 de WME) avec l'icone ;
+     version 11 px #9e9e9e ; sections en capitales #2196f3. */
+  .agn-sb{font:12px/1.5 'Rubik','Open Sans',sans-serif;color:#2d3748;padding:10px 12px;
     max-width:100%;overflow-x:hidden}
-  .agn-sb-t{font-weight:700;font-size:13px;margin-bottom:2px;
-    display:flex;align-items:baseline;gap:5px}
-  .agn-sb-t span{opacity:.5;font-weight:400;font-size:11px}
-  .agn-sb h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--agn-gris-titre, #607d8b);
-    margin:14px 0 5px;border-bottom:1px solid var(--agn-fond-doux, #eceff1);padding-bottom:3px}
+  .agn-sb :focus-visible{outline:2px solid #2196f3;outline-offset:1px}
+  .agn-sb h2.agn-sb-t{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;
+    color:#2196f3;margin:0 0 8px}
+  .agn-sb h2.agn-sb-t .agn-sb-ico{display:inline-flex}
+  .agn-sb h2.agn-sb-t .agn-sb-ver{font-size:11px;font-weight:400;color:#9e9e9e}
+  .agn-sb-hint{font-size:11px;color:#566372;line-height:1.6;margin:0 0 6px}
+  .agn-sb-maj{margin:0 0 8px;padding:5px 8px;border-radius:8px;background:#ffebee;color:#c62828;
+    font-size:11px;font-weight:600}
+  .agn-sb-maj[hidden]{display:none}
+  .agn-sb-maj a{color:#c62828}
+  .agn-sb h4{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#2196f3;
+    margin:14px 0 6px}
   /* Section repliable : le titre h4 devient le bouton de repli. Le chevron est
      a DROITE et l'ensemble reste un h4, pour ne rien changer a la lecture. */
   .agn-sb h4.agn-sb-h{cursor:pointer;display:flex;align-items:center;gap:6px;
     user-select:none;margin-bottom:0}
-  .agn-sb h4.agn-sb-h:hover{color:var(--agn-bleu, #1e88e5)}
+  .agn-sb h4.agn-sb-h:hover{color:var(--agn-bleu-fonce, #1565c0)}
   .agn-sb h4.agn-sb-h > b{flex:1;min-width:0;font-weight:inherit;overflow-wrap:break-word}
   /* Le chevron doit se VOIR : a 10 px et 70 % d'opacite il passait pour un
      artefact, et rien ne disait que le titre etait cliquable. */
   .agn-sb h4.agn-sb-h .agn-sb-chev{flex:0 0 auto;font-size:13px;line-height:1;
     opacity:.85;color:var(--agn-gris-clair, #78909c)}
-  .agn-sb h4.agn-sb-h:hover .agn-sb-chev{opacity:1;color:var(--agn-bleu, #1e88e5)}
+  .agn-sb h4.agn-sb-h:hover .agn-sb-chev{opacity:1;color:var(--agn-bleu-fonce, #1565c0)}
   .agn-sb-sect{margin-bottom:2px}
   .agn-sb-sect > .agn-sb-corps{padding-top:5px}
   .agn-sb-sect.agn-ferme > .agn-sb-corps{display:none}
   /* Barre d'onglets du panneau. Trois onglets se partagent la largeur a egalite
      et le libelle retrecit plutot que de deborder. */
   .agn-sb-onglets{display:flex;gap:0;margin:8px 0 0;border-bottom:1px solid var(--agn-bord, #cfd8dc)}
-  .agn-sb-onglets button{flex:1 1 0;min-width:0;padding:6px 2px;border:0;background:none;
-    font:inherit;font-size:11px;color:var(--agn-gris, #546e7a);cursor:pointer;border-bottom:2px solid transparent;
+  /* Sous-onglets GARDES (arbitrage de l'auteur, 25/09/2026), habilles aux couleurs de la charte. */
+  .agn-sb-onglets button{flex:1 1 0;min-width:0;height:auto;min-height:0;padding:6px 2px;border:0;background:none;
+    font:600 11px 'Rubik','Open Sans',sans-serif;color:#566372;cursor:pointer;border-bottom:2px solid transparent;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .agn-sb-onglets button:hover{color:var(--agn-bleu, #1e88e5);background:var(--agn-fond-survol, #f5f7f9)}
-  .agn-sb-onglets button.agn-sb-on{color:var(--agn-bleu-fonce, #1565c0);font-weight:700;border-bottom-color:var(--agn-bleu, #1e88e5)}
+  .agn-sb-onglets button:hover{color:#2196f3;background:var(--agn-fond-survol, #f5f7f9)}
+  .agn-sb-onglets button.agn-sb-on{color:#2196f3;font-weight:700;border-bottom-color:#2196f3}
   .agn-sb-vue{display:none}
   .agn-sb-vue.agn-sb-vue-on{display:block}
   /* La première section d'un onglet n'a pas besoin de reprendre du champ : la
@@ -11997,8 +12033,41 @@
   .agn-sb-l{display:flex;align-items:center;gap:6px;margin:5px 0}
   .agn-sb-l span{flex:1;min-width:0}
   .agn-sb-l input{width:58px;flex:0 0 auto;padding:2px 4px;font-size:12px}
-  .agn-sb-c{display:flex;align-items:flex-start;gap:6px;margin:5px 0;cursor:pointer;min-width:0}
+  /* ⭐ Charte : INTERRUPTEURS a glissiere (36 × 20, rail eteint #8a94a0, allume #2196f3, bouton
+     14 px), libelle a gauche. On habille la case elle-meme (appearance:none) plutot que de refaire
+     le balisage : chaque case garde son id, son etat et son branchement. La liste des departements
+     a telecharger, elle, reste en cases : on y SELECTIONNE des elements, on ne regle rien. */
+  .agn-sb-c{display:flex;flex-direction:row-reverse;justify-content:space-between;align-items:center;
+    gap:10px;margin:6px 0;cursor:pointer;min-width:0;font-weight:600;line-height:1.35}
   .agn-sb-c input{flex:0 0 auto}
+  .agn-sb-c input[type=checkbox], .agn-sansagglo input[type=checkbox], input[type=checkbox].agn-ratt{
+    -webkit-appearance:none;appearance:none;position:relative;flex:0 0 auto;width:36px;height:20px;margin:0;
+    border:none;border-radius:50px;background:#8a94a0;cursor:pointer;transition:background .2s;vertical-align:middle}
+  .agn-sb-c input[type=checkbox]::before, .agn-sansagglo input[type=checkbox]::before,
+  input[type=checkbox].agn-ratt::before{content:'';position:absolute;width:14px;height:14px;left:3px;top:3px;
+    background:#fff;border-radius:50%;transition:transform .2s}
+  .agn-sb-c input[type=checkbox]:checked, .agn-sansagglo input[type=checkbox]:checked,
+  input[type=checkbox].agn-ratt:checked{background:#2196f3}
+  .agn-sb-c input[type=checkbox]:checked::before, .agn-sansagglo input[type=checkbox]:checked::before,
+  input[type=checkbox].agn-ratt:checked::before{transform:translateX(16px)}
+  .agn-sb-c input[type=checkbox]:focus-visible, .agn-sansagglo input[type=checkbox]:focus-visible,
+  input[type=checkbox].agn-ratt:focus-visible{outline:2px solid #2196f3;outline-offset:2px}
+  .agn-sb-c input[type=checkbox]:disabled{opacity:.45;cursor:default}
+  /* Explications REPLIABLES (charte : pas de « blabla » deplie) — les volets d'aide de WRP/WDA. */
+  .agn-sb-aide{border:1px solid #dde3ea;border-radius:8px;margin:6px 0 4px;overflow:hidden}
+  .agn-sb-aide-h{display:flex;align-items:center;justify-content:space-between;gap:6px;width:100%;height:auto;
+    min-height:0;margin:0;border:none;font:700 11px 'Rubik','Open Sans',sans-serif;text-align:start;
+    padding:5px 9px;cursor:pointer;background:#f5f7f9;color:#2d3748;user-select:none}
+  .agn-sb-aide-h.on{color:#1565c0;background:#e3f2fd}
+  .agn-sb-aide-h:hover{background:#eef4fb}
+  .agn-sb-aide-c{padding:7px 9px;font-size:11px;line-height:1.5;color:#2d3748}
+  .agn-sb-aide-c[hidden]{display:none}
+  /* Pied : les liens (comme WJN/WDA), puis la mention, qui depend du profil. */
+  .agn-sb-links{margin-top:12px;padding-top:10px;border-top:1px solid #dde3ea;font-size:11px;
+    color:#566372;text-align:center}
+  .agn-sb-links a{color:#2196f3}
+  .agn-sb-foot{margin:10px 0 0;font-size:11px;color:#9e9e9e;line-height:1.6}
+  .agn-sb-foot:empty{display:none}
   .agn-sb-col{display:flex;align-items:center;gap:7px;margin:4px 0;cursor:pointer}
   .agn-sb-col input{width:34px;height:22px;padding:0;border:1px solid #ccc;border-radius:3px;background:none;cursor:pointer}
   .agn-sb-n{font-size:11px;color:var(--agn-orange, #e65100);min-height:14px;margin-top:4px;
@@ -12019,13 +12088,16 @@
   .agn-sb-oc{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;margin:4px 0;font-size:12px}
   .agn-sb-oc b{flex:0 0 auto;min-width:62px}
   .agn-sb-oc .agn-sb-c{margin:0;white-space:nowrap;flex:0 0 auto}
-  .agn-sb-b{width:100%;padding:6px;margin-top:6px;border:1px solid #bbb;border-radius:4px;
-    background:#fff;cursor:pointer;font:inherit;font-size:12px;text-align:center;
-    overflow-wrap:break-word}
-  .agn-sb-b:hover{background:#f3f3f3}
+  /* ⭐ Charte (WRP/WDA) : la pilule, neutre #dde3ea ; pleine #2196f3 pour l'action principale. */
+  .agn-sb-b{display:inline-flex;align-items:center;justify-content:center;gap:5px;max-width:100%;
+    height:auto;min-height:0;padding:3px 10px;margin-top:6px;border:none;border-radius:50px;
+    background:#dde3ea;color:#2d3748;cursor:pointer;font:600 11px 'Rubik','Open Sans',sans-serif;
+    text-align:center;white-space:normal;overflow-wrap:break-word}
+  .agn-sb-b:hover{filter:brightness(1.05)}
   .agn-sb-i{width:100%;box-sizing:border-box;padding:4px 6px;font-size:12px;
     border:1px solid #bbb;border-radius:4px;margin-top:2px}
-  .agn-sb-b.agn-sb-p{background:var(--agn-bleu, #1e88e5);color:#fff;border-color:#1976d2;font-weight:600}
+  .agn-sb-b.agn-sb-p{background:#2196f3;color:#fff}
+  .agn-sb-b.agn-sb-p:hover{filter:brightness(1.08)}
   .agn-nav{display:flex;gap:6px;align-items:center;margin:6px 0}
   .agn-nav button{flex:0 0 auto;padding:4px 9px}
   .agn-nav span{font-size:11px;color:var(--agn-gris-titre, #607d8b)}
@@ -12237,7 +12309,7 @@
       <div id="agn-overlay">
         <div id="agn-main">
         <div id="agn-tete">
-          <b>🏷️ Naming Auditor</b><span class="agn-v">v${VERSION}</span><span class="agn-sp"></span>
+          <span class="agn-tete-ico">${icone(18)}</span><b>${SCRIPT_NAME}</b><span class="agn-v">v${VERSION}</span><span class="agn-sp"></span>
           <button id="agn-maj" style="display:none"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6v3l4-4-4-4v3c-4.42 0-8 3.58-8 8 0 1.57.46 3.03 1.24 4.26L6.7 14.8c-.45-.83-.7-1.79-.7-2.8 0-3.31 2.69-6 6-6zm6.76 1.74L17.3 9.2c.44.84.7 1.79.7 2.8 0 3.31-2.69 6-6 6v-3l-4 4 4 4v-3c4.42 0 8-3.58 8-8 0-1.57-.46-3.03-1.24-4.26z"/></svg></button>
           <button id="agn-reduire" title="Réduire">–</button>
           <button id="agn-fermer" title="Fermer">✕</button>
@@ -13493,6 +13565,11 @@
      * `cle` sert a memoriser l'etat : elle doit rester stable d'une version a
      * l'autre, sinon les replis de l'editeur se perdent au prochain lancement.
      */
+    // Une explication REPLIABLE, fermee au depart (charte, arbitrage du 25/09/2026). Le texte ne
+    // change pas : sa traduction italienne reste valable.
+    const aide = (titre, texte) => `
+            <div class="agn-sb-aide"><button type="button" class="agn-sb-aide-h" aria-expanded="false">${titre} <span aria-hidden="true">▶</span></button>
+              <div class="agn-sb-aide-c" hidden>${texte}</div></div>`;
     const sect = (cle, titre, corps) => `
         <div class="agn-sb-sect" data-sect="${cle}">
           <h4 class="agn-sb-h" title="Replier ou déplier cette section"><b>${titre}</b><span class="agn-sb-chev">▾</span></h4>
@@ -13501,7 +13578,9 @@
 
     pane.innerHTML = `
       <div class="agn-sb">
-        <div class="agn-sb-t">${SCRIPT_NAME} <span>v${VERSION}</span></div>
+        <h2 class="agn-sb-t"><span class="agn-sb-ico">${icone(18)}</span>${SCRIPT_NAME} <span class="agn-sb-ver">v${VERSION}</span></h2>
+        <p class="agn-sb-maj" id="agn-sb-maj" hidden><span></span> <a href="#" id="agn-sb-maj-a">Installer</a></p>
+        <p class="agn-sb-hint">Audit du nommage et de l'adressage des voies d'une commune, selon les règles du pays regardé. Les écarts s'affichent dans la fenêtre de travail.</p>
         <!-- ⚠️ Le bouton de la fenêtre de travail reste HORS des onglets : c'est
              le seul geste qu'on refait tout le temps, il n'a rien a faire cache
              au fond d'un onglet de réglages (arbitrage auteur, 26/07). -->
@@ -13532,9 +13611,9 @@
 
         <div class="agn-sb-vue" data-vue="affichage">
           ${sect('resultats', 'Où voir les résultats', `
-            <div class="agn-sb-n">Tableau et carte se choisissent séparément. La carte
+            ${aide('ℹ️ Tableau et carte', `Tableau et carte se choisissent séparément. La carte
               ne suit plus l'onglet ouvert : on peut lister les numéros en gardant
-              les segments surlignes.</div>
+              les segments surlignes.`)}
             <div class="agn-sb-oc"><b>Segments</b>
               <label class="agn-sb-c"><input type="checkbox" id="agn-r-segtable" title="Lister les écarts de nommage dans l'onglet Segments"> tableau</label>
               <label class="agn-sb-c"><input type="checkbox" id="agn-r-segcarte" title="Surligner les segments en écart sur la carte"> carte</label></div>
@@ -13549,12 +13628,10 @@
           ${sect('surlignage', 'Surlignage sur la carte', `
             <label class="agn-sb-c"><input type="checkbox" id="agn-r-surligner" title="Peint les segments et les points en écart directement sur la carte">
               Surligner les écarts sur la carte</label>
-            <div class="agn-sb-n">Numéro de rue hors agglo = disque plein ·
-              RPP en agglo = anneau.</div>
+            ${aide('ℹ️ Disque et anneau', `Numéro de rue hors agglo = disque plein ·
+              RPP en agglo = anneau.`)}
             <label class="agn-sb-c"><input type="checkbox" id="agn-r-bulle" title="Affiche le détail de l'écart dans une infobulle quand la souris passe sur un segment ou un point signalé. À décocher si un autre script pose déjà sa propre infobulle au survol : les deux se recouvrent.">
               Infobulle au survol</label>
-            <div class="agn-sb-n">À décocher si <b>un autre script</b> affiche déjà
-              une infobulle au survol : les deux se superposent.</div>
             <div id="agn-r-couleurs"></div>
             <button class="agn-sb-b" id="agn-r-reset" title="Remet les couleurs d'origine">Couleurs par défaut</button>`)}
           ${sect('navigation', 'Navigation', `
@@ -13571,7 +13648,7 @@
           ${sect('contours', 'Contours communaux', `
             <label class="agn-sb-c" title="Interroge geo.api.gouv.fr pour savoir quel département est sous les yeux, et télécharge ses contours s'ils manquent."><input type="checkbox" id="agn-r-autodep">
               Charger tout seul le département visible</label>
-            <div class="agn-sb-n">Les contours se cumulent : charger un département n'efface pas les autres.</div>
+            ${aide('ℹ️ Contours cumulés', `Les contours se cumulent : charger un département n'efface pas les autres.`)}
             <label class="agn-sb-c" title="Retire de la mémoire les départements que tu as quittés. Ceux que tu regardes, celui de la commune en cours et les derniers utilisés sont toujours gardés — et un département retiré se recharge tout seul si tu y reviens."><input type="checkbox" id="agn-r-purgeauto">
               Décharger les départements éloignés</label>
             <label class="agn-sb-l" title="Nombre de départements récemment utilisés qu'on garde en plus de ceux sous les yeux.">
@@ -13583,13 +13660,10 @@
             <div id="agn-contours-manuel"></div>`)}
           ${sect('partage', 'Sauvegarde &amp; partage', `
             <div class="agn-sb-n" id="agn-r-socle"></div>
-            <div class="agn-sb-n">Polygones, communes « sans agglo » et coches « traité »
+            ${aide('ℹ️ Où tes données sont gardées', `Polygones, communes « sans agglo » et coches « traité »
               sont conservés dans le gestionnaire de scripts (survit au nettoyage du
-              navigateur), avec repli local.</div>
+              navigateur), avec repli local.`)}
             <button class="agn-sb-b" id="agn-r-exporter" title="Écrit un fichier JSON contenant tes polygones, tes communes « sans agglo » et tes secteurs déclarés hameau, à transmettre à un autre éditeur. Tes coches « traité » restent personnelles et n'y sont pas.">⬇️ Exporter (polygones + communes)</button>
-            <div class="agn-sb-n">Le fichier partage les <b>polygones</b>, les
-              communes « sans agglo » et les <b>secteurs déclarés hameau</b>. Les coches
-              « traité » restent personnelles.</div>
             <button class="agn-sb-b" id="agn-r-importer-f" title="Ajoute les communes d'un fichier reçu. ⚠️ Tes communes existantes ne sont JAMAIS écrasées : seules les absentes sont ajoutées.">⬆️ Importer un fichier</button>
             <input type="file" id="agn-r-fichier-partage" accept=".json,application/json" style="display:none">
             <label class="agn-sb-l" style="margin-top:8px"><span>Importer depuis une URL</span></label>
@@ -13597,9 +13671,27 @@
             <button class="agn-sb-b" id="agn-r-importer-u" title="Télécharge ce fichier et ajoute les communes qui te manquent">🌐 Importer depuis l'URL</button>
             <div class="agn-sb-n" id="agn-r-partage-etat"></div>`)}
         </div>
+        <div class="agn-sb-links">💬 <a href="${URL_DISCUSS}" target="_blank" rel="noopener">Fil Discuss</a> &nbsp;·&nbsp; 🔗 <a href="${GF_PAGE_URL}" target="_blank" rel="noopener">GreasyFork</a> &nbsp;·&nbsp; <a href="${URL_GH}" target="_blank" rel="noopener">GitHub</a></div>
+        <p class="agn-sb-foot" id="agn-r-mention"></p>
       </div>`;
 
     const q = s => pane.querySelector(s);
+
+    // ── Explications repliables et pastille de mise a jour (charte) ─────────
+    pane.addEventListener('click', ev => {
+      const h = ev.target.closest('.agn-sb-aide-h');
+      if (h) {
+        const corps = h.nextElementSibling;
+        const ouvrir = corps.hidden;
+        corps.hidden = !ouvrir;
+        h.classList.toggle('on', ouvrir);
+        h.setAttribute('aria-expanded', String(ouvrir));
+        h.querySelector('span').textContent = ouvrir ? '▼' : '▶';
+        return;
+      }
+      if (ev.target.closest('#agn-sb-maj-a')) { ev.preventDefault(); hote.open(URL_INSTALLER, '_blank', 'noopener'); }
+    });
+    _majRender();
 
     // ── Onglets et replis ───────────────────────────────────────────────────
     const vues = [...pane.querySelectorAll('.agn-sb-vue')];
@@ -13763,6 +13855,14 @@
           ? 'Correction désactivée : réservée aux L5, L6, Global Editors et staff (ton rang : ' +
             esc(d.niveau) + ').'
           : 'Lecture du profil en cours…';
+      // ⭐ La mention du pied SUIT LE PROFIL (arbitrage de l'auteur, 25/09/2026) : « ne modifie
+      //    jamais la carte » n'est vrai que pour qui n'a pas le ⚡.
+      const mention = q('#agn-r-mention');
+      if (mention) {
+        mention.textContent = d.autorise
+          ? '⚡ Le script dépose ses corrections dans l\'éditeur : rien n\'est enregistré sans toi.'
+          : d.rangsLus ? '🔒 Le script ne modifie jamais la carte.' : '';
+      }
       return d.rangsLus > 0;
     };
     if (!peindreDroits()) {
@@ -13887,8 +13987,9 @@
     // ⚠️ L'icone dit ce que fait le script : NOMMER. L'ancien 🏙️ (paysage
     // urbain) ne se lisait pas a 40 px — « on ne sait pas ce que c'est »
     // (l'auteur, 27/07). Une ETIQUETTE, c'est le geste meme de l'outil.
+    // ⭐ 25/09/2026 : l'icone du script (charte : la meme partout), plus l'emoji 🏷️.
     const wrap = el(`<div id="agn-fab-wrap"><button id="agn-fab-btn" type="button"
-        title="${esc(SCRIPT_NAME)}">🏷️</button></div>`);
+        title="${esc(SCRIPT_NAME)}">${icone(24)}</button></div>`);
     cont.appendChild(wrap);
     wrap.querySelector('button').onclick = () => {
       if (ui.overlay.style.display === 'none') ouvrirOverlay(); else fermerOverlay();
@@ -15824,9 +15925,10 @@
 
     // Le panneau lateral porte les REGLAGES ; l'overlay porte le travail.
     const { tabLabel, tabPane } = await sdk.Sidebar.registerScriptTab();
-    tabLabel.textContent = '🏷️';
+    // ⭐ Charte : l'icone du script, 20 px, comme WRP et WDA.
+    tabLabel.innerHTML = '<span title="' + esc(SCRIPT_NAME) + '" style="display:inline-flex;vertical-align:middle">' +
+      icone(20) + '</span>';
     tabLabel.title = SCRIPT_NAME;
-    tabLabel.style.fontSize = '15px';
     buildReglages(tabPane);
     // ⚠️ APRES `buildReglages` (la destination doit exister) et APRES
     // `buildOverlay` (les boutons sont deja branches) : on ne fait que DEPLACER
