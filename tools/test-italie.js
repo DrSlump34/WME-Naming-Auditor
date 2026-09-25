@@ -571,8 +571,10 @@ verifier('95. ⭐ Bergamo (16) donne bien le fichier P_16',
   urlIT('16').endsWith('/limits_P_16_municipalities.geojson'), true);
 verifier('96. ⚠️ le code n\'est PAS paddé (limits_P_016 rend 404)',
   urlIT('16').includes('_P_016_'), false);
-verifier('97. l\'hôte est bien celui mesuré',
-  urlIT('16').startsWith('https://raw.githubusercontent.com/openpolis/geojson-italy/'), true);
+// ⚠️ 25/09/2026 : le dépôt a déménagé (openpolis → guglielmo) et l'adresse est ÉPINGLÉE sur un
+//    commit (40 caractères hexadécimaux), jamais sur une branche qui bouge.
+verifier('97. l\'hôte est bien celui mesuré, épinglé sur un commit',
+  /^https:\/\/raw\.githubusercontent\.com\/guglielmo\/geojson-italy\/[0-9a-f]{40}\/geojson\//.test(urlIT('16')), true);
 
 titre('⚠️ La liste des provinces — couverture mesurée le 08/09');
 const blocProv = src.slice(src.indexOf('const PROVINCES_IT = ['),

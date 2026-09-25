@@ -175,7 +175,7 @@ script est chargé autrement (test).
 | `geo.api.gouv.fr` | Contours communaux français (API Découpage administratif), et le département sous la vue |
 | `api.wazefrance.com` | **Panneaux EB10 / EB20** relevés (§ 13), **sondés automatiquement** pour la commune choisie |
 | `docs.google.com`, `googleusercontent.com` | Dictionnaire de rédaction FR |
-| `raw.githubusercontent.com` | **Contours italiens** (`openpolis/geojson-italy`, branche `master` non épinglée) et import d'un fichier de partage par son adresse |
+| `raw.githubusercontent.com` | **Contours italiens** (`guglielmo/geojson-italy`, ex-openpolis, **épinglés** sur le commit `ba3347d` du 16/08/2026) et import d'un fichier de partage par son adresse |
 | `update.greasyfork.org` | Savoir si une version plus récente est publiée — **au plus une fois par 24 h** |
 
 **Ce sont toutes des lectures.** Rien de ce que l'éditeur édite ne quitte le navigateur.
@@ -682,7 +682,7 @@ Points de méthode acquis :
 ## 17. Ce qui reste ouvert
 
 - **L'Italie est en phase de test.** Les traductions italiennes (interface et aide) restent à faire
-  **relire par Silvio** ; les contours openpolis ne sont pas épinglés sur un commit daté.
+  **relire par Silvio**.
 - **Mineurs de l'audit du 25/09/2026 encore ouverts** : drapeau « analyse en cours », `anonymous:
   true` sur les requêtes, filtre ReDoS sur les règles publiques, rôles ARIA, insécables posées à la
   sortie, département en échec retenté, format EB10 contrôlé.

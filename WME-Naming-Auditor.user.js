@@ -7775,7 +7775,12 @@
         unitesLabel: 'provinces',
         placeholder: 'Filtrer une province…',
         unites: () => PROVINCES_IT,
-        url: code => 'https://raw.githubusercontent.com/openpolis/geojson-italy/master' +
+        // ⚠️ AUDIT DU 25/09/2026 : EPINGLE sur un commit date, plus sur `master`. Le depot a en
+        //    outre DEMENAGE (openpolis/geojson-italy → guglielmo/geojson-italy, branche `main`) :
+        //    l'ancienne adresse ne tenait que par redirection. Commit ba3347d du 16/08/2026 ;
+        //    Bergamo (16) y est identique, octet pour octet, a ce que servait l'ancienne adresse.
+        //    Monter de version = changer ce commit EXPRES, apres avoir relu ce qui a change.
+        url: code => 'https://raw.githubusercontent.com/guglielmo/geojson-italy/ba3347df3a53352891109f8198c597a0273684c0' +
           '/geojson/limits_P_' + encodeURIComponent(code) + '_municipalities.geojson',
         aide: 'Province ISTAT (Bergamo = 16, Milano = 15…). ~270 Ko par province.',
         nomSource: liste => 'openpolis/geojson-italy — prov. ' + liste.join(', '),

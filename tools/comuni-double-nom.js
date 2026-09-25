@@ -33,7 +33,7 @@ const path = require('path');
 
 const SHEETS_CSV = 'https://docs.google.com/spreadsheets/d/' +
   '1Lf7gwU6Tpw_H_iQOSOBb7NSwdKg7g7ADGP2F46oBpWc/export?format=csv&gid=0';
-const OPENPOLIS = 'https://raw.githubusercontent.com/openpolis/geojson-italy/master/geojson/';
+const OPENPOLIS = 'https://raw.githubusercontent.com/guglielmo/geojson-italy/main/geojson/';
 
 const args = process.argv.slice(2);
 const opt = n => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : null; };
