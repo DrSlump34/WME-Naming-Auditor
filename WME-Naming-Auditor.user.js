@@ -6313,6 +6313,8 @@
         "Termina",
       "Annuler":
         "Annulla",
+      "Polygone supprimé.":
+        "Poligono eliminato.",
       "Bourg, village, ancienne commune : chaque agglomération de la commune a son propre polygone. La carte se cadre sur le prochain secteur d'entrées à couvrir — sauf si tu l'as déjà sous les yeux.":
         "Capoluogo, villaggio, ex comune: ogni centro abitato del comune ha il proprio poligono. La mappa si inquadra sul prossimo settore di ingressi da coprire — salvo che tu lo abbia già sotto gli occhi.",
       "＋ Ajouter une autre agglomération":
@@ -11656,6 +11658,7 @@
   .agn-dep-x:hover{background:var(--agn-rouge, #c62828);color:#fff}
   .agn-dep-x:disabled{opacity:.4;cursor:default}
   .agn-dep-approx{color:var(--agn-gris-clair, #78909c);cursor:help}
+  .agn-sursis{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:5px 0;padding:6px 8px;border-radius:4px;background:#fff3e0;color:#1f2933;font-size:12px}
   .agn-poly{border:1px solid #ddd;border-radius:4px;padding:6px;margin:5px 0;background:#fafafa}
   .agn-poly input[type=text]{width:100%;box-sizing:border-box;margin:2px 0;padding:3px 5px;font-size:12px}
   .agn-row{display:flex;gap:6px;align-items:center;margin-top:4px}
@@ -14099,6 +14102,55 @@
       : '';
   }
 
+  /**
+   * ✕ d'un polygone d'agglomeration : retire tout de suite, ENREGISTRE apres un sursis.
+   * ⚠️⚠️ AUDIT DU 25/09/2026 (A13) : le ✕ de 12 px, colle a ◎, supprimait d'un clic, sans
+   * retour, et la suppression partait aussitot vers les autres postes — le trace perdu, toute la
+   * zone basculait en « hors agglo ». Pas de `confirm` pour autant (un avertissement ne doit pas
+   * devenir un verrou) : « Polygone supprimé — Annuler » reste affiche quelques secondes, et
+   * `saveAgglos` n'est appele qu'a son terme.
+   */
+  const SURSIS_SUPPRESSION_MS = 6000;
+  let sursis = null;          // { code, liste, index, agglo, minuterie }
+  function supprimerPolygone(liste, i) {
+    validerSuppression();     // une suppression precedente encore en sursis part d'abord
+    const agglo = liste.splice(i, 1)[0];
+    // ⚠️⚠️ ON GARDE LA CLE, MEME VIDE (v2.26.04). La supprimer effacait la
+    // TRACE du geste : a la fusion multi-onglets, « cette commune n'a plus de
+    // polygone » devenait indistinguable de « je n'ai jamais vu cette
+    // commune », et le polygone supprime revenait a la sauvegarde suivante.
+    if (!liste.length) agglos[communeActive.code] = liste;
+    sursis = { code: communeActive.code, liste, index: i, agglo,
+               minuterie: setTimeout(validerSuppression, SURSIS_SUPPRESSION_MS) };
+    redrawAgglos(); renderAgglos();
+  }
+  function validerSuppression() {
+    if (!sursis) return;
+    clearTimeout(sursis.minuterie);
+    sursis = null;
+    saveAgglos(); renderAgglos();
+  }
+  function annulerSuppression() {
+    if (!sursis) return;
+    clearTimeout(sursis.minuterie);
+    const { liste, index, agglo, code } = sursis;
+    sursis = null;
+    liste.splice(Math.min(index, liste.length), 0, agglo);
+    agglos[code] = liste;
+    // ⚠️ Une autre sauvegarde a pu partir pendant le sursis (edition d'une etiquette…) et
+    //    emporter la suppression : on reenregistre, sinon l'Annuler ne vaudrait que pour l'ecran.
+    saveAgglos(); redrawAgglos(); renderAgglos();
+  }
+
+  /** Le bandeau « Polygone supprimé — Annuler », en tete de la liste de la commune concernee. */
+  function afficherSursis() {
+    if (!sursis || sursis.code !== communeActive.code) return;
+    const bandeau = el(`<div class="agn-sursis"><span>Polygone supprimé.</span>
+        <button class="agn-btn">Annuler</button></div>`);
+    bandeau.querySelector('button').onclick = annulerSuppression;
+    ui.listeAgglos.appendChild(bandeau);
+  }
+
   function renderAgglos() {
     // Garde-fou territorial (v2.03). ⚠️⚠️ DEUX cas a ne pas confondre :
     //  - « hors » (etranger DEMONTRE) : on ferme tout, tracage compris ;
@@ -14203,6 +14255,7 @@
     }
     if (!liste.length) {
       ui.listeAgglos.innerHTML = '';
+      afficherSursis();       // le DERNIER polygone supprime : c'est la que l'Annuler compte le plus
       const bloc = el(`<div class="agn-empty">
           Aucune agglomération tracée pour <b>${esc(communeActive.nom)}</b>.<br>
           <label class="agn-sansagglo" title="À cocher seulement si la commune n'a RÉELLEMENT aucun panneau d'agglomération : toute la commune sera alors analysée comme hors agglomération."><input type="checkbox" ${declaree ? 'checked' : ''}><span>cette
@@ -14247,6 +14300,7 @@
     majBoutonsZone();
     majDatalistVilles();
     ui.listeAgglos.innerHTML = '';
+    afficherSursis();
     liste.forEach((a, i) => {
       const node = el(`
         <div class="agn-poly">
@@ -14267,15 +14321,7 @@
         </div>`);
       node.querySelector('.agn-label').onchange = e => { a.label = e.target.value.trim(); saveAgglos(); redrawAgglos(); renderAgglos(); };
       node.querySelector('.agn-ratt').onchange = e => { a.rattache = e.target.checked; saveAgglos(); renderAgglos(); };
-      node.querySelector('.agn-del').onclick = () => {
-        liste.splice(i, 1);
-        // ⚠️⚠️ ON GARDE LA CLE, MEME VIDE (v2.26.04). La supprimer effacait la
-        // TRACE du geste : a la fusion multi-onglets, « cette commune n'a plus de
-        // polygone » devenait indistinguable de « je n'ai jamais vu cette
-        // commune », et le polygone supprime revenait a la sauvegarde suivante.
-        if (!liste.length) agglos[communeActive.code] = [];
-        saveAgglos(); redrawAgglos(); renderAgglos();
-      };
+      node.querySelector('.agn-del').onclick = () => supprimerPolygone(liste, i);
       node.querySelector('.agn-zoom').onclick = () => {
         // ⚠️ Pas `centerMapOnGeometry` : il centre sur le canevas ENTIER, donc le
         // polygone finit a moitie derriere la fenetre. On calcule l'emprise et on
