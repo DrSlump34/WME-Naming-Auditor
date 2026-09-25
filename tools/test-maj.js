@@ -90,6 +90,9 @@ function monter(versionInstallee, reponse) {
     '  if (reponse.timeout) return o.ontimeout && o.ontimeout({});',
     '  o.onload({ status: reponse.statut, responseText: reponse.corps });',
     '};',
+    // 2.50 : l'infobulle passe par `trf` — la vraie, en francais (dictionnaire vide, sans motif).
+    'const TEXTES = {}, LANGUE = "fr", MOTIFS = {};',
+    extraire('tr'), extraire('trf'), extraire('chercherTrad'), extraire('traduireMotif'),
     extraire('_majCmp'), extraire('_majRender'), extraire('_majVerifier'),
     'return { _majCmp, _majRender, _majVerifier, etat: () => _majEnLigne };'
   ].join('\n'))(bouton, journal, appels, reponse || {});

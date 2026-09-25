@@ -419,8 +419,8 @@
     if (!b) return;
     b.style.display = _majEnLigne ? 'flex' : 'none';
     if (_majEnLigne) {
-      b.title = 'Mise à jour disponible : v' + _majEnLigne +
-        ' (tu utilises la v' + VERSION + ') — clique pour l\'installer';
+      b.title = trf('Mise à jour disponible : v{v} (tu utilises la v{actuelle}) — clique pour l\'installer',
+                    { v: _majEnLigne, actuelle: VERSION });
     }
   }
 
@@ -6692,6 +6692,8 @@
         "WME carica solo i segmenti presenti nella vista: quelli rimasti fuori non possono essere selezionati. Riduci lo zoom di un livello, poi riclicca su questa riga.",
       '{nom} n\'a pas pu démarrer : {motif}. Recharge la page ; si ça persiste, signale-le sur le fil Discuss. (Clic pour fermer.)':
         '{nom} non è riuscito ad avviarsi: {motif}. Ricarica la pagina; se persiste, segnalalo nella discussione su Discuss. (Clic per chiudere.)',
+      'Mise à jour disponible : v{v} (tu utilises la v{actuelle}) — clique pour l\'installer':
+        'Aggiornamento disponibile: v{v} (stai usando la v{actuelle}) — clicca per installarlo',
       // ── Gabarits a marqueurs (trf), audit du 25/09/2026 ──
       'Le polygone tracé est entièrement HORS de {commune}.\n\nL\'enregistrer quand même ?':
         'Il poligono tracciato è interamente FUORI da {commune}.\n\nSalvarlo comunque?',
