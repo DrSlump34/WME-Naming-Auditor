@@ -74,9 +74,9 @@ Sur les POI, le script **dit d'où vient sa proposition** : quelle voie, à quel
 
 ![L'onglet POI : l'adresse proposée pour un lieu, et le raisonnement qui y mène.](captures/03-poi-explication.jpg)
 
-Tout part de deux géométries, à préparer une fois par commune : le contour officiel, et l'agglomération tracée à la main. Chaque secteur de panneaux se tranche : un polygone pour un village, « C'est un hameau » pour un hameau — ici Le Courégant, à Ploemeur, panneauté mais hors agglomération.
+Tout part de deux géométries, à préparer une fois par commune : le contour officiel, et l'agglomération tracée à la main. Pour guider le tracé, le script relève les panneaux d'entrée et de sortie d'agglomération de la commune ; ensuite, chaque secteur de panneaux se tranche : un polygone pour un village, « C'est un hameau » pour un hameau panneauté mais hors agglomération.
 
-![Le volet des données de référence : le bourg tracé, un secteur de panneaux encore à trancher, et le hameau du Courégant déclaré hors agglomération.](captures/04-donnees-reference.jpg)
+![Le volet des données de référence à Ploemeur : les 26 panneaux d'entrée et de sortie d'agglomération relevés, avant le tracé.](captures/04-donnees-reference.jpg)
 
 ## Mise à jour
 
