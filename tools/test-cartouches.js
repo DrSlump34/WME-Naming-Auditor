@@ -265,6 +265,31 @@ verifier('38. une Street qui porte déjà un cartouche n\'est jamais réécrite'
     mutant !== fn && new Function(mutant + '\nreturn rueHorsDuJugement;')()(G('', [1, 2]), [1, 2]), null);
 }
 
+// ⚠️⚠️ 2.50.08 (28/09/2026) : la proposition « cartouche sur le nom de rue, hors
+// agglo » est COUPEE en attendant le vote des LC (Discuss 413213) — l'ancienne
+// page Nommage met la D en principal et la rue en alternatif, sans cartouche sur
+// la rue (signale par onryou, Route de Bussy). Les fonctions restent testees
+// ci-dessus ; ici on verifie qu'aucun report n'en sort dans le script servi.
+{
+  const coupe = s => {
+    const code = s.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+    const appels = (code.match(/(?<!function )cartouchesPrincipal\(\)/g) || []).length;   // les appels, pas la définition
+    return {
+      interrupteur: /const CARTOUCHE_SUR_RUE_HORS_AGGLO = false;/.test(code),
+      branche: /CARTOUCHE_SUR_RUE_HORS_AGGLO \? cartouchesPrincipal\(\) : \[\]/.test(code),
+      appels,
+    };
+  };
+  const c = coupe(src);
+  verifier('46. l\'interrupteur est à false dans le script servi', c.interrupteur, true);
+  verifier('47. le seul appel de cartouchesPrincipal passe par l\'interrupteur', [c.branche, c.appels], [true, 1]);
+  // Témoins : chaque mutation doit faire tomber un contrôle.
+  const t1 = coupe(src.replace('const CARTOUCHE_SUR_RUE_HORS_AGGLO = false;', 'const CARTOUCHE_SUR_RUE_HORS_AGGLO = true;'));
+  verifier('48. TÉMOIN : interrupteur à true — le contrôle 46 tombe', t1.interrupteur, false);
+  const t2 = coupe(src.replace('CARTOUCHE_SUR_RUE_HORS_AGGLO ? cartouchesPrincipal() : []', 'cartouchesPrincipal()'));
+  verifier('49. TÉMOIN : appel sans interrupteur — le contrôle 47 tombe', t2.branche, false);
+}
+
 console.log(lignes.join('\n'));
 console.log('\n' + '='.repeat(66));
 console.log('%d verifications OK, %d ECHEC(S)', ok, ko);

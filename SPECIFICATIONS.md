@@ -1,6 +1,6 @@
 # WNA — WME Naming Auditor · Dossier de spécifications
 
-> **Version du code décrite ici : 2.50.07** (lue dans le bloc `==UserScript==` de
+> **Version du code décrite ici : 2.50.08** (lue dans le bloc `==UserScript==` de
 > `WME-Naming-Auditor.user.js`). **France et Italie** — le portage italien est en phase de test.
 > Mise à jour du 25/09/2026, après l'audit `Audits/AUDIT-2026-09-25.md` (non versionné).
 > Diffusé sur **GreasyFork 588554**, dépôt `github.com/DrSlump34/WME-Naming-Auditor`,
@@ -371,7 +371,7 @@ l'appeler :
 | Clé | Portée | Défaut | Objet |
 |---|---|---|---|
 | `nommageZone` | zone | ✓ | Le cœur : ville, nom principal, alternatifs |
-| `cartouches` | segment | ✓ | Les numéros doivent porter leur écusson |
+| `cartouches` | segment | ✓ | Les numéros doivent porter leur écusson. ⚠️ Depuis la 2.50.08, **plus aucune proposition de cartouche sur un nom de rue** (hors agglo non plus : `CARTOUCHE_SUR_RUE_HORS_AGGLO = false`, en attendant le vote LC `413213`) |
 | `bretelles` | type | ✓ | Jamais de ville |
 | `rails` | type | ✓ | Voies ferrées, pistes, ferries : jamais de ville, **règles de nom propres à chacun** |
 | `rocades` | type | ✓ | Jamais de ville |

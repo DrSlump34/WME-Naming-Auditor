@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.50.07
+// @version      2.50.08
 // @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies selon les règles du pays regardé (agglomération / centro abitato, contours communaux INSEE / ISTAT). Interface et aide en français et en italien. ⚠️ Le portage italien est en phase de TEST.
 // @author       DrSlump34
 // @license      MIT
@@ -5043,6 +5043,18 @@
    */
   const estNumero = e => REF.reRoute.test((e.name || '').trim());
   const sansCartouche = e => !(e.signText && e.signText.trim()) || e.signType == null;
+  /**
+   * ⚠️⚠️ PROPOSITION « CARTOUCHE SUR LE NOM DE RUE, HORS AGGLOMERATION » COUPEE
+   * (2.50.08, 28/09/2026). `cartouchesPrincipal()` proposait de poser le Dxx
+   * sur une rue hors agglo quand tous ses segments le portent en alternatif
+   * (cas signale par onryou : Route de Bussy, Alise-Sainte-Reine). L'ancienne
+   * page Nommage dit autre chose pour ce cas — la D en principal sans ville, la
+   * rue en alternatif, AUCUN cartouche sur le nom de rue — et Color Errors le
+   * compte en erreur. La section a disparu de la page en fevrier ; les LC votent
+   * la regle jusqu'au 11/10 (Discuss 413213). Les fonctions restent en place,
+   * testees : on rebranchera selon la decision, pas avant.
+   */
+  const CARTOUCHE_SUR_RUE_HORS_AGGLO = false;
 
   function verifierCartouches(nam) {
     const ecarts = [];
@@ -10957,7 +10969,7 @@
     // Les reports cartouche-principal sont DEJA groupes par voie : on les ajoute
     // apres `regrouperFindings`, qui ne sait fusionner que des reports d'un
     // seul segment.
-    const cartFindings = cartouchesPrincipal();
+    const cartFindings = CARTOUCHE_SUR_RUE_HORS_AGGLO ? cartouchesPrincipal() : [];
     zones.cartouche += cartFindings.length;
     findings = findings.concat(cartFindings);
     // Les reports POI rejoignent la meme liste : tout le rendu, le marquage
