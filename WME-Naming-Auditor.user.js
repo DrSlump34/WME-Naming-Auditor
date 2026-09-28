@@ -14467,6 +14467,12 @@
     saveUI(); majFab();
     // C'est maintenant qu'on peut masquer une erreur de WME deja affichee.
     releverErreurSave();
+    // ⚠️⚠️ 2.50.08 (28/09/2026) : `autoChargerDepartement` ne fait rien fenetre
+    // FERMEE — et elle l'est au demarrage. Ouvrir la fenetre sans bouger la
+    // carte laissait donc le departement visible jamais charge et la liste des
+    // communes vide (vecu par l'auteur a Alise-Sainte-Reine, Cote-d'Or). On le
+    // relance ici ; il sort sans requete si le centre est deja couvert.
+    autoChargerDepartement().then(rafraichirCommunesDeLaVue).then(replierContoursSelonListe);
   }
 
   function fermerOverlay() {
