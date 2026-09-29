@@ -28,7 +28,7 @@ Les panneaux EB10/EB20 relevés servent de point de départ au tracé, **mais il
 
 Un segment à cheval est tranché par un **seuil de longueur réglable** (80 % par défaut). Entre les deux, aucune correction n'est proposée : le segment est signalé comme **à couper**, puisque le bon nommage dépend de l'endroit de la coupure.
 
-Trois exceptions, où il n'y a rien à couper : la voie **mitoyenne** qui épouse la limite communale, le segment qui ne porte **ni nom ni ville** (les deux moitiés seraient identiques), et l'**autoroute**, qui ne porte aucune ville quelle que soit la zone. Le bilan les compte à part plutôt que de les taire.
+Quatre exceptions, où il n'y a rien à couper : la voie **mitoyenne** qui épouse la limite communale, le segment qui ne porte **ni nom ni ville** (les deux moitiés seraient identiques), l'**autoroute**, qui ne porte aucune ville quelle que soit la zone, et, sur la limite d'agglomération, les voies **sans panneau d'entrée** (chemin de terre, sentier, chemin piétonnier, escalier, voie privée, parking), qui suivent le côté où elles ont le plus de longueur. Le bilan les compte à part plutôt que de les taire.
 
 Le script ne **crée** jamais un nom ni un numéro : il réorganise ce qui est déjà saisi. Seule la ville peut venir d'ailleurs — du contour communal.
 
