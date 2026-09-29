@@ -228,11 +228,16 @@ cheval est rattaché d'office à un côté.
 Entre `1 - seuil` et `seuil`, c'est la **zone grise** : **aucune correction n'est proposée**, le
 segment est signalé **à couper**, puisque le bon nommage dépend de l'endroit de la coupure.
 
-### 6.3 Les trois exceptions — il n'y a rien à couper
+### 6.3 Les quatre exceptions — il n'y a rien à couper
 
 1. la voie **mitoyenne**, qui épouse la limite communale (v2.08) ;
 2. le segment qui ne porte **ni nom ni ville** — les deux moitiés seraient identiques ;
-3. l'**autoroute**, qui ne porte aucune ville quelle que soit la zone.
+3. l'**autoroute**, qui ne porte aucune ville quelle que soit la zone ;
+4. (v2.50.09, limite d'**agglomération** seulement) la voie **sans panneau EB10** — sentier (5),
+   chemin de terre (8), chemin piétonnier (10), escalier (16), voie privée (17), parking (20) :
+   la « limite » n'y est que le tracé du polygone. Elle suit le **côté majoritaire** (≥ 50 % ⇒
+   agglo), puis son nommage est audité normalement (`zonageAgglo`, `ROADTYPE_SANS_PANNEAU_EB10`).
+   Remontée d'onryou, règle de l'auteur du 29/09/2026.
 
 **Le bilan les compte à part plutôt que de les taire.**
 
@@ -623,6 +628,7 @@ doit le faire échouer.
 | Zonage et géométrie | `test-zonage.js`, `test-zone-grise.js`, `test-hors-agglo.js`, `test-voie-mitoyenne.js`, `test-selection-zone.js`, `test-cadrage.js` |
 | Règles de nommage | `test-guide-fr.js`, `test-cartouches.js`, `test-nom-composite.js`, `test-giratoires.js`, `test-bretelle-forme.js`, `test-dictionnaire.js`, `test-redaction-eclair.js` |
 | Adressage et POI | `test-poi.js`, `test-hn-rpp.js`, `test-hn-sur-route.js`, `test-rpp-agglo.js` |
+| Voies sans panneau EB10 | `test-sans-panneau.js` |
 | Panneaux et pré-tracé | `test-sondage-panneaux.js`, `test-pretrace.js`, `couverture-eb10.js` |
 | Données et persistance | `test-chargement.js`, `test-fusion-prefs.js`, `test-purge-contours.js`, `test-ville-sans-polygone.js` |
 | Interface | `test-ui-sections.js`, `test-bandeau-erreur.js`, `test-guidage.js`, `check-accents-visibles.js` |

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.50.08
+// @version      2.50.09
 // @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies selon les règles du pays regardé (agglomération / centro abitato, contours communaux INSEE / ISTAT). Interface et aide en français et en italien. ⚠️ Le portage italien est en phase de TEST.
 // @author       DrSlump34
 // @license      MIT
@@ -566,6 +566,19 @@
   // 21/07 — ils repondent aux regles de nommage meme s'ils ne sont pas
   // circulables. Ils sont donc analyses comme n'importe quelle voie.
   const ROADTYPE_SANS_ADRESSE = new Set([17, 20]);
+
+  // Types qui ne portent JAMAIS de panneau d'entree d'agglomeration (EB10) :
+  // sentier (5), chemin de terre (8), chemin pietonnier (10), escalier (16),
+  // voie privee (17), parking (20).
+  // ⚠️⚠️ Signale par onryou le 29/09/2026 : WNA demandait de couper un chemin
+  // de terre sans nom « au panneau EB10 » (40 % dans l'agglo). Il n'y a pas de
+  // panneau sur un chemin de terre (l'auteur) : la « limite » n'est que
+  // l'endroit ou le TRAIT DU POLYGONE croise le chemin, et la coupe proposee
+  // n'avait aucun repere sur le terrain. ⇒ ces voies ne sont jamais « a
+  // couper » au panneau : elles sont rattachees au cote MAJORITAIRE (voir
+  // `zonageAgglo`). La limite COMMUNALE n'est pas concernee : elle existe sur
+  // tous les types de voie.
+  const ROADTYPE_SANS_PANNEAU_EB10 = new Set([5, 8, 10, 16, 17, 20]);
 
   const ROADTYPE_LABEL = {
     1: 'Rue', 2: 'Route principale', 3: 'Autoroute', 4: 'Bretelle', 5: 'Sentier',
@@ -2905,6 +2918,26 @@
    *
    * PURE : tout entre par les parametres.
    */
+  /**
+   * Zonage d'un segment par rapport au polygone d'AGGLOMERATION.
+   *
+   * Voie ordinaire : rattachee a l'agglo au-dela de `seuil`, hors agglo en
+   * dessous de `1 - seuil`, et « a couper au panneau EB10 » entre les deux.
+   * Voie SANS PANNEAU (`ROADTYPE_SANS_PANNEAU_EB10`) : jamais a couper, elle
+   * suit le cote ou elle a le plus de longueur (50 % pile ⇒ agglo). `sansPanneau`
+   * dit si ce rattachement a remplace une coupe, pour le bilan.
+   *
+   * PURE : tout entre par les parametres.
+   */
+  function zonageAgglo(partAgglo, roadType, seuil) {
+    const bas = 1 - seuil;
+    const grise = partAgglo > bas && partAgglo < seuil;
+    if (ROADTYPE_SANS_PANNEAU_EB10.has(roadType)) {
+      return { enAgglo: partAgglo >= 0.5, aCouper: false, sansPanneau: grise };
+    }
+    return { enAgglo: partAgglo >= seuil, aCouper: grise, sansPanneau: false };
+  }
+
   function coupeCommunaleUtile(nam) {
     if (!nam || !nam.primary) return false;
     const porte = e => !!(e && ((e.name || '').trim() || (e.cityName || '').trim()));
@@ -6514,8 +6547,8 @@
         "La versione {v} è disponibile.",
       "Seuil de rattachement":
         "Soglia di attribuzione",
-      "Part de longueur au-delà de laquelle un segment à cheval est rattaché d'office à un côté. En dessous, il est signalé comme à couper.":
-        "Quota di lunghezza oltre la quale un segmento a cavallo viene attribuito d'ufficio a un lato. Al di sotto, viene segnalato come da tagliare.",
+      "Part de longueur au-delà de laquelle un segment à cheval est rattaché d'office à un côté. En dessous, il est signalé comme à couper — sauf chemins de terre, sentiers, escaliers, voies privées et parkings : sans panneau d'entrée, ils suivent le côté majoritaire.":
+        "Quota di lunghezza oltre la quale un segmento a cavallo viene attribuito d'ufficio a un lato. Al di sotto, viene segnalato come da tagliare — tranne strade sterrate, sentieri, scalinate, strade private e parcheggi: senza cartello di inizio centro abitato, seguono il lato prevalente.",
       "Inclure parkings et voies privées":
         "Includi parcheggi e strade private",
       "Parkings et voies privées sont exclus par défaut : une absence de nom n'y est pas une anomalie. Les inclure les audite comme n'importe quelle voie (nom, rédaction, zone). ⚠️ Sans cocher, une ville en trop hors agglomération est signalée quand même : c'est une faute quel que soit le type de voie.":
@@ -10304,6 +10337,9 @@
                     // couper ne corrigerait rien. Comptees pour qu'on VOIE que le
                     // script les a examinees — leur nom, lui, reste audite.
                     autoSansCoupe: 0,
+                    // `sansPanneau` : voies sans EB10 (chemin de terre, sentier…)
+                    // a cheval sur le polygone, rattachees au cote majoritaire.
+                    sansPanneau: 0,
                     // `villeSansAdressage` : voies privees et parkings hors
                     // agglomeration qui portent quand meme la ville en principal.
                     // Ils restent comptes dans `skipped.sansAdresse` (ils ne sont
@@ -10403,7 +10439,8 @@
         // sans elle, un parking de la commune d'a cote portant SON nom de ville
         // ressortirait comme un ecart chez nous.
         const certains = loc.partCommune >= bas
-          ? ecartsCertainsEnZoneGrise(nam, loc.partAgglo >= haut, communeActive.nom)
+          ? ecartsCertainsEnZoneGrise(nam, zonageAgglo(loc.partAgglo, seg.roadType, haut).enAgglo,
+                                      communeActive.nom)
           : [];
         if (certains.length && c.nommageZone) {
           zones.villeSansAdressage++;
@@ -10431,7 +10468,10 @@
       //   filet quand un troncon d'autoroute est type autrement.
       const estAutoroute = seg.roadType === REF.typeAutoroute ||
                            REF.reAutoroute.test((nam.primary.name || '').trim());
-      const enAgglo = loc.partAgglo >= haut;
+      // ⚠️ Voir `zonageAgglo` : une voie sans panneau EB10 suit son cote
+      // majoritaire au lieu de tomber « a couper ».
+      const zon = zonageAgglo(loc.partAgglo, seg.roadType, haut);
+      const enAgglo = zon.enAgglo;
 
       // ⚠️ `forme` se calcule APRES le type : une bretelle n'obeit pas tout a
       // fait aux memes regles d'ecriture (voir `verifierForme`, opts.bretelle).
@@ -10550,8 +10590,7 @@
       // segment qu'on croit avoir vu.
       // ⚠️ On ne saute PAS le segment pour autant : son NOM reste audite plus
       // bas, comme pour les voies mitoyennes.
-      const enZoneGrise = loc.partCommune < haut ||
-                          (loc.partAgglo > bas && loc.partAgglo < haut);
+      const enZoneGrise = loc.partCommune < haut || zon.aCouper;
       if (estAutoroute && enZoneGrise) zones.autoSansCoupe++;
 
       // Zone grise sur la limite COMMUNALE : il faut couper avant de nommer,
@@ -10606,7 +10645,7 @@
       // Zone grise sur la limite d'AGGLO : idem, coupure au panneau EB10.
       // ⚠️ Meme exclusion que ci-dessus : l'autoroute ne porte pas de ville, le
       // panneau EB10 ne change donc rien a son nommage.
-      if (loc.partAgglo > bas && loc.partAgglo < haut && !estAutoroute) {
+      if (zon.aCouper && !estAutoroute) {
         zones.cheval++;
         findings.push(Object.assign({}, base, { cas: 'EB10', doute: null, ecarts: [{
           champ: 'limite d\'agglo',
@@ -10618,6 +10657,7 @@
       // `enAgglo` et le comptage des villes sont faits plus haut, avant les
       // branches : ici on ne totalise plus que les voies ORDINAIRES analysees.
       if (enAgglo) zones.agglo++; else zones.hors++;
+      if (zon.sansPanneau) zones.sansPanneau++;
 
       // ⚠️⚠️ Calcule ICI, et plus bas avec les notes : la cible en a besoin.
       const voisines = communesVoisinesDuSegment(nam, communes, communeActive.code);
@@ -14108,7 +14148,7 @@
 
         <div class="agn-sb-vue" data-vue="analyse">
           ${sect('analyse', 'Analyse', `
-            <label class="agn-sb-l" title="Part de longueur au-delà de laquelle un segment à cheval est rattaché d'office à un côté. En dessous, il est signalé comme à couper.">
+            <label class="agn-sb-l" title="Part de longueur au-delà de laquelle un segment à cheval est rattaché d'office à un côté. En dessous, il est signalé comme à couper — sauf chemins de terre, sentiers, escaliers, voies privées et parkings : sans panneau d'entrée, ils suivent le côté majoritaire.">
               <span>Seuil de rattachement</span>
               <input type="number" id="agn-r-seuil" min="50" max="100" step="5"> %</label>
             <label class="agn-sb-c"><input type="checkbox" id="agn-r-sansadresse" title="Parkings et voies privées sont exclus par défaut : une absence de nom n'y est pas une anomalie. Les inclure les audite comme n'importe quelle voie (nom, rédaction, zone). ⚠️ Sans cocher, une ville en trop hors agglomération est signalée quand même : c'est une faute quel que soit le type de voie.">
@@ -16236,6 +16276,8 @@
             z.limComRien + ' à cheval sans rien à couper</span>' : ''}${
           z.autoSansCoupe ? ' · <span title="Autoroutes à cheval sur une limite communale ou d\'agglomération : elles ne portent aucune ville, ni en principal ni en alternatif. Les couper ne changerait rien à leur nommage. Leur nom reste audité.">' +
             z.autoSansCoupe + ' autoroute(s) sans coupe</span>' : ''}${
+          z.sansPanneau ? ' · <span title="Chemins de terre, sentiers, chemins piétonniers, escaliers, voies privées et parkings à cheval sur le polygone d\'agglomération. Ils ne portent pas de panneau d\'entrée d\'agglomération : la limite n\'y est que le tracé du polygone. Ils ne sont pas à couper, ils suivent le côté où ils ont le plus de longueur.">' +
+            z.sansPanneau + ' sans panneau, rattaché(s) au côté majoritaire</span>' : ''}${
           z.limitrophe ? ' · ' + z.limitrophe + ' débordent légèrement' : ''}${
           z.cartouche ? ' · ' + z.cartouche + ' cartouche(s) à poser' : ''}${
           z.special ? ' · ' + z.special + ' voie(s) à règle propre' : ''}${
