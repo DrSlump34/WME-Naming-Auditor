@@ -138,7 +138,7 @@ verifier('4. l\'accent seul est toujours signale (aucune abreviation en jeu)',
 api.setDico(dicoDe('/Chateau/g,"""Château""",//'));
 verifier('5. ⚠️⚠️ accent corrige mais abreviation NON : les 2 reports restent',
   champs(nam('Av. du Chateau')),
-  ['abreviation', 'rédaction (dictionnaire FR)']);
+  ['abréviation', 'rédaction (dictionnaire FR)']);
 verifier('6. ⚠️ … et le nom propose est bien celui, encore imparfait, du dico',
   api.verifierForme(nam('Av. du Chateau'))[1].apres, 'Av. du Château');
 
@@ -160,11 +160,11 @@ verifier('8. ⭐ contraction corrigee par le dico : un seul report',
 // ---------------------------------------------------------------------------
 api.setDico({ regles: [] });
 verifier('9. ⚠️ sans dictionnaire, « abreviation » parle comme avant',
-  champs(nam('Av. du Chateau')), ['abreviation']);
+  champs(nam('Av. du Chateau')), ['abréviation']);
 api.setDico(DICO_COMPLET);
 api.setControles(Object.assign({}, TOUS, { redactionDico: false }));
 verifier('10. ⚠️ dictionnaire DECOCHE : « abreviation » parle aussi',
-  champs(nam('Av. du Chateau')), ['abreviation']);
+  champs(nam('Av. du Chateau')), ['abréviation']);
 api.setControles(TOUS);
 
 // ---------------------------------------------------------------------------
@@ -174,7 +174,7 @@ api.setControles(TOUS);
 // AUTRE champ et le drapeau `sansProposition`.
 // ---------------------------------------------------------------------------
 verifier('11. ⚠️⚠️ un nom en CAPITALES ne fait taire aucun controle de forme',
-  champs(nam('RTE. DES ECOLES')), ['abreviation', 'nom en capitales']);
+  champs(nam('RTE. DES ECOLES')), ['abréviation', 'nom en capitales']);
 verifier('12. ⚠️⚠️ … et l\'ecart capitales ne propose AUCUN nom',
   (api.verifierForme(nam('RTE. DES ECOLES'))
       .find(e => e.champ === 'nom en capitales') || {}).sansProposition, true);
@@ -196,9 +196,9 @@ verifier('12. ⚠️⚠️ … et l\'ecart capitales ne propose AUCUN nom',
 // ⇒ Seuil passe a 2 lettres. Ces tests figent le NOUVEAU comportement ; s'ils
 //   tombent, c'est que quelqu'un a « optimise » le seuil sans relire ceci.
 verifier('12b. ⚠️⚠️⚠️ un nom COURT tout en capitales est refuse (⚡ ne l\'ecrira pas)',
-  champs(nam('AV. DU CHATEAU')), ['abreviation', 'nom en capitales']);
+  champs(nam('AV. DU CHATEAU')), ['abréviation', 'nom en capitales']);
 verifier('12c. ⚠️⚠️ … idem sans point sur l\'abreviation',
-  champs(nam('BD DE LA GARE')), ['abreviation', 'nom en capitales']);
+  champs(nam('BD DE LA GARE')), ['abréviation', 'nom en capitales']);
 verifier('12d. ⚠️⚠️ … et aucun de ces refus n\'est applicable par le ⚡',
   api.planDeCorrection({ cible: { primary: { name: 'X', cityName: '' }, alts: [] },
     libelle: 'AV. DU CHATEAU / Nîmes', villeActuelle: 'Nîmes',

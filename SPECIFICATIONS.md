@@ -639,7 +639,7 @@ doit le faire échouer.
 | Données et persistance | `test-chargement.js`, `test-fusion-prefs.js`, `test-purge-contours.js`, `test-ville-sans-polygone.js` |
 | Interface | `test-ui-sections.js`, `test-bandeau-erreur.js`, `test-guidage.js`, `check-accents-visibles.js` |
 | Territoire et mise à jour | `test-territoire.js`, `test-maj.js`, `test-pastille-maj.js` |
-| Italie et traduction | `test-italie.js`, `test-i18n.js`, `test-traduire-dom.js`, `test-italien-interface.js`, `test-zone-trace-it.js` ; mesures : `couverture-i18n.js` (aide), `couverture-interface.js` (onglet, boîtes, volet) |
+| Italie et traduction | `test-italie.js`, `test-i18n.js`, `test-traduire-dom.js`, `test-italien-interface.js`, `test-zone-trace-it.js`, `test-reports-it.js` (onglet Segments) ; mesures : `couverture-i18n.js` (aide), `couverture-interface.js` (onglet, boîtes, volet) |
 | Écriture (audit 25/09) | `test-ecriture-preparee.js`, `test-lot-doute.js`, `test-coche-correction.js`, `test-composite-seul.js`, `test-autoroute-type.js`, `test-village-rattache.js`, `test-suppression-polygone.js` |
 | Charte et fenêtre | `test-fenetre-bornee.js`, `test-clavier-boites.js`, `test-voisines-perf.js` (plafond de temps) |
 
@@ -695,6 +695,12 @@ Points de méthode acquis :
 
 - **L'Italie est en phase de test.** Les traductions italiennes (interface et aide) restent à faire
   **relire par Silvio**.
+- **Reports en italien (v2.50.10)** : jusqu'à la 2.50.09, le contenu des reports n'était pas traduit du
+  tout (46 nœuds sur 47 en français sur l'onglet Segments). L'onglet **Segments** est couvert en 2.50.10
+  (groupes, reports, notes, lignes « avant → après », bilan : `TYPES_VOIE_IT`, `valeurEcartIt`,
+  `notesReportIt`, `bilanIt`). ⏳ **Restent les onglets POI et Numérotation** (écarts, propositions
+  d'adresse, notes, bilans) et les bandeaux sous le bilan. Les libellés de type de voie sont
+  descriptifs, **non relevés dans WME en italien** — à faire relire.
 - **Mineurs de l'audit du 25/09/2026** : tous traités en 2.50.06. Restent la relecture italienne par Silvio et la correction de `anonymous` dans `WMEPrefs` (bibliothèque d'origine).
 - **La couverture EB10 varie du simple au triple selon le département** (§ 13.1) — c'est mesuré,
   et c'est l'interface qui porte le guidage en conséquence.

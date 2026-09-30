@@ -145,12 +145,12 @@ const FAUTIFS = [
   ['Chemin Rural n°12', 1, 'voie communale en toutes lettres', 'idem'],
   ['Rue R. Poincaré', 1, 'contraction', 'initiale isolée'],
   ['Route de St-Fargeau', 1, 'contraction', 'contraction de Saint'],
-  ['Av. de la Gare', 1, 'abreviation', 'abréviation de type de voie'],
+  ['Av. de la Gare', 1, 'abréviation', 'abréviation de type de voie'],
   ['Rue Nationale : Marseille', 1, 'direction dans le nom', 'direction hors bretelle'],
   ['Voie de bus', 1, 'fonction dans le nom', 'fonction du segment'],
   ['Parking Auchan', 1, 'fonction dans le nom', 'nature du lieu'],
   ['sortie 18: Valensole', 4, 'majuscule', "⭐ l'oubli corrigé le 03/08"],
-  ['Av. de la Gare', 4, 'abreviation', "⭐ une bretelle obéit aussi à l'écriture"]
+  ['Av. de la Gare', 4, 'abréviation', "⭐ une bretelle obéit aussi à l'écriture"]
 ];
 FAUTIFS.forEach(([nom, rt, champ, note], i) => {
   verifier('2.' + (i + 1) + ' ❌ « ' + nom + ' » est vu — ' + note,

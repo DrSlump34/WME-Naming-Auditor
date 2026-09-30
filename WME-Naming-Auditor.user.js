@@ -582,7 +582,7 @@
 
   const ROADTYPE_LABEL = {
     1: 'Rue', 2: 'Route principale', 3: 'Autoroute', 4: 'Bretelle', 5: 'Sentier',
-    6: 'Voie rapide', 7: 'Route secondaire', 8: 'Chemin de terre', 10: 'Chemin pietonnier',
+    6: 'Voie rapide', 7: 'Route secondaire', 8: 'Chemin de terre', 10: 'Chemin piétonnier',
     15: 'Ferry', 16: 'Escalier', 17: 'Voie privée', 18: 'Voie ferrée', 19: 'Piste',
     20: 'Voie de parking', 22: 'Ruelle'
   };
@@ -4978,7 +4978,7 @@
     const libelles = l => new Set(l.map(e => (e.name || '').trim().toLowerCase())).size;
     let doute = null;
     if (libelles(routes) > 1) doute = 'plusieurs numéros de route sur le segment';
-    else if (libelles(noms) > 1) doute = 'plusieurs noms de rue — noms alternatifs reels ?';
+    else if (libelles(noms) > 1) doute = 'plusieurs noms de rue — noms alternatifs réels ?';
 
     const P = (name, city) => ({ name: name || '', cityName: city || '' });
 
@@ -5263,7 +5263,7 @@
         minuscule: s => /^[a-zà-ÿ]/.test(s)
       };
       if (c.abreviations && faute.abrev(nom) && !dicoLeCorrige(faute.abrev)) {
-        ecarts.push({ champ: 'abreviation' + ou, avant: nom,
+        ecarts.push({ champ: 'abréviation' + ou, avant: nom,
           apres: 'écrire le type de voie en toutes lettres' });
       }
       if (c.contractions && faute.contraction(nom) && !dicoLeCorrige(faute.contraction)) {
@@ -5296,7 +5296,7 @@
       });
       if (c.fonctionDirection && REF.reFonction.test(nom)) {
         ecarts.push({ champ: 'fonction dans le nom' + ou, avant: nom,
-          apres: 'le nom ne doit pas decrire la fonction du segment' });
+          apres: 'le nom ne doit pas décrire la fonction du segment' });
       }
       // ⚠️ Sur une bretelle, le « > » INITIAL est le format EXIGE par le guide
       // pour une sortie sans numero de route (« > Orsay »).
@@ -6186,7 +6186,7 @@
       //    l'italien s'afficher pendant que les boutons de correction
       //    cessaient de mordre — en silence, et pour les seuls Italiens.
       //    Traduire A LA SORTIE ne touche que le DOM : l'objet garde sa cle.
-      // ⚠️ D'ou les formes en « (alt) » : le code ecrit `'abreviation' + ou`,
+      // ⚠️ D'ou les formes en « (alt) » : le code ecrit `'abréviation' + ou`,
       //    ou `ou` vaut '' ou ' (alt)'. C'est le texte COMPOSE qui arrive a
       //    l'ecran, donc c'est lui qui doit etre au dictionnaire.
       'adresse absente':
@@ -6237,9 +6237,9 @@
         'città della rotatoria',
       'ville en trop (hors agglomération)':
         'città di troppo (fuori dal centro abitato)',
-      'abreviation':
+      'abréviation':
         'abbreviazione',
-      'abreviation (alt)':
+      'abréviation (alt)':
         'abbreviazione (alt)',
       'contraction':
         'contrazione',
@@ -6904,7 +6904,74 @@
       "Le fichier partage les <b>polygones</b>, les communes « sans agglo » et les <b>secteurs déclarés hameau</b>. Les coches « traité » restent personnelles.":
         "Il file condivide i <b>poligoni</b>, i comuni « senza centro abitato » e i <b>settori dichiarati hameau</b>. Le spunte « trattato » restano personali.",
       "Rien de nouveau : les communes du fichier étaient déjà chez toi.":
-        "Niente di nuovo: i comuni del file erano già presenti da te."
+        "Niente di nuovo: i comuni del file erano già presenti da te.",
+      // --- Onglet Segments : groupes, reports et bilan (v2.50.10) ---------------
+      // ⚠️ Jusqu'a la 2.50.09, AUCUN texte des reports n'etait traduit : la zone
+      //    des resultats est bien observee, mais le dictionnaire n'en avait pas
+      //    les cles. Les textes a nombre ou a nom sont dans `MOTIFS`
+      //    (`noteReportIt`, `valeurEcartIt`, `morceauBilanIt`).
+      'En agglomération (C / R)':
+        'Nel centro abitato (C / R)',
+      'Hors agglomération (H)':
+        'Fuori dal centro abitato (H)',
+      'À couper — entrée agglo':
+        'Da tagliare — ingresso nel centro abitato',
+      'À couper — limite communale':
+        'Da tagliare — confine comunale',
+      'Cartouche seul (nommage bon)':
+        'Solo scudetto (denominazione corretta)',
+      'Rédaction du nom seule':
+        'Solo redazione del nome',
+      'Bretelle / voie ferrée / rocade':
+        'Rampa / ferrovia / tangenziale',
+      'Giratoires':
+        'Rotatorie',
+      'Numéro de rue hors agglomération':
+        'Numero civico fuori dal centro abitato',
+      'RPP en agglomération (à trancher)':
+        'RPP nel centro abitato (da decidere)',
+      '📏 Mesure : numéro sur une voie « Dxxx » (pas un écart)':
+        '📏 Misura: numero civico su una strada « Dxxx » (non è una difformità)',
+      'POI : adresse en écart':
+        'POI: indirizzo con difformità',
+      'Déplie ou replie tous les groupes de résultats':
+        'Espande o comprime tutti i gruppi di risultati',
+      'tout déplier':
+        'espandi tutto',
+      '⚡ corriger':
+        '⚡ correggi',
+      'Appliquer les corrections automatisables de ce groupe (celles qui portent un doute se font une par une)':
+        'Applica le correzioni automatizzabili di questo gruppo (quelle con un dubbio si fanno una per una)',
+      'Appliquer la correction (sans enregistrer)':
+        'Applica la correzione (senza salvare)',
+      'Marquer comme traité':
+        'Segna come trattato',
+      'Verrouillés au-dessus de ton niveau : non modifiables':
+        'Bloccati sopra il tuo livello: non modificabili',
+      'Tronçons éloignés : la carte se pose sur le plus long':
+        'Tratti distanti: la mappa si centra sul più lungo',
+      'éparpillés':
+        'sparsi',
+      '⚠ Nom de rue introuvable ou ambigu sur ce segment : la conversion ne peut pas être proposée.':
+        '⚠ Nome di via introvabile o ambiguo su questo segmento: la conversione non può essere proposta.',
+      'segment(s) en écart sur':
+        'segmento/i con difformità su',
+      'report(s).':
+        'segnalazione/i.',
+      '(dont':
+        '(di cui',
+      'signalé(s) pour une ville en trop)':
+        'segnalato/i per una città di troppo)',
+      "Voies qui épousent la limite entre deux communes : chacune en possède un côté. Elles portent déjà le nom de la commune, il n'y a rien à couper.":
+        "Strade che seguono il confine tra due comuni: ciascuno ne possiede un lato. Portano già il nome del comune, non c'è nulla da tagliare.",
+      "À cheval sur la limite communale, mais sans aucun nom ni ville — ni en principal, ni en alternatif. Les couper donnerait deux moitiés identiques à l'originale : il n'y a rien à corriger.":
+        "A cavallo del confine comunale, ma senza alcun nome né città — né in principale né in alternativo. Tagliarle darebbe due metà identiche all'originale: non c'è nulla da correggere.",
+      "Autoroutes à cheval sur une limite communale ou d'agglomération : elles ne portent aucune ville, ni en principal ni en alternatif. Les couper ne changerait rien à leur nommage. Leur nom reste audité.":
+        "Autostrade a cavallo di un confine comunale o di centro abitato: non portano alcuna città, né in principale né in alternativo. Tagliarle non cambierebbe nulla alla loro denominazione. Il loro nome resta controllato.",
+      "Chemins de terre, sentiers, chemins piétonniers, escaliers, voies privées et parkings à cheval sur le polygone d'agglomération. Ils ne portent pas de panneau d'entrée d'agglomération : la limite n'y est que le tracé du polygone. Ils ne sont pas à couper, et leur ville est laissée à ton appréciation : le script ne propose ni de l'ajouter ni de la retirer.":
+        "Strade sterrate, sentieri, percorsi pedonali, scalinate, strade private e parcheggi a cavallo del poligono del centro abitato. Non hanno un cartello di inizio centro abitato: il confine è solo il tracciato del poligono. Non vanno tagliati, e la loro città è lasciata alla tua valutazione: lo script non propone né di aggiungerla né di toglierla.",
+      "Voies privées et parkings : leur nom n'est pas audité (une absence de nom n'y est pas une anomalie), mais hors agglomération le nom principal ne porte jamais de ville. Ceux-là sont donc signalés quand même.":
+        "Strade private e parcheggi: il loro nome non è controllato (l'assenza di nome non è un'anomalia), ma fuori dal centro abitato il nome principale non porta mai la città. Questi sono quindi segnalati comunque."
     }
   };
 
@@ -6930,6 +6997,165 @@
     'trop isolés': 'troppo isolati', 'trop isolées': 'troppo isolati',
     'alignés le long d\'une route': 'allineati lungo una strada'
   };
+
+  // --- Onglet Segments : ce que les reports et le bilan construisent (v2.50.10) ---
+  // ⚠️⚠️ Jusqu'a la 2.50.09, un editeur italien lisait TOUT le contenu des reports
+  //      en francais : type de voie, lignes « avant → apres », notes, bilan. Le
+  //      releve fait pour la 2.50.10 (46 noeuds sur 47 non traduits) est fige dans
+  //      `tools/test-reports-it.js`.
+  // ⚠️ Libelles de type de voie : traductions descriptives, PAS garanties
+  //    identiques a la liste de WME en italien (non relevee) — a faire relire.
+  const TYPES_VOIE_IT = {
+    'Rue': 'Strada', 'Route principale': 'Strada principale', 'Autoroute': 'Autostrada',
+    'Bretelle': 'Rampa', 'Sentier': 'Sentiero', 'Voie rapide': 'Superstrada',
+    'Route secondaire': 'Strada secondaria', 'Chemin de terre': 'Strada sterrata',
+    'Chemin piétonnier': 'Percorso pedonale', 'Ferry': 'Traghetto', 'Escalier': 'Scalinata',
+    'Voie privée': 'Strada privata', 'Voie ferrée': 'Ferrovia', 'Piste': 'Pista',
+    'Voie de parking': 'Strada di parcheggio', 'Ruelle': 'Vicolo',
+    'Numéros de rue': 'Numeri civici', 'POI résidentiel': 'Luogo residenziale'
+  };
+  const RE_TYPE_VOIE = new RegExp('^(' + Object.keys(TYPES_VOIE_IT)
+    .map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ') ·(?: (#\\d+))?( ·)?$');
+  /** Les jetons de `fmt` : ils vivent au milieu des noms, on les remplace partout. */
+  const jetonsIt = t => t.replace(/‹sans nom›/g, '‹senza nome›').replace(/‹sans ville›/g, '‹senza città›');
+  /** Une valeur « avant » ou « apres » d'un ecart. Sans motif reconnu : un nom, garde tel quel. */
+  const VALEURS_ECART_IT = [
+    [/^(\d+) % dans l'agglomération$/, '$1 % nel centro abitato'],
+    [/^(\d+) % dans (.+?)(?: · longe la limite sur (\d+) %)?$/,
+      (t, p, c, l) => p + ' % in ' + c + (l ? ' · segue il confine per il ' + l + ' %' : '')],
+    [/^à couper au panneau d'entrée d'agglomération \(EB10\)$/, 'da tagliare al cartello di inizio centro abitato (EB10)'],
+    [/^à couper sur la limite communale$/, 'da tagliare sul confine comunale'],
+    [/^à couper là où la voie quitte la limite communale$/, 'da tagliare dove la strada lascia il confine comunale'],
+    [/^poser le cartouche (.+) sur le nom principal$/, 'applicare lo scudetto $1 sul nome principale'],
+    [/^poser le cartouche (.+) sur ce nom alternatif$/, 'applicare lo scudetto $1 su questo nome alternativo'],
+    [/^(.+) sans cartouche$/, '$1 senza scudetto'],
+    [/^à réécrire en minuscules accentuées \(nom non proposé\)$/, 'da riscrivere in minuscolo con gli accenti (nome non proposto)'],
+    [/^‹sans nom› — une voie ferrée ne porte de nom ni en principal ni en alternatif$/,
+      '‹senza nome› — una ferrovia non porta nome né in principale né in alternativo'],
+    [/^‹sans nom› — à basculer en nom alternatif \(utile à la recherche\)$/,
+      '‹senza nome› — da spostare nel nome alternativo (utile alla ricerca)'],
+    [/^‹sans nom› — à retirer à la main \(le script ne sait pas supprimer un alternatif\)$/,
+      '‹senza nome› — da togliere a mano (lo script non sa eliminare un alternativo)'],
+    [/^écrire le type de voie en toutes lettres$/, 'scrivere il tipo di strada per esteso'],
+    [/^écrire le nom complet \(contractions interdites\)$/, 'scrivere il nome completo (contrazioni vietate)'],
+    [/^le nom ne doit pas décrire la fonction du segment$/, 'il nome non deve descrivere la funzione del segmento'],
+    [/^la direction doit être une VILLE — « (.+) » est une route, les noms d'autoroutes s'ignorent$/,
+      'la direzione deve essere una CITTÀ — « $1 » è una strada, i nomi delle autostrade si ignorano'],
+    [/^un seul numéro — l'européen \(Exxx\) uniquement si le national est absent$/,
+      'un solo numero — l\'europeo (Exxx) solo se manca il nazionale'],
+    [/^forme attendue : (.+)$/, (t, ex) => 'forma attesa: ' + ex
+      .replace(/ — ou « > Orsay » quand aucun numéro ne s'applique$/, ' — o « > Orsay » quando nessun numero si applica')
+      .replace(/ ou « Uscita /, ' o « Uscita ')],
+    [/^à écrire sous la forme abrégée du panneau \(tronqué en guidage\)$/,
+      'da scrivere nella forma abbreviata del cartello (troncato nella guida)'],
+    [/^le « : » se colle au numéro et s'espace de la direction$/, 'i « : » si attaccano al numero e si staccano dalla direzione'],
+    [/^la direction n'est admise que sur les bretelles$/, 'la direzione è ammessa solo sulle rampe'],
+    [/^(.+) — le numéro va en alternatif \(ou en principal hors agglomération\), jamais collé au nom$/,
+      '$1 — il numero va in alternativo (o in principale fuori dal centro abitato), mai unito al nome'],
+    [/^⚠️ à SUPPRIMER à la main : « (.+) » est déjà présent, ce nom en est un doublon \(ancienne règle\)$/,
+      '⚠️ da ELIMINARE a mano: « $1 » è già presente, questo nome ne è un doppione (vecchia regola)'],
+    [/^⚠️ à corriger à la main en « (.+) » : le script ne sait pas retirer un nom alternatif$/,
+      '⚠️ da correggere a mano in « $1 »: lo script non sa togliere un nome alternativo'],
+    [/^attribut absent$/, 'attributo assente'],
+    // ⚠️ Le libelle de la case dans WME italien n'est pas cite : il n'a pas ete releve.
+    [/^cocher « Allumez vos feux » : le Code de la route l'impose sur toute route hors agglomération$/,
+      'attivare l\'obbligo dei fari accesi: il Codice della strada lo impone su tutte le strade fuori dai centri abitati']
+  ];
+  function valeurEcartIt(v) {
+    for (const [re, rep] of VALEURS_ECART_IT) {
+      const r = v.match(re);
+      if (r) return jetonsIt(typeof rep === 'function' ? rep(...r) : v.replace(re, rep));
+    }
+    return jetonsIt(v);
+  }
+  const MOTIF_ROCADE_IT = {
+    'nom (aucun cartouche Rocade posé)': 'al nome (nessuno scudetto Rocade applicato)',
+    'format « numéro - orientation » (aucun cartouche Rocade posé)':
+      'al formato « numero - orientamento » (nessuno scudetto Rocade applicato)'
+  };
+  /** Une note d'un report (le « doute »), entiere. `null` si elle n'est pas connue. */
+  const NOTES_REPORT_IT = [
+    [/^déborde de (\d+) m sur la commune voisine$/, 'sconfina di $1 m nel comune vicino'],
+    [/^déborde de (\d+) m hors de l'agglomération$/, 'sconfina di $1 m fuori dal centro abitato'],
+    [/^mord de (\d+) m sur l'agglomération$/, 'entra di $1 m nel centro abitato'],
+    [/^à cheval sur l'agglomération sans panneau d'entrée \((\d+) % dedans\) : la ville est laissée à ton appréciation$/,
+      'a cavallo del centro abitato senza cartello di inizio ($1 % dentro): la città è lasciata alla tua valutazione'],
+    [/^plusieurs numéros de route sur le segment$/, 'più numeri di strada sul segmento'],
+    [/^plusieurs noms de rue — noms alternatifs réels \?$/, 'più nomi di via — nomi alternativi reali?'],
+    [/^village rattaché : aucune ville sur le segment, impossible d'en déduire le nom du village$/,
+      'frazione: nessuna città sul segmento, impossibile dedurne il nome della frazione'],
+    [/^village rattaché : le segment porte le nom de la commune, pas celui du village — impossible d'en déduire le nom du village$/,
+      'frazione: il segmento porta il nome del comune, non quello della frazione — impossibile dedurne il nome della frazione'],
+    [/^plusieurs noms possibles en principal \((.+)\) : le choix sera demandé à la correction$/,
+      'più nomi possibili come principale ($1): la scelta sarà chiesta alla correzione'],
+    [/^adressé à « (.+) » — (commune voisine|communes voisines), alors que ce segment est dans (.+)$/,
+      (t, a, v, c) => 'indirizzato a « ' + a + ' » — ' + (v === 'commune voisine' ? 'comune vicino' : 'comuni vicini') +
+        ', mentre questo segmento è in ' + c],
+    [/^longe la limite avec « (.+) » : cette voie dessert les deux communes, son adresse est conservée en alternatif$/,
+      'segue il confine con « $1 »: questa strada serve i due comuni, il suo indirizzo è conservato in alternativo'],
+    [/^longe la limite avec « (.+) » : si cette voie est en agglomération de ce côté-là, c'est cette commune qui doit porter le nom principal\. Le script ne connaît pas son zonage — trace son agglomération pour qu'il puisse conclure\. En attendant, il ne touche pas au principal\.$/,
+      'segue il confine con « $1 »: se questa strada è nel centro abitato da quel lato, è quel comune che deve portare il nome principale. Lo script non conosce la sua zonizzazione — traccia il suo centro abitato perché possa concludere. Nel frattempo non tocca il principale.'],
+    [/^longe la limite avec « (.+) », en agglomération de ce côté-là : c'est cette commune qui porte le nom principal\. Le script ne l'écrit pas à ta place — vérifie-le et pose-le à la main ; il ne touche pas au principal\.$/,
+      'segue il confine con « $1 », nel centro abitato da quel lato: è quel comune che porta il nome principale. Lo script non lo scrive al posto tuo — verificalo e impostalo a mano; non tocca il principale.'],
+    [/^identifiée comme rocade d'après son (.+)$/,
+      (t, m) => MOTIF_ROCADE_IT[m] ? 'identificata come tangenziale in base ' + MOTIF_ROCADE_IT[m] : null],
+    [/^s'applique à toute la voie « (.+) » \((\d+) segments?\) : le cartouche est porté par la rue, pas par un segment$/,
+      (t, n, k) => 'si applica a tutta la via « ' + n + ' » (' + k + (k === '1' ? ' segmento' : ' segmenti') +
+        '): lo scudetto è portato dalla via, non da un segmento']
+  ];
+  function noteReportIt(n) {
+    for (const [re, rep] of NOTES_REPORT_IT) {
+      const r = n.match(re);
+      if (r) return typeof rep === 'function' ? rep(...r) : n.replace(re, rep);
+    }
+    return null;
+  }
+  /**
+   * Les notes d'un report, jointes par « ; ». ⚠️ Une note peut CONTENIR « ; » (voie
+   * mitoyenne) : on essaie donc d'abord le plus long assemblage de morceaux. Une note
+   * inconnue reste en francais plutot que de faire tomber les autres. `null` si
+   * AUCUNE n'est connue.
+   */
+  function notesReportIt(s) {
+    const parts = s.split(' ; ');
+    const out = [];
+    let vu = false;
+    for (let i = 0; i < parts.length;) {
+      let j = parts.length, t = null;
+      for (; j > i; j--) { t = noteReportIt(parts.slice(i, j).join(' ; ')); if (t) break; }
+      if (t) { out.push(t); vu = true; i = j; } else { out.push(parts[i]); i++; }
+    }
+    return vu ? out.join(' ; ') : null;
+  }
+  /** Un morceau du bilan, entre deux « · ». */
+  const MORCEAUX_BILAN_IT = [
+    [/^(\d+) en agglo$/, '$1 nel centro abitato'],
+    [/^(\d+) hors agglo$/, '$1 fuori dal centro abitato'],
+    [/^(\d+) à couper \(agglo\)$/, '$1 da tagliare (centro abitato)'],
+    [/^(\d+) à couper \(commune\)$/, '$1 da tagliare (comune)'],
+    [/^(\d+) mitoyenne\(s\) conformes$/, '$1 di confine conforme/i'],
+    [/^(\d+) à cheval sans rien à couper$/, '$1 a cavallo senza nulla da tagliare'],
+    [/^(\d+) autoroute\(s\) sans coupe$/, '$1 autostrada/e senza taglio'],
+    [/^(\d+) sans panneau, ville laissée à l'éditeur$/, '$1 senza cartello, città lasciata all\'editor'],
+    [/^(\d+) débordent légèrement$/, '$1 sconfinano leggermente'],
+    [/^(\d+) cartouche\(s\) à poser$/, '$1 scudetto/i da applicare'],
+    [/^(\d+) voie\(s\) à règle propre$/, '$1 strada/e con regola propria'],
+    [/^(\d+) giratoire\(s\)$/, '$1 rotatoria/e']
+  ];
+  /** Une suite de morceaux du bilan (« 2 en agglo · 5 hors agglo · »). `null` si un seul est inconnu. */
+  function bilanIt(t) {
+    const debut = /^·\s/.test(t), fin = /\s·$/.test(t);
+    let c = t.replace(/^·\s/, '').replace(/\s·$/, '');
+    const point = /\.$/.test(c);
+    if (point) c = c.slice(0, -1);
+    const out = [];
+    for (const p of c.split(' · ')) {
+      const m = MORCEAUX_BILAN_IT.find(([re]) => re.test(p));
+      if (!m) return null;
+      out.push(p.replace(m[0], m[1]));
+    }
+    return (debut ? '· ' : '') + out.join(' · ') + (point ? '.' : '') + (fin ? ' ·' : '');
+  }
   const MOTIFS = {
     it: [
       // --- volet -------------------------------------------------------------
@@ -6991,7 +7217,22 @@
         (t, a, b, c, reste) => a + ' comune/i con poligono, ' + b + ' « senza centro abitato » e ' + c +
           ' con hameau dichiarati aggiunto/i. I tuoi comuni esistenti non sono stati toccati.' +
           (reste ? reste.replace(/^ ⚠️ (\d+) entrée\(s\) écartée\(s\) : code (INSEE|ISTAT), polygone ou hameau invalide \(le fichier est peut-être abîmé\)\.$/,
-            ' ⚠️ $1 voce/i scartata/e: codice $2, poligono o hameau non valido (il file è forse danneggiato).') : '')]
+            ' ⚠️ $1 voce/i scartata/e: codice $2, poligono o hameau non valido (il file è forse danneggiato).') : '')],
+      // --- onglet Segments : reports et bilan (v2.50.10) — voir `TYPES_VOIE_IT` ---
+      [RE_TYPE_VOIE, (t, ty, id, suite) => TYPES_VOIE_IT[ty] + ' ·' + (id ? ' ' + id : '') + (suite || '')],
+      [/^(\d+) segments$/, '$1 segmenti'],
+      [/^(\d+) numéros?$/, (t, n) => n === '1' ? '1 numero civico' : n + ' numeri civici'],
+      [/^: ([\s\S]*?) → ([\s\S]*)$/, (t, a, b) => ': ' + valeurEcartIt(a) + ' → ' + valeurEcartIt(b)],
+      [/^⚠ ([\s\S]+)$/, (t, n) => { const r = notesReportIt(n); return r ? '⚠ ' + r : null; }],
+      [/^analyses à (.+?)(, regroupés en|\.)$/,
+        (t, c, fin) => 'analizzati a ' + c + (fin === '.' ? '.' : ', raggruppati in')],
+      [/^Ignorés : (\d+) hors commune, (\d+) sans adressage(?:, (\d+) règles propres\.)?$/,
+        (t, a, b, c) => 'Ignorati: ' + a + ' fuori comune, ' + b + ' senza indirizzamento' +
+          (c ? ', ' + c + ' regole proprie.' : '')],
+      [/^, (\d+) règles propres\.$/, ', $1 regole proprie.'],
+      // ⚠️ EN DERNIER : il reconnait toute suite « N … · N … » du bilan, et rend
+      //    `null` des qu'un morceau lui est inconnu.
+      [/^(?:·\s)?\d+ [\s\S]*$/, t => bilanIt(t)]
     ]
   };
 
@@ -9600,7 +9841,7 @@
         // La provenance de la position est DITE : un verdict fonde sur une part de
         // surface n'a pas la meme force qu'un point d'acces explicite.
         doute: situation.source === 'part de surface'
-          ? 'position deduite de la surface (' + Math.round((situation.part || 0) * 100) +
+          ? 'position déduite de la surface (' + Math.round((situation.part || 0) * 100) +
             ' % dans la commune) : ce POI n\'a pas de point d\'accès'
           : (situation.source !== 'accès principal'
               ? 'position prise sur : ' + situation.source : null)
@@ -9862,13 +10103,13 @@
           centre: (p => ({ lon: p[0], lat: p[1] }))(centreGeom(h.geometry)),
           rueCible: rue,
           ecarts: [{ champ: 'numéro hors agglo',
-                     avant: 'n° ' + h.number + ' porte par le segment',
+                     avant: 'n° ' + h.number + ' porté par le segment',
                      apres: !rue ? 'à passer en POI résidentiel'
                        : rue.saisieRequise ? 'à passer en POI résidentiel — adresse à saisir à la conversion'
                        : rue.ambigu ? 'à passer en POI résidentiel — adresse à choisir à la conversion'
                        : 'à passer en POI résidentiel — ' + rue.nom + ' / ' + rue.ville }],
           doute: !rue
-            ? 'aucune adresse exploitable sur ce segment : la rue du POI ne peut pas être determinee'
+            ? 'aucune adresse exploitable sur ce segment : la rue du POI ne peut pas être déterminée'
             : rue.saisieRequise
               ? 'ce segment ne porte qu\'un numéro de route : le nom du POI sera demandé à la conversion'
               : rue.plusieursNoms
@@ -10769,7 +11010,7 @@
         // segment est dans X » etait un contresens — signale par l'auteur sur la
         // Rue de la Republique (Montfaucon / Saint-Geniès), 7 segments.
         notes.push(mitoyenIndecis
-          ? 'longe la limite avec « ' + mitoyenIndecis + '  » : si cette voie est en ' +
+          ? 'longe la limite avec « ' + mitoyenIndecis + ' » : si cette voie est en ' +
             'agglomération de ce côté-là, c\'est cette commune qui doit porter le nom ' +
             'principal. Le script ne connaît pas son zonage — trace son agglomération ' +
             'pour qu\'il puisse conclure. En attendant, il ne touche pas au principal.'
@@ -10862,7 +11103,7 @@
                      avant: g.name + ' sans cartouche',
                      apres: 'poser le cartouche ' + sh.signText + ' sur le nom principal' }],
           doute: 's\'applique à toute la voie « ' + g.name + ' » (' + g.segs.length +
-                 ' segment' + (g.segs.length > 1 ? 's' : '') + ') : le cartouche est porte par la rue, pas par un segment'
+                 ' segment' + (g.segs.length > 1 ? 's' : '') + ') : le cartouche est porté par la rue, pas par un segment'
         });
       }
       return out;
@@ -16320,7 +16561,7 @@
             ' (dont <b>' + z.villeSansAdressage + '</b> signalé(s) pour une ville en trop)</span>' : ''}, ${s.skipped.horsRegle} règles propres.
       </div>${bandeauVillesSansPolygone()}${bandeauCommunesVoisines()}${bandeauInterrompu()}${bandeauSource()}`
         : `<div class="agn-stat">
-        ${s.adr ? '<b>' + s.adr.hnLus + '</b> numéro(s) lu(s) a ' + esc(communeActive.nom) +
+        ${s.adr ? '<b>' + s.adr.hnLus + '</b> numéro(s) lu(s) à ' + esc(communeActive.nom) +
             (options.controles.hnHorsAgglo
               ? ', dont <b>' + s.adr.hnHorsAgglo + '</b> hors agglomération.'
               : '<span title="Ils ont été lus pour repérer les POI résidentiels qui font doublon avec un numéro déjà posé.">' +
@@ -16454,7 +16695,7 @@
             <div class="agn-h"><span>${esc(f.libelle)}</span>
               ${planDeCorrection(f) && _ft() && f.verrouilles !== f.nb
                 ? '<button class="agn-fix-btn" title="Appliquer la correction (sans enregistrer)">⚡</button>' : ''}
-              <button class="agn-ok-btn" title="Marquer comme traite">✓</button>
+              <button class="agn-ok-btn" title="Marquer comme traité">✓</button>
               <span class="agn-cas">${f.cas}</span></div>
             <div class="agn-note">${f.poi
               ? esc(libelleCategorie(f.categorie))
@@ -16465,12 +16706,12 @@
                 ? 'POI ' + esc(String(f.venueId || '').slice(-8))
                 : f.adresse
                 ? (f.sousType === 'hn'
-                    ? '<b class="agn-nb">' + f.nb + ' numero' + (f.nb > 1 ? 's' : '') + '</b> · #' + f.segId
+                    ? '<b class="agn-nb">' + f.nb + ' numéro' + (f.nb > 1 ? 's' : '') + '</b> · #' + f.segId
                     : 'POI ' + f.segId)
                 : f.nb > 1 ? '<b class="agn-nb">' + f.nb + ' segments</b>' : '#' + f.segId}${
               f.verrouilles ? ' · <b class="agn-lock" title="Verrouillés au-dessus de ton niveau : non modifiables">🔒 ' +
                 f.verrouilles + '</b>' : ''}${
-              f.disperse ? ' · <span class="agn-note" title="Troncons eloignes : la carte se pose sur le plus long">eparpilles</span>' : ''}</div>
+              f.disperse ? ' · <span class="agn-note" title="Tronçons éloignés : la carte se pose sur le plus long">éparpillés</span>' : ''}</div>
             ${f.ecarts.map(e => `<div class="agn-d"><b>${e.champ}</b> : ${esc(e.avant)} → ${esc(e.apres)}</div>`).join('')}
             ${f.aide && f.aide.length ? `<div class="agn-aide">${
               f.aideTitre ? '<b>🛠 ' + esc(f.aideTitre) + '</b>' : ''}${
