@@ -25,14 +25,16 @@ function extraire(s, nom) {
   }
   return s.slice(i, j + 1);
 }
+// v2.50.11 : la persistance est sortie dans `retenirTraite`, les redessins dans `apresTraite`,
+// et `marquerGroupe` (bouton « ✓ tout ») s'en sert aussi : on les monte ensemble.
 function monter(fn) {
-  const etat = { traites: {}, sauve: 0 };
-  const marquer = new Function('communeActive', 'traites', 'clesTraite', 'saveTraites', 'redrawEcarts',
+  const etat = { traites: {}, sauve: 0, redessins: 0 };
+  const lot = new Function('communeActive', 'traites', 'clesTraite', 'saveTraites', 'redrawEcarts',
     'majCompteurTraites', 'majBoutonsGroupes', 'replierThematiquesFinies',
-    fn + '\nreturn marquerTraite;')(
+    fn + '\nreturn { marquerTraite, marquerGroupe };')(
     { code: '11106' }, etat.traites, f => ['seg:' + f.segId], () => { etat.sauve++; },
-    () => {}, () => {}, () => {}, () => {});
-  return { marquer, etat };
+    () => { etat.redessins++; }, () => {}, () => {}, () => {});
+  return { marquer: lot.marquerTraite, groupe: lot.marquerGroupe, etat };
 }
 const noeud = () => ({ classList: { toggle() {} } });
 
@@ -43,7 +45,8 @@ function verifier(titre, obtenu, attendu) {
   else { ko++; console.log('  ECHEC ' + titre + '\n          attendu ' + JSON.stringify(attendu) + '\n          obtenu  ' + JSON.stringify(obtenu)); }
 }
 
-const fn = extraire(src, 'marquerTraite');
+const fn = ['marquerTraite', 'retenirTraite', 'apresTraite', 'marquerGroupe']
+  .map(n => extraire(src, n)).join('\n');
 console.log('\n=== La coche d\'une correction ===');
 let { marquer, etat } = monter(fn);
 let f = { segId: 42 };
@@ -67,12 +70,40 @@ verifier('corriger barre SANS retenir', /marquerTraite\(f, noeuds\[i\], true, fa
 verifier('corriger ne barre plus en retenant', /marquerTraite\(f, noeuds\[i\], true\)/.test(corps), false);
 
 console.log('\n=== Temoin ===');
-const mutant = fn.replace('if (insee && persister !== false)', 'if (insee)');
+const mutant = fn.replace('if (persister !== false && retenirTraite(f))', 'if (retenirTraite(f))');
 if (mutant === fn) { ko++; console.log('  ECHEC temoin : la garde est introuvable'); }
 else {
   const m = monter(mutant);
   m.marquer({ segId: 44 }, noeud(), true, false);
   verifier('TEMOIN : sans la garde, la coche d\'une correction se retient', m.etat.traites, { 11106: { 'seg:44': true } });
+}
+
+console.log('\n=== Le « ✓ tout » de l\'en-tete de groupe (v2.50.11) ===');
+const g = monter(fn);
+const lot = [{ segId: 1 }, { segId: 2, traite: true }, { segId: 3 }];
+g.groupe(lot, lot.map(noeud));
+verifier('un groupe en partie coche : tout se coche', lot.map(x => x.traite), [true, true, true]);
+verifier('… et tout se retient, comme un ✓ de l\'editeur', g.etat.traites,
+  { 11106: { 'seg:1': true, 'seg:2': true, 'seg:3': true } });
+verifier('… en UNE sauvegarde et UN redessin', [g.etat.sauve, g.etat.redessins], [1, 1]);
+g.groupe(lot, lot.map(noeud));
+verifier('second clic sur un groupe tout coche : tout se decoche', lot.map(x => x.traite), [false, false, false]);
+verifier('… et se retire (la cle reste, vide)', g.etat.traites, { 11106: {} });
+
+console.log('\n=== Temoins du « ✓ tout » ===');
+const m1 = fn.replace('const etat = !membres.every(f => f.traite);', 'const etat = !membres.some(f => f.traite);');
+if (m1 === fn) { ko++; console.log('  ECHEC temoin : la regle de bascule est introuvable'); }
+else {
+  const m = monter(m1); const l = [{ segId: 1 }, { segId: 2, traite: true }];
+  m.groupe(l, l.map(noeud));
+  verifier('TEMOIN : avec « some », un groupe en partie coche se DECOCHE', l.map(x => x.traite), [false, false]);
+}
+const m2 = fn.replace('      if (retenirTraite(f)) aSauver = true;', '      if (retenirTraite(f)) { aSauver = true; saveTraites(); }');
+if (m2 === fn) { ko++; console.log('  ECHEC temoin : la sauvegarde du lot est introuvable'); }
+else {
+  const m = monter(m2); const l = [{ segId: 1 }, { segId: 2 }, { segId: 3 }];
+  m.groupe(l, l.map(noeud));
+  verifier('TEMOIN : sauver dans la boucle ecrit 4 fois au lieu d\'une', m.etat.sauve, 4);
 }
 
 console.log('\n%d verifications OK, %d ECHEC(S)', ok, ko);

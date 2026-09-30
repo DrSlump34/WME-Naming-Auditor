@@ -222,10 +222,16 @@ démarche que WCT.
 
 ### 6.2 Le seuil et la zone grise
 
-`options.seuil` (0,8 par défaut) est la **part de longueur** au-delà de laquelle un segment à
-cheval est rattaché d'office à un côté.
+`options.seuilAgglo` (polygone d'agglomération) et `options.seuilCommune` (contour communal),
+0,8 par défaut chacun, sont la **part de longueur** au-delà de laquelle un segment à cheval est
+rattaché d'office à un côté. **v2.50.11 (onryou, 30/09/2026)** : jusque-là, un seul `seuil`
+servait aux deux, réglable de 50 à 100 % ; à 100, tout segment qui dépasse d'un mètre était « à
+couper » (0 %, 1 %, 96 % sur ses captures). Arbitrage de l'auteur : deux seuils, **bornés de
+`SEUIL_MIN` 0,7 à `SEUIL_MAX` 0,95** (`bornerSeuil`), un bouton « Seuils par défaut ». Un ancien
+`seuil` enregistré sert de valeur de départ aux deux, ramené dans les bornes. Banc :
+`tools/test-deux-seuils.js`.
 
-Entre `1 - seuil` et `seuil`, c'est la **zone grise** : **aucune correction n'est proposée**, le
+Entre `1 - seuil` et `seuil` (chacun le sien), c'est la **zone grise** : **aucune correction n'est proposée**, le
 segment est signalé **à couper**, puisque le bon nommage dépend de l'endroit de la coupure.
 
 ### 6.3 Les quatre exceptions — il n'y a rien à couper
@@ -537,6 +543,11 @@ comparés **sans accents**.
 ⚠️ `traites` est une **structure objet et non un tableau**, pour que la fusion multi-poste soit une
 **union, jamais un écrasement**. Il suit l'éditeur d'un poste à l'autre, pas les autres éditeurs.
 
+**« ✓ tout » (v2.50.11, demande d'onryou)** : l'en-tête de chaque groupe porte un bouton qui coche
+tout le groupe, retenu comme un ✓ de l'éditeur ; si tout y est déjà coché, il décoche tout. Pas de
+confirmation, puisqu'un second clic défait le geste. `marquerGroupe` fait **une** sauvegarde et
+**un** redessin pour le lot (banc : `tools/test-coche-correction.js`).
+
 ### 12.2 Le chargement en cascade
 
 `prefs = WMEPrefs.create({ scriptId, scriptName, schema: 1 })`, avec une reprise **en cascade**
@@ -552,7 +563,7 @@ sont vides — **sauver à ce moment écraserait les données stockées**.
 
 ### 12.3 Les options
 
-`options` porte : `seuil` (0,8), `sansAdresse`, `altEnTrop`, `zoomClic` / `zoomNiveau` (17),
+`options` porte : `seuilAgglo` et `seuilCommune` (0,8, bornés 0,7-0,95), `sansAdresse`, `altEnTrop`, `zoomClic` / `zoomNiveau` (17),
 `surligner`, `bulleSurvol`, `vue` (7 bascules : tableau et carte se choisissent **séparément** pour
 les segments, les adresses, les POI et les panneaux), `autoDep`, `purgeAuto` / `purgeGarde`,
 `guidage`, `controles`, `couleurs` (par famille), `panneau` (onglet ouvert **et** replis).

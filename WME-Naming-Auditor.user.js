@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.50.10
+// @version      2.50.11
 // @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies selon les règles du pays regardé (agglomération / centro abitato, contours communaux INSEE / ISTAT). Interface et aide en français et en italien. ⚠️ Le portage italien est en phase de TEST.
 // @author       DrSlump34
 // @license      MIT
@@ -1066,10 +1066,25 @@
   let findings = [];
   let lastScan = null;
   let ui = {};
-  // seuil : part de longueur (0-1) au-delà de laquelle un segment a cheval est
-  // rattache d'office a un cote. Entre (1 - seuil) et seuil = zone grise.
+  // Bornes du seuil de rattachement (arbitrage de l'auteur, 30/09) : sous 70 %,
+  // un segment a moitie dehors serait rattache d'office ; au-dessus de 95 %, un
+  // metre de trace suffit a le declarer « a couper ».
+  const SEUIL_DEFAUT = 0.8, SEUIL_MIN = 0.7, SEUIL_MAX = 0.95;
+  /** Ramene un seuil (0-1) dans les bornes ; une valeur illisible rend le defaut. PURE. */
+  function bornerSeuil(v) {
+    const x = Number(v);
+    if (!Number.isFinite(x)) return SEUIL_DEFAUT;
+    return Math.min(SEUIL_MAX, Math.max(SEUIL_MIN, x));
+  }
+  // seuilAgglo / seuilCommune : part de longueur (0-1) au-dela de laquelle un
+  // segment a cheval est rattache d'office a un cote — du polygone d'agglo pour
+  // l'un, du contour communal pour l'autre. Entre (1 - seuil) et seuil = zone grise.
+  // ⚠️ v2.50.11 (onryou, 30/09) : un seul `seuil` servait aux deux, reglable de 50
+  // a 100 %. A 100, TOUT segment qui depasse d'un metre etait « a couper » — 0 %,
+  // 1 %, 96 % sur ses captures. Deux seuils, bornes SEUIL_MIN..SEUIL_MAX, et un
+  // bouton pour revenir au defaut (arbitrage de l'auteur).
   let options = {
-    sansAdresse: false, altEnTrop: false, seuil: 0.8,
+    sansAdresse: false, altEnTrop: false, seuilAgglo: SEUIL_DEFAUT, seuilCommune: SEUIL_DEFAUT,
     zoomClic: true, zoomNiveau: 17, surligner: true,
     // ⚠️ Infobulle de survol : COCHEE par defaut (c'est un apport apprecie —
     // « très très utile », Glenan56, 27/07), mais debrayable. Signale le meme
@@ -6562,10 +6577,18 @@
         "🔒 Lo script non modifica mai la mappa.",
       "La version {v} est disponible.":
         "La versione {v} è disponibile.",
-      "Seuil de rattachement":
-        "Soglia di attribuzione",
-      "Part de longueur au-delà de laquelle un segment à cheval est rattaché d'office à un côté. En dessous, il est signalé comme à couper — sauf chemins de terre, sentiers, escaliers, voies privées et parkings : sans panneau d'entrée, ils ne sont jamais à couper, et entre les deux leur ville est laissée à l'éditeur.":
-        "Quota di lunghezza oltre la quale un segmento a cavallo viene attribuito d'ufficio a un lato. Al di sotto, viene segnalato come da tagliare — tranne strade sterrate, sentieri, scalinate, strade private e parcheggi: senza cartello di inizio centro abitato, non vanno mai tagliati, e tra le due soglie la loro città è lasciata all'editor.",
+      "Seuil — entrée agglo":
+        "Soglia — ingresso nel centro abitato",
+      "Part de longueur dans l'agglomération au-delà de laquelle un segment à cheval est rattaché d'office à un côté. À 80 %, il n'est à couper qu'entre 20 et 80 % dedans. Sauf chemins de terre, sentiers, escaliers, voies privées et parkings : sans panneau d'entrée, ils ne sont jamais à couper, et entre les deux leur ville est laissée à l'éditeur.":
+        "Quota di lunghezza nel centro abitato oltre la quale un segmento a cavallo viene attribuito d'ufficio a un lato. All'80 %, va tagliato solo se è dentro tra il 20 e l'80 %. Tranne strade sterrate, sentieri, scalinate, strade private e parcheggi: senza cartello di inizio centro abitato, non vanno mai tagliati, e tra le due soglie la loro città è lasciata all'editor.",
+      "Seuil — limite communale":
+        "Soglia — confine comunale",
+      "Part de longueur dans la commune au-delà de laquelle un segment à cheval est rattaché d'office à un côté. À 80 %, il n'est à couper qu'entre 20 et 80 % dedans.":
+        "Quota di lunghezza nel comune oltre la quale un segmento a cavallo viene attribuito d'ufficio a un lato. All'80 %, va tagliato solo se è dentro tra il 20 e l'80 %.",
+      "Seuils par défaut":
+        "Soglie predefinite",
+      "Remet les deux seuils à 80 %":
+        "Riporta le due soglie all'80 %",
       "Inclure parkings et voies privées":
         "Includi parcheggi e strade private",
       "Parkings et voies privées sont exclus par défaut : une absence de nom n'y est pas une anomalie. Les inclure les audite comme n'importe quelle voie (nom, rédaction, zone). ⚠️ Sans cocher, une ville en trop hors agglomération est signalée quand même : c'est une faute quel que soit le type de voie.":
@@ -6950,6 +6973,10 @@
         'Applica la correzione (senza salvare)',
       'Marquer comme traité':
         'Segna come trattato',
+      'Marquer tout le groupe comme traité (un second clic décoche tout)':
+        'Segna tutto il gruppo come trattato (un secondo clic toglie tutte le spunte)',
+      '✓ tout':
+        '✓ tutto',
       'Verrouillés au-dessus de ton niveau : non modifiables':
         'Bloccati sopra il tuo livello: non modificabili',
       'Tronçons éloignés : la carte se pose sur le plus long':
@@ -11425,7 +11452,10 @@
       if (!nam) { skipped.sansGeom++; continue; }
 
       const loc = localiser(coords, listeAgglos);
-      const haut = options.seuil, bas = 1 - options.seuil;
+      // `haut`/`bas` : contour COMMUNAL ; `hautAgglo` : polygone d'AGGLO (v2.50.11,
+      // deux seuils). ⚠️ Ne pas les croiser : `zonageAgglo` prend `hautAgglo`, tout
+      // le reste (partCommune, partLimite) prend `haut`/`bas`.
+      const haut = options.seuilCommune, bas = 1 - options.seuilCommune, hautAgglo = options.seuilAgglo;
 
       // ⚠️⚠️ TYPES SANS VOCATION D'ADRESSAGE (voie privee, parking) : L'EXCLUSION
       // VAUT POUR LE NOM, PAS POUR LA VILLE.
@@ -11462,7 +11492,7 @@
         // sans elle, un parking de la commune d'a cote portant SON nom de ville
         // ressortirait comme un ecart chez nous.
         const certains = loc.partCommune >= bas
-          ? ecartsCertainsEnZoneGrise(nam, zonageAgglo(loc.partAgglo, seg.roadType, haut).enAgglo,
+          ? ecartsCertainsEnZoneGrise(nam, zonageAgglo(loc.partAgglo, seg.roadType, hautAgglo).enAgglo,
                                       communeActive.nom)
           : [];
         if (certains.length && c.nommageZone) {
@@ -11493,7 +11523,7 @@
                            REF.reAutoroute.test((nam.primary.name || '').trim());
       // ⚠️ Voir `zonageAgglo` : une voie sans panneau EB10 suit son cote
       // majoritaire au lieu de tomber « a couper ».
-      const zon = zonageAgglo(loc.partAgglo, seg.roadType, haut);
+      const zon = zonageAgglo(loc.partAgglo, seg.roadType, hautAgglo);
       const enAgglo = zon.enAgglo;
 
       // ⚠️ `forme` se calcule APRES le type : une bretelle n'obeit pas tout a
@@ -13342,6 +13372,10 @@
   .agn-ok-btn{border:1px solid #c8e6c9;background:#fff;color:var(--agn-vert, #2e7d32);border-radius:3px;cursor:pointer;
     font-size:11px;padding:0;line-height:15px;flex:0 0 auto;width:20px;text-align:center}
   .agn-ok-btn:hover{background:#e8f5e9}
+  .agn-ok-grp{border:1px solid #c8e6c9;background:#fff;color:var(--agn-vert, #2e7d32);border-radius:3px;cursor:pointer;
+    font-size:10px;padding:1px 6px;flex:0 0 auto;margin-right:2px}
+  .agn-ok-grp:hover{background:#e8f5e9}
+  .agn-grp.agn-fini .agn-ok-grp{background:var(--agn-vert, #2e7d32);color:#fff;border-color:var(--agn-vert, #2e7d32)}
   .agn-item.agn-traite .agn-ok-btn{background:var(--agn-vert, #2e7d32);color:#fff;border-color:var(--agn-vert, #2e7d32)}
   /* Ligne traitée : plus d'eclair non plus — il ne ferait rien. */
   .agn-item.agn-traite .agn-fix-btn{display:none}
@@ -13882,7 +13916,15 @@
       // objet meme si l'enregistrement est anterieur a son existence.
       const p = memo.options.panneau || {};
       options.panneau = { onglet: p.onglet || 'analyse', replis: p.replis || {} };
+      // v2.50.11 : l'ancien `seuil` unique devient la valeur de depart des DEUX
+      // seuils, ramenee dans les bornes (un 100 % enregistre devient 95 %).
+      const ancien = memo.options.seuil;
+      if (memo.options.seuilAgglo === undefined) options.seuilAgglo = ancien === undefined ? SEUIL_DEFAUT : ancien;
+      if (memo.options.seuilCommune === undefined) options.seuilCommune = ancien === undefined ? SEUIL_DEFAUT : ancien;
+      delete options.seuil;
     }
+    options.seuilAgglo = bornerSeuil(options.seuilAgglo);
+    options.seuilCommune = bornerSeuil(options.seuilCommune);
     // Les controles disponibles dependent du referentiel : on active par defaut
     // ceux qu'il declare et que l'utilisateur n'a pas deja regles.
     // ⚠️ Le meme geste se rejoue a chaque changement de PAYS (voir
@@ -15191,9 +15233,13 @@
 
         <div class="agn-sb-vue" data-vue="analyse">
           ${sect('analyse', 'Analyse', `
-            <label class="agn-sb-l" title="Part de longueur au-delà de laquelle un segment à cheval est rattaché d'office à un côté. En dessous, il est signalé comme à couper — sauf chemins de terre, sentiers, escaliers, voies privées et parkings : sans panneau d'entrée, ils ne sont jamais à couper, et entre les deux leur ville est laissée à l'éditeur.">
-              <span>Seuil de rattachement</span>
-              <input type="number" id="agn-r-seuil" min="50" max="100" step="5"> %</label>
+            <label class="agn-sb-l" title="Part de longueur dans l'agglomération au-delà de laquelle un segment à cheval est rattaché d'office à un côté. À 80 %, il n'est à couper qu'entre 20 et 80 % dedans. Sauf chemins de terre, sentiers, escaliers, voies privées et parkings : sans panneau d'entrée, ils ne sont jamais à couper, et entre les deux leur ville est laissée à l'éditeur.">
+              <span>Seuil — entrée agglo</span>
+              <input type="number" id="agn-r-seuil-agglo" min="70" max="95" step="5"> %</label>
+            <label class="agn-sb-l" title="Part de longueur dans la commune au-delà de laquelle un segment à cheval est rattaché d'office à un côté. À 80 %, il n'est à couper qu'entre 20 et 80 % dedans.">
+              <span>Seuil — limite communale</span>
+              <input type="number" id="agn-r-seuil-commune" min="70" max="95" step="5"> %</label>
+            <button class="agn-sb-b" id="agn-r-seuils-defaut" title="Remet les deux seuils à 80 %">Seuils par défaut</button>
             <label class="agn-sb-c"><input type="checkbox" id="agn-r-sansadresse" title="Parkings et voies privées sont exclus par défaut : une absence de nom n'y est pas une anomalie. Les inclure les audite comme n'importe quelle voie (nom, rédaction, zone). ⚠️ Sans cocher, une ville en trop hors agglomération est signalée quand même : c'est une faute quel que soit le type de voie.">
               Inclure parkings et voies privées</label>
             <label class="agn-sb-c"><input type="checkbox" id="agn-r-alt" title="Un nom alternatif en trop est souvent légitime (voie connue sous plusieurs noms) : désactivé par défaut pour ne pas noyer les vrais écarts.">
@@ -15320,11 +15366,23 @@
     choisirVueReglages(options.panneau.onglet);
     const prevenir = () => { q('#agn-r-relance').textContent = 'Relance une analyse pour appliquer.'; };
 
-    const seuil = q('#agn-r-seuil');
-    seuil.value = Math.round(options.seuil * 100);
-    seuil.onchange = () => {
-      const v = Math.min(100, Math.max(50, parseInt(seuil.value, 10) || 80));
-      seuil.value = v; options.seuil = v / 100; saveUI(); prevenir();
+    // Deux seuils (v2.50.11). Une saisie hors bornes est ramenee dans les bornes,
+    // une saisie illisible rend le defaut — et le champ montre ce qui est retenu.
+    const champsSeuil = [['#agn-r-seuil-agglo', 'seuilAgglo'], ['#agn-r-seuil-commune', 'seuilCommune']]
+      .map(([id, cle]) => {
+        const c = q(id);
+        const afficher = () => { c.value = Math.round(options[cle] * 100); };
+        afficher();
+        c.onchange = () => {
+          const v = parseInt(c.value, 10);
+          options[cle] = bornerSeuil(Number.isFinite(v) ? v / 100 : NaN);
+          afficher(); saveUI(); prevenir();
+        };
+        return afficher;
+      });
+    q('#agn-r-seuils-defaut').onclick = () => {
+      options.seuilAgglo = SEUIL_DEFAUT; options.seuilCommune = SEUIL_DEFAUT;
+      champsSeuil.forEach(f => f()); saveUI(); prevenir();
     };
 
     const coche = (id, cle, apres) => {
@@ -16325,21 +16383,48 @@
     // correction ne dit pas que la carte est juste — un Ctrl+Z, un refus a l'enregistrement, et
     // l'ecart est revenu. Retenue, elle le rebarrait a la prochaine analyse, sur tous les postes :
     // un faux negatif durable. Elle ne vit donc que le temps de la session (`persister === false`).
+    if (persister !== false && retenirTraite(f)) saveTraites();
+    apresTraite();
+  }
+
+  /** Repercute l'etat de `f` dans `traites[INSEE]`. Rend vrai s'il y a quelque chose a sauver. */
+  function retenirTraite(f) {
     const insee = communeActive && communeActive.code;
-    if (insee && persister !== false) {
-      const t = traites[insee] || (traites[insee] = {});
-      const cs = clesTraite(f);
-      if (f.traite) cs.forEach(c => { t[c] = true; });
-      else cs.forEach(c => { delete t[c]; });
-      // ⚠️ La cle reste, meme vide : elle dit « ici, plus rien n'est traite »,
-      // que la fusion multi-onglets doit respecter (v2.26.04).
-      if (!Object.keys(t).length) traites[insee] = {};
-      saveTraites();
-    }
+    if (!insee) return false;
+    const t = traites[insee] || (traites[insee] = {});
+    const cs = clesTraite(f);
+    if (f.traite) cs.forEach(c => { t[c] = true; });
+    else cs.forEach(c => { delete t[c]; });
+    // ⚠️ La cle reste, meme vide : elle dit « ici, plus rien n'est traite »,
+    // que la fusion multi-onglets doit respecter (v2.26.04).
+    if (!Object.keys(t).length) traites[insee] = {};
+    return true;
+  }
+
+  function apresTraite() {
     redrawEcarts(null);
     majCompteurTraites();
     majBoutonsGroupes();
     replierThematiquesFinies();
+  }
+
+  /**
+   * « ✓ tout » de l'en-tete de groupe (demande d'onryou, 30/09 ; arbitrage de
+   * l'auteur : retenu comme un ✓ de l'editeur, sans confirmation — un second
+   * clic defait tout). Coche tout le groupe ; s'il l'est deja, decoche tout.
+   * ⭐ UNE sauvegarde et UN redessin pour le lot : `marquerTraite` en boucle
+   * ecrivait WMEPrefs et repeignait la carte a chaque ligne.
+   */
+  function marquerGroupe(membres, noeuds) {
+    const etat = !membres.every(f => f.traite);
+    let aSauver = false;
+    membres.forEach((f, i) => {
+      f.traite = etat;
+      if (noeuds[i]) noeuds[i].classList.toggle('agn-traite', etat);
+      if (retenirTraite(f)) aSauver = true;
+    });
+    if (aSauver) saveTraites();
+    apresTraite();
   }
 
   /**
@@ -16582,7 +16667,7 @@
       // La commune d'a cote n'est pas notre chantier : un segment « hors ville »
       // de la voisine n'apprend rien sur celle qu'on traite.
       const loc = localiser(co, []);
-      if (loc.partCommune < 1 - options.seuil) { horsCommune.push(s.id); continue; }
+      if (loc.partCommune < 1 - options.seuilCommune) { horsCommune.push(s.id); continue; }
       retenus.push(s.id);
     }
     try {
@@ -17439,6 +17524,7 @@
             ${_ft() && _fv() && cle !== 'adresse' && cle !== 'rpp' && cle !== 'poiAdresse' &&
               membres.some(corrigeableEnGroupe)
               ? '<button class="agn-fix-grp" title="Appliquer les corrections automatisables de ce groupe (celles qui portent un doute se font une par une)">⚡ corriger</button>' : ''}
+            <button class="agn-ok-grp" title="Marquer tout le groupe comme traité (un second clic décoche tout)">✓ tout</button>
             <span class="agn-grp-n">${membres.length}</span>
           </div>
           <div class="agn-grp-c" style="display:none"></div></div>`);
@@ -17456,6 +17542,10 @@
           (douteux ? trf('{k} autre(s) avec un doute ne sont pas incluses : à faire une par une.', { k: douteux }) + '\n\n' : '') +
           tr('Rien ne sera enregistré : tu reliras dans WME avant de cliquer sur Enregistrer.'))) return;
         corriger(aFaire, aFaire.map(x => corps.querySelector('.agn-item[data-idx="' + findings.indexOf(x) + '"]')));
+      };
+      grp.querySelector('.agn-ok-grp').onclick = e => {
+        e.stopPropagation();                 // ne pas deplier/replier le groupe
+        marquerGroupe(membres, membres.map(x => corps.querySelector('.agn-item[data-idx="' + findings.indexOf(x) + '"]')));
       };
 
       membres.forEach(f => {

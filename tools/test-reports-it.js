@@ -234,8 +234,9 @@ const NOEUDS_AUTRES = [
 ];
 
 console.log('\n=== Onglet Segments : chaque noeud ressort en italien ===\n');
-verifier('1. TEMOIN : l\'infobulle du seuil, deja traduite avant la 2.50.10, ressort bien',
-  !!trad('Seuil de rattachement'), true);
+// Temoin change en 2.50.11 : « Seuil de rattachement » a laisse place a deux seuils.
+verifier('1. TEMOIN : une case de l\'onglet Analyse, deja traduite avant la 2.50.10, ressort bien',
+  !!trad('Inclure parkings et voies privées'), true);
 const TOUS = NOEUDS.concat(NOEUDS_AUTRES);
 const manquants = TOUS.filter(n => !trad(n));
 verifier('2. ⭐⭐ ' + TOUS.length + ' noeuds (Segments ' + NOEUDS.length + ', POI / Numérotation / bandeaux ' +

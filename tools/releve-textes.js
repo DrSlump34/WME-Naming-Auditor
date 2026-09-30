@@ -129,7 +129,9 @@ function visibles(v) {
 }
 
 // ── 3. Francais ? ─────────────────────────────────────────────────────────────
-const RE_MOT_FR = /(^|[^a-zà-ÿ'’])(le|la|les|des|du|de|un|une|et|est|pas|à|au|aux|sur|dans|pour|par|avec|sans|ou|ce|cette|ces|il|elle|ils|on|ne|en|qui|que|se|sa|son|ses|leur|tu|ton|ta|tes)(?=$|[^a-zà-ÿ'’])/i;
+// v2.50.11 : « tout / tous / toutes » ajoutes. « ✓ tout » (bouton de groupe) n'a ni accent ni mot-outil :
+// il passait pour un identifiant, et le garde-fou ne voyait pas son absence du dictionnaire (mutation).
+const RE_MOT_FR = /(^|[^a-zà-ÿ'’])(le|la|les|des|du|de|un|une|et|est|pas|à|au|aux|sur|dans|pour|par|avec|sans|ou|ce|cette|ces|il|elle|ils|on|ne|en|qui|que|se|sa|son|ses|leur|tu|ton|ta|tes|tout|tous|toutes)(?=$|[^a-zà-ÿ'’])/i;
 const RE_ITALIEN = /(^|[^a-zà-ÿ])(di|della|dello|dei|degli|nel|nella|dalla|dal|senza|strada|civico|abitato|uscita|il|gli|sono|questo|questa|comune|essere|viene|centro|numero|lo|una|che)(?=$|[^a-zà-ÿ])/gi;
 function estFrancais(t) {
   if (!/[a-zà-ÿ]{3}/i.test(t)) return false;

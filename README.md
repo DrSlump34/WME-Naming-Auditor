@@ -26,7 +26,7 @@ Les panneaux EB10/EB20 relevés servent de point de départ au tracé, **mais il
 >
 > Le fichier est aussi versionné ici : [`captures/zone-batie-villages-rattaches.mp4`](captures/zone-batie-villages-rattaches.mp4). ⚠️ GitHub ne lit pas les vidéos de l'arborescence — ce chemin sert d'archive, pas de lecture en ligne.
 
-Un segment à cheval est tranché par un **seuil de longueur réglable** (80 % par défaut). Entre les deux, aucune correction n'est proposée : le segment est signalé comme **à couper**, puisque le bon nommage dépend de l'endroit de la coupure.
+Un segment à cheval est tranché par un **seuil de longueur réglable** : un pour l'entrée d'agglomération, un pour la limite communale, de 70 à 95 % (80 % par défaut, bouton « Seuils par défaut » pour y revenir). À 80 %, un segment n'est à couper qu'entre 20 et 80 % dedans. Entre les deux, aucune correction n'est proposée : le segment est signalé comme **à couper**, puisque le bon nommage dépend de l'endroit de la coupure.
 
 Quatre exceptions, où il n'y a rien à couper : la voie **mitoyenne** qui épouse la limite communale, le segment qui ne porte **ni nom ni ville** (les deux moitiés seraient identiques), l'**autoroute**, qui ne porte aucune ville quelle que soit la zone, et, sur la limite d'agglomération, les voies **sans panneau d'entrée** (chemin de terre, sentier, chemin piétonnier, escalier, voie privée, parking), dont la ville est laissée à l'éditeur quand elles sont à cheval sur le polygone : le script ne propose ni de l'ajouter ni de la retirer. Le bilan les compte à part plutôt que de les taire.
 
