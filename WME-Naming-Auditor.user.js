@@ -6971,7 +6971,111 @@
       "Chemins de terre, sentiers, chemins piétonniers, escaliers, voies privées et parkings à cheval sur le polygone d'agglomération. Ils ne portent pas de panneau d'entrée d'agglomération : la limite n'y est que le tracé du polygone. Ils ne sont pas à couper, et leur ville est laissée à ton appréciation : le script ne propose ni de l'ajouter ni de la retirer.":
         "Strade sterrate, sentieri, percorsi pedonali, scalinate, strade private e parcheggi a cavallo del poligono del centro abitato. Non hanno un cartello di inizio centro abitato: il confine è solo il tracciato del poligono. Non vanno tagliati, e la loro città è lasciata alla tua valutazione: lo script non propone né di aggiungerla né di toglierla.",
       "Voies privées et parkings : leur nom n'est pas audité (une absence de nom n'y est pas une anomalie), mais hors agglomération le nom principal ne porte jamais de ville. Ceux-là sont donc signalés quand même.":
-        "Strade private e parcheggi: il loro nome non è controllato (l'assenza di nome non è un'anomalia), ma fuori dal centro abitato il nome principale non porta mai la città. Questi sono quindi segnalati comunque."
+        "Strade private e parcheggi: il loro nome non è controllato (l'assenza di nome non è un'anomalia), ma fuori dal centro abitato il nome principale non porta mai la città. Questi sono quindi segnalati comunque.",
+      // --- Barre de navigation, onglets POI et Numerotation, bandeaux (v2.50.10) ---
+      // ⚠️ Les libelles de WME cites en francais (« Ajouter des numéros de rue »,
+      //    « Allumez vos feux ») ne sont PAS repris : leur forme italienne n'a pas
+      //    ete relevee dans WME, et en inventer une ferait chercher un bouton absent.
+      '‹ Précédent':
+        '‹ Precedente',
+      'Suivant ›':
+        'Successivo ›',
+      'Aucun écart dans cet onglet — regarde les autres.':
+        'Nessuna difformità in questa scheda — guarda le altre.',
+      'Aucun écart détecté.':
+        'Nessuna difformità rilevata.',
+      'POI résidentiel injustifié':
+        'luogo residenziale ingiustificato',
+      'POI résidentiel en agglo':
+        'luogo residenziale nel centro abitato',
+      "🛠 D'où vient cette proposition":
+        '🛠 Da dove viene questa proposta',
+      "🛠 Pourquoi ce POI n'a pas lieu d'être":
+        '🛠 Perché questo POI non ha ragione di esistere',
+      "🛠 Deux issues possibles — c'est le terrain qui tranche":
+        '🛠 Due esiti possibili — decide il terreno',
+      '⚠️ Vérifie quand même sur place : le script mesure des distances, il ne voit pas la boîte aux lettres.':
+        '⚠️ Verifica comunque sul posto: lo script misura delle distanze, non vede la cassetta delle lettere.',
+      "Si l'entrée donne sur une AUTRE voie que l'adresse postale : laisse le POI en place. C'est précisément ce qu'il sert à dire, et un numéro porté par le segment ne saurait pas l'exprimer. Marque la ligne comme traitée (✓) pour ne pas la revoir.":
+        "Se l'ingresso dà su un'ALTRA strada rispetto all'indirizzo postale: lascia il POI al suo posto. È proprio ciò che serve a dire, e un numero civico posto sul segmento non saprebbe esprimerlo. Segna la riga come trattata (✓) per non rivederla.",
+      'Analyse non lancée.':
+        'Analisi non avviata.',
+      'Audit des POI indisponible.':
+        'Controllo dei POI non disponibile.',
+      'POI en écart sur':
+        'POI con difformità su',
+      "Rivière, fleuve, mer, lac, étang, île, forêt, plantation, canal, marais, plage : ces lieux décrivent le paysage et n'ont pas d'adresse postale. Ils sont écartés volontairement.":
+        "Fiume, mare, lago, stagno, isola, foresta, piantagione, canale, palude, spiaggia: questi luoghi descrivono il paesaggio e non hanno indirizzo postale. Sono esclusi volontariamente.",
+      "Zones sans nom qui servent à dessiner le bâti sur l'écran de l'application. Ce ne sont pas des adresses : les commerces qu'elles abritent sont des POI à part entière, eux-mêmes audités.":
+        "Aree senza nome che servono a disegnare gli edifici sullo schermo dell'app. Non sono indirizzi: i negozi che ospitano sono POI a pieno titolo, controllati a loro volta.",
+      "Aires, échangeurs, jonctions et péages, ou tout POI dont la rue est déjà une autoroute. Règle FR : leur adresse est le nom de l'autoroute dont ils dépendent, et AUCUNE ville. Ils sont audités sur cette cible-là, pas sur une adresse postale.":
+        "Aree di servizio, svincoli, raccordi e caselli, o qualsiasi POI la cui via è già un'autostrada. Regola FR: il loro indirizzo è il nome dell'autostrada da cui dipendono, e NESSUNA città. Sono controllati su questo obiettivo, non su un indirizzo postale.",
+      "Le contrôle « numéro de rue manquant » est décoché : il concerne environ la moitié des POI. Coche-le dans les réglages quand tu veux t'y attaquer.":
+        "Il controllo « numero civico mancante » è disattivato: riguarda circa la metà dei POI. Attivalo nelle impostazioni quando vuoi affrontarlo.",
+      'hors agglomération.':
+        'fuori dal centro abitato.',
+      '(contrôle « numéros hors agglomération » décoché).':
+        '(controllo « numeri civici fuori dal centro abitato » disattivato).',
+      'Ils ont été lus pour repérer les POI résidentiels qui font doublon avec un numéro déjà posé.':
+        'Sono stati letti per individuare i luoghi residenziali che fanno doppione con un numero civico già posto.',
+      "Mesure demandée par un éditeur, sans valeur normative : aucune règle française n'interdit ce cas à ce jour.":
+        'Misura richiesta da un editor, senza valore normativo: nessuna regola francese vieta questo caso a oggi.',
+      '📏 Mesure :':
+        '📏 Misura:',
+      'numéro(s) en agglomération sur une voie dont le nom principal est un numéro de route, dont':
+        'numero/i civico/i nel centro abitato su una strada il cui nome principale è un numero di strada, di cui',
+      'avec un nom de rue en alternatif.':
+        'con un nome di via in alternativo.',
+      "numéro en agglomération sur une voie nommée « Dxxx » ici — le contrôle a bien tourné, cette commune n'a pas le cas.":
+        'numero civico nel centro abitato su una strada chiamata « Dxxx » qui — il controllo è stato eseguito, questo comune non ha il caso.',
+      'POI résidentiel(s), dont':
+        'luogo/i residenziale/i, di cui',
+      'en agglomération ·':
+        'nel centro abitato ·',
+      'en agglomération.':
+        'nel centro abitato.',
+      'sans justification':
+        'senza giustificazione',
+      "Le numéro est déjà porté par la voie, ou l'entrée donne sur la voie de l'adresse elle-même : le POI n'exprime aucun décalage.":
+        "Il numero civico è già posto sulla strada, o l'ingresso dà sulla strada dell'indirizzo stesso: il POI non esprime alcuno scostamento.",
+      "Leur point d'accès donne sur une AUTRE voie que leur adresse : c'est exactement ce qu'un POI résidentiel sert à dire. Ils ne sont pas signalés.":
+        "Il loro punto di accesso dà su un'ALTRA strada rispetto al loro indirizzo: è esattamente ciò che un luogo residenziale serve a dire. Non sono segnalati.",
+      "Ces POI portent une photo : quelqu'un est venu sur place les poser. Ils restent signalés, mais en fin de liste.":
+        'Questi POI hanno una foto: qualcuno è venuto sul posto a crearli. Restano segnalati, ma in fondo alla lista.',
+      '⚠ Analyse interrompue.':
+        '⚠ Analisi interrotta.',
+      "Les reports ci-dessous sont ceux trouvés avant l'arrêt : la commune n'a pas été parcourue en entier.":
+        "Le segnalazioni qui sotto sono quelle trovate prima dell'arresto: il comune non è stato percorso per intero.",
+      '⚠ Lecture directe indisponible — analyse en mode dégradé.':
+        '⚠ Lettura diretta non disponibile — analisi in modalità ridotta.',
+      'La commune a été parcourue en déplaçant la carte, ce qui est beaucoup plus lent et peut manquer des objets en bordure.':
+        'Il comune è stato percorso spostando la mappa, il che è molto più lento e può perdere oggetti ai bordi.',
+      "Si ça se reproduit, l'API interne de WME a probablement changé : c'est à signaler, le script doit être adapté.":
+        "Se si ripete, l'API interna di WME è probabilmente cambiata: va segnalato, lo script deve essere adattato.",
+      'Zonage à vérifier':
+        'Zonizzazione da verificare',
+      "— analyse interrompue, ce constat n'est pas fiable :":
+        '— analisi interrotta, questa constatazione non è affidabile:',
+      'Il manque au moins un polygone.':
+        'Manca almeno un poligono.',
+      "n'est dans un polygone.":
+        'è in un poligono.',
+      'dans un polygone — il est probablement trop petit.':
+        'in un poligono — probabilmente è troppo piccolo.',
+      "Relance l'analyse en entier pour trancher.":
+        "Rilancia l'analisi per intero per decidere.",
+      'Ces segments se déclarent en agglomération, mais le zonage les place dehors :':
+        'Questi segmenti si dichiarano nel centro abitato, ma la zonizzazione li colloca fuori:',
+      'les écarts les concernant sont faux, et les corrections proposées iraient dans le mauvais sens':
+        'le difformità che li riguardano sono false, e le correzioni proposte andrebbero nel verso sbagliato',
+      '. Trace le polygone manquant, puis relance.':
+        '. Traccia il poligono mancante, poi rilancia.',
+      'adresse':
+        'indirizzo',
+      'qui est fausse, pas le zonage.':
+        'che è sbagliato, non la zonizzazione.',
+      'Rien à tracer':
+        'Niente da tracciare'
     }
   };
 
@@ -7015,9 +7119,11 @@
     'Numéros de rue': 'Numeri civici', 'POI résidentiel': 'Luogo residenziale'
   };
   const RE_TYPE_VOIE = new RegExp('^(' + Object.keys(TYPES_VOIE_IT)
-    .map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ') ·(?: (#\\d+))?( ·)?$');
+    .map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ') ·(?: (#\\d+|POI v?\\d+))?( ·)?$');
   /** Les jetons de `fmt` : ils vivent au milieu des noms, on les remplace partout. */
-  const jetonsIt = t => t.replace(/‹sans nom›/g, '‹senza nome›').replace(/‹sans ville›/g, '‹senza città›');
+  const jetonsIt = t => t.replace(/‹sans nom›/g, '‹senza nome›').replace(/‹sans ville›/g, '‹senza città›')
+    .replace(/‹sans rue›/g, '‹senza via›').replace(/‹sans commune›/g, '‹senza comune›')
+    .replace(/‹sans nom : /g, '‹senza nome: ');
   /** Une valeur « avant » ou « apres » d'un ecart. Sans motif reconnu : un nom, garde tel quel. */
   const VALEURS_ECART_IT = [
     [/^(\d+) % dans l'agglomération$/, '$1 % nel centro abitato'],
@@ -7059,8 +7165,52 @@
     [/^attribut absent$/, 'attributo assente'],
     // ⚠️ Le libelle de la case dans WME italien n'est pas cite : il n'a pas ete releve.
     [/^cocher « Allumez vos feux » : le Code de la route l'impose sur toute route hors agglomération$/,
-      'attivare l\'obbligo dei fari accesi: il Codice della strada lo impone su tutte le strade fuori dai centri abitati']
+      'attivare l\'obbligo dei fari accesi: il Codice della strada lo impone su tutte le strade fuori dai centri abitati'],
+    // --- onglet POI ---
+    [/^renseigner la rue et la commune \((.+)\)$/, 'indicare la via e il comune ($1)'],
+    [/^renseigner le nom de la voie$/, 'indicare il nome della strada'],
+    [/^un numéro de route n'est pas une adresse : renseigner le nom de la voie$/,
+      'un numero di strada non è un indirizzo: indicare il nome della strada'],
+    [/^renseigner le numéro de rue$/, 'indicare il numero civico'],
+    [/^renseigner « (.+) » \(autoroute à (\d+) m\), et AUCUNE commune$/, 'indicare « $1 » (autostrada a $2 m), e NESSUN comune'],
+    [/^renseigner le nom de l'autoroute dont ce lieu dépend, et AUCUNE commune$/,
+      'indicare il nome dell\'autostrada da cui dipende questo luogo, e NESSUN comune'],
+    // ⚠️ APRES les formes precises ci-dessus : celle-ci prend tout « renseigner X ».
+    [/^renseigner (.+?)(?: \(la rue « (.+) » est conservée\))?$/,
+      (t, c, r) => 'indicare ' + c + (r ? ' (la via « ' + r + ' » è conservata)' : '')],
+    [/^n° (\S+) \? — c'est le point d'adresse le plus proche sur « (.+) » \((\d+) m, (.+)\), à vérifier avant de saisir$/,
+      (t, n, r, d, s) => 'n° ' + n + '? — è il punto di indirizzo più vicino su « ' + r + ' » (' + d + ' m, ' +
+        (SOURCES_NUMERO_IT[s] || s) + '), da verificare prima di inserirlo'],
+    [/^(.+) \? — à (\d+) m de la limite communale, l'adresse de la commune voisine peut être la bonne$/,
+      '$1? — a $2 m dal confine comunale, l\'indirizzo del comune vicino può essere quello giusto'],
+    [/^(.+) — le lieu est dans le contour de (.+?)(?:, à (\d+) m de la limite)?$/,
+      (t, a, c, d) => a + ' — il luogo è nel contorno di ' + c + (d ? ', a ' + d + ' m dal confine' : '')],
+    [/^aucun nom de rue à proximité — seulement (.+) : ⚡ pour choisir ou saisir l'adresse$/,
+      'nessun nome di via nelle vicinanze — solo $1: ⚡ per scegliere o inserire l\'indirizzo'],
+    [/^proposition : (.+?)(?: — autres possibilités : (.+) \(⚡ pour choisir\))?$/,
+      (t, p, a) => 'proposta: ' + p.replace(/ — n° (\S+) \?/, ' — n° $1?').replace(/\(voie à (\d+) m/, '(strada a $1 m')
+        .replace(/, la suivante à (\d+) m/, ', la successiva a $1 m').replace(/, numéro à (\d+) m\)/, ', numero a $1 m)') +
+        (a ? ' — altre possibilità: ' + a + ' (⚡ per scegliere)' : '')],
+    // --- onglet Numerotation ---
+    [/^n° (\S+) porté par le segment$/, 'n° $1 posto sul segmento'],
+    [/^à passer en POI résidentiel(?: — (.+))?$/, (t, x) => 'da trasformare in luogo residenziale' + (!x ? ''
+      : ' — ' + (x === 'adresse à saisir à la conversion' ? 'indirizzo da inserire alla conversione'
+        : x === 'adresse à choisir à la conversion' ? 'indirizzo da scegliere alla conversione' : x))],
+    [/^n° (\S+) sur « (.+) » — le nom principal est un numéro de route$/, 'n° $1 su « $2 » — il nome principale è un numero di strada'],
+    [/^nom de rue présent en alternatif : « (.+) »$/, 'nome di via presente in alternativo: « $1 »'],
+    [/^aucun nom de rue sur ce segment, même en alternatif$/, 'nessun nome di via su questo segmento, nemmeno in alternativo'],
+    [/^n° (\S+) porté par un POI résidentiel$/, 'n° $1 posto su un luogo residenziale'],
+    [/^POI résidentiel sans numéro$/, 'luogo residenziale senza numero'],
+    [/^le numéro doit être porté par le segment \(à faire à la main\)$/, 'il numero deve essere posto sul segmento (da fare a mano)'],
+    [/^à trancher : numéro porté par le segment, ou entrée sur une autre voie$/,
+      'da decidere: numero posto sul segmento, o ingresso su un\'altra strada']
   ];
+  const SOURCES_NUMERO_IT = { 'numéro de rue': 'numero civico', 'POI résidentiel': 'luogo residenziale', 'numéro': 'numero' };
+  const SOURCES_POSITION_IT = {
+    'point d\'accès': 'punto di accesso', 'position du lieu': 'posizione del luogo',
+    'centre du lieu': 'centro del luogo', 'aucune géométrie': 'nessuna geometria',
+    'numéro existant': 'numero esistente', 'position du POI': 'posizione del POI'
+  };
   function valeurEcartIt(v) {
     for (const [re, rep] of VALEURS_ECART_IT) {
       const r = v.match(re);
@@ -7101,7 +7251,25 @@
       (t, m) => MOTIF_ROCADE_IT[m] ? 'identificata come tangenziale in base ' + MOTIF_ROCADE_IT[m] : null],
     [/^s'applique à toute la voie « (.+) » \((\d+) segments?\) : le cartouche est porté par la rue, pas par un segment$/,
       (t, n, k) => 'si applica a tutta la via « ' + n + ' » (' + k + (k === '1' ? ' segmento' : ' segmenti') +
-        '): lo scudetto è portato dalla via, non da un segmento']
+        '): lo scudetto è portato dalla via, non da un segmento'],
+    // --- onglets POI et Numerotation ---
+    [/^position déduite de la surface \((\d+) % dans la commune\) : ce POI n'a pas de point d'accès$/,
+      'posizione dedotta dalla superficie ($1 % nel comune): questo POI non ha un punto di accesso'],
+    [/^position prise sur : (.+)$/, (t, s) => SOURCES_POSITION_IT[s] ? 'posizione presa su: ' + SOURCES_POSITION_IT[s] : null],
+    [/^ce POI porte une photo : il a été posé par un contributeur venu sur place — regarde-le de près avant de le supprimer$/,
+      'questo POI ha una foto: è stato creato da un contributore venuto sul posto — guardalo da vicino prima di eliminarlo'],
+    [/^aucune adresse exploitable sur ce segment : la rue du POI ne peut pas être déterminée$/,
+      'nessun indirizzo utilizzabile su questo segmento: la via del POI non può essere determinata'],
+    [/^ce segment ne porte qu'un numéro de route : le nom du POI sera demandé à la conversion$/,
+      'questo segmento porta solo un numero di strada: il nome del POI sarà chiesto alla conversione'],
+    [/^plusieurs noms de rue sur ce segment \((.+)\) : le choix sera demandé$/,
+      'più nomi di via su questo segmento ($1): la scelta sarà chiesta'],
+    [/^voie en limite communale \((.+)\) : la commune de chaque numéro sera demandée$/,
+      'strada sul confine comunale ($1): il comune di ogni numero sarà chiesto'],
+    [/^le segment porte la ville « (.+) » alors que le contour donne « (.+) » : c'est la commune (INSEE|ISTAT) qui est appliquée au POI$/,
+      'il segmento porta la città « $1 » mentre il contorno dà « $2 »: è il comune $3 che viene applicato al POI'],
+    [/^Relevé à la demande d'un éditeur, pour mesurer l'ampleur du cas\. Ce n'est pas un écart : aucune règle française ne l'interdit à ce jour\. Ne corrige rien sur cette seule base\.$/,
+      'Rilevato su richiesta di un editor, per misurare l\'ampiezza del caso. Non è una difformità: nessuna regola francese lo vieta a oggi. Non correggere nulla solo su questa base.']
   ];
   function noteReportIt(n) {
     for (const [re, rep] of NOTES_REPORT_IT) {
@@ -7140,8 +7308,51 @@
     [/^(\d+) débordent légèrement$/, '$1 sconfinano leggermente'],
     [/^(\d+) cartouche\(s\) à poser$/, '$1 scudetto/i da applicare'],
     [/^(\d+) voie\(s\) à règle propre$/, '$1 strada/e con regola propria'],
-    [/^(\d+) giratoire\(s\)$/, '$1 rotatoria/e']
+    [/^(\d+) giratoire\(s\)$/, '$1 rotatoria/e'],
+    // --- bilans POI et Numerotation, bandeau des villes sans polygone ---
+    [/^(\d+) conforme\(s\)$/, '$1 conforme/i'],
+    [/^(\d+) hors du contour communal$/, '$1 fuori dal contorno comunale'],
+    [/^(\d+) élément\(s\) naturel\(s\) écarté\(s\)$/, '$1 elemento/i naturale/i escluso/i'],
+    [/^(\d+) bâti\(s\) sans nom écarté\(s\)$/, '$1 edificio/i senza nome escluso/i'],
+    [/^(\d+) sur adresse d'autoroute$/, '$1 su indirizzo autostradale'],
+    [/^(\d+) à leur place \(accès sur une autre voie\)$/, '$1 al loro posto (accesso su un\'altra strada)'],
+    [/^(\d+) avec photo$/, '$1 con foto'],
+    [/^(\d+) seulement$/, 'solo $1']
   ];
+  /** Les lignes d'aide d'un report (sous « 🛠 »), une par element. */
+  const RAISONS_RPP_IT = [
+    [/^le n° (\S+) est déjà posé sur « (.+) » à (\d+) m : ce POI fait doublon$/,
+      'il n° $1 è già posto su « $2 » a $3 m: questo POI è un doppione'],
+    [/^le point d'accès donne sur « (.+) », c'est-à-dire sur la voie de l'adresse elle-même : rien ne justifie un POI$/,
+      'il punto di accesso dà su « $1 », cioè sulla strada dell\'indirizzo stesso: nulla giustifica un POI'],
+    [/^le POI est le long de « (.+) » \((\d+) m\), la voie de son adresse : un numéro porté par le segment dirait la même chose$/,
+      'il POI è lungo « $1 » ($2 m), la strada del suo indirizzo: un numero civico posto sul segmento direbbe la stessa cosa']
+  ];
+  const NOM_CHERCHE_FR = ' Le nom est cherché sur le principal ET les alternatifs : hors agglomération, ' +
+    'c\'est justement l\'alternatif qui porte le nom de rue.';
+  const NOM_CHERCHE_IT = ' Il nome è cercato sul principale E sugli alternativi: fuori dal centro abitato, ' +
+    'è proprio l\'alternativo a portare il nome della via.';
+  // ⚠️ « Ajouter des numéros de rue » est le libelle de WME en FRANCAIS : on ne cite pas
+  //    sa forme italienne, qui n'a pas ete relevee.
+  function aidePoiIt(t) {
+    if (!t.endsWith(NOM_CHERCHE_FR)) return null;
+    const d = t.slice(0, -NOM_CHERCHE_FR.length);
+    let m = d.match(/^Voie nommée la plus proche du (point d'accès|lieu) : « (.+) », à (\d+) m, (?:la voie suivante étant à (\d+) m|et aucune autre voie nommée à moins de (\d+) m)\.$/);
+    if (m) {
+      return 'Strada con nome più vicina ' + (m[1] === 'lieu' ? 'al luogo' : 'al punto di accesso') +
+        ': « ' + m[2] + ' », a ' + m[3] + ' m' + (m[4] ? ', mentre la strada successiva è a ' + m[4] + ' m.'
+          : ', e nessun\'altra strada con nome a meno di ' + m[5] + ' m.') + NOM_CHERCHE_IT;
+    }
+    m = d.match(/^Les seules voies à moins de (\d+) m portent un numéro de route : ce n'est pas une adresse postale, le script ne le propose donc pas d'office\.$/);
+    if (m) {
+      return 'Le sole strade a meno di ' + m[1] + ' m portano un numero di strada: non è un indirizzo ' +
+        'postale, quindi lo script non lo propone d\'ufficio.' + NOM_CHERCHE_IT;
+    }
+    return null;
+  }
+  const poseIt = q =>'Seleziona la strada, apri la modifica dei numeri civici, posa ' +
+    (q === 'le numéro' ? 'il numero' : q.replace(/^le n° /, 'il n° ')) +
+    ' sul lato giusto, verifica che cada davanti all\'ingresso, poi elimina questo POI.';
   /** Une suite de morceaux du bilan (« 2 en agglo · 5 hors agglo · »). `null` si un seul est inconnu. */
   function bilanIt(t) {
     const debut = /^·\s/.test(t), fin = /\s·$/.test(t);
@@ -7230,6 +7441,39 @@
         (t, a, b, c) => 'Ignorati: ' + a + ' fuori comune, ' + b + ' senza indirizzamento' +
           (c ? ', ' + c + ' regole proprie.' : '')],
       [/^, (\d+) règles propres\.$/, ', $1 regole proprie.'],
+      // --- barre, onglets POI et Numerotation, bandeaux ---
+      [/^(\d+) traités?$/, (t, n) => n === '1' ? '1 trattato' : n + ' trattati'],
+      [/^POI résidentiel( — n° \S+)?$/, 'Luogo residenziale$1'],
+      [/^(Voie nommée la plus proche|Les seules voies à moins de) [\s\S]*$/, t => aidePoiIt(t)],
+      [/^⚠️ Numéro n° (\S+) relevé à (\d+) m sur cette voie : c'est le point d'adresse le plus proche, PAS une certitude — à cette distance ce peut être celui du voisin\. Le script ne l'applique jamais\.$/,
+        '⚠️ Numero n° $1 rilevato a $2 m su questa strada: è il punto di indirizzo più vicino, NON una certezza — a questa distanza può essere quello del vicino. Lo script non lo applica mai.'],
+      [/^Aucun numéro à moins de (\d+) m sur cette voie : à saisir à la main\.$/,
+        'Nessun numero a meno di $1 m su questa strada: da inserire a mano.'],
+      [/^La commune appliquée est celle du contour (INSEE|ISTAT) \((.+)\), pas celle du segment\.$/,
+        'Il comune applicato è quello del contorno $1 ($2), non quello del segmento.'],
+      [/^⚡ ouvre la liste des noms relevés autour du lieu — le plus probable en tête, les numéros de route ensuite, et une saisie libre\. La commune appliquée sera celle du contour (INSEE|ISTAT) \((.+)\)\.$/,
+        '⚡ apre l\'elenco dei nomi rilevati intorno al luogo — il più probabile in testa, poi i numeri di strada, e un inserimento libero. Il comune applicato sarà quello del contorno $1 ($2).'],
+      [/^(.+) \(constaté sur : (.+)\)\.$/, (t, r, s) => {
+        const m = RAISONS_RPP_IT.find(([re]) => re.test(r));
+        return m && SOURCES_POSITION_IT[s] ? r.replace(m[0], m[1]) + ' (constatato su: ' + SOURCES_POSITION_IT[s] + ').' : null;
+      }],
+      [/^Sélectionne la voie, ouvre « Ajouter des numéros de rue », pose (le n° \S+|le numéro) du bon côté, vérifie qu'il tombe devant l'entrée, puis supprime ce POI\.$/,
+        (t, q) => poseIt(q)],
+      [/^Si l'entrée \(la boîte aux lettres\) donne bien sur (« .+ »|la rue de l'adresse) : le numéro doit être porté par le segment\. Sélectionne la voie, ouvre « Ajouter des numéros de rue », pose (le n° \S+|le numéro) du bon côté, vérifie qu'il tombe devant l'entrée, puis supprime ce POI\.$/,
+        (t, r, q) => 'Se l\'ingresso (la cassetta delle lettere) dà proprio ' +
+          (r === 'la rue de l\'adresse' ? 'sulla via dell\'indirizzo' : 'su ' + r) + ': il numero deve essere posto sul segmento. ' + poseIt(q)],
+      [/^audité\(s\) à (.+)\.$/, 'controllato/i a $1.'],
+      [/^numéro\(s\) lu\(s\) à (.+?)(, dont)?$/, (t, c, d) => 'numero/i civico/i letto/i a ' + c + (d ? ', di cui' : '')],
+      [/^La conversion cadre elle-même sur les numéros : WME ne les charge qu'à partir du zoom (\d+)\.$/,
+        'La conversione inquadra da sola i numeri civici: WME li carica solo a partire dallo zoom $1.'],
+      [/^» est portée par (\d+) segment\(s\), dont$/, '» è portata da $1 segmento/i, di cui'],
+      [/^(\d+) segment\(s\) portent le nom d'une commune voisine$/, '$1 segmento/i portano il nome di un comune vicino'],
+      [/^Ils sont pourtant dans (.+) : c'est leur$/, 'Eppure sono in $1: è il loro'],
+      [/^— les corrections proposées rétablissent déjà (.+), et ces segments forment leurs propres reports dans la liste\.$/,
+        '— le correzioni proposte ripristinano già $1, e questi segmenti formano le proprie segnalazioni nella lista.'],
+      [/^Motif : (.+)$/, (t, m) => 'Motivo: ' + (m === 'inconnu' ? 'sconosciuto' : m)],
+      // Un libelle de report (nom de voie, de POI) : seuls ses jetons « ‹sans …› » sont a traduire.
+      [/^(?=[\s\S]*‹sans )[\s\S]+$/, t => jetonsIt(t)],
       // ⚠️ EN DERNIER : il reconnait toute suite « N … · N … » du bilan, et rend
       //    `null` des qu'un morceau lui est inconnu.
       [/^(?:·\s)?\d+ [\s\S]*$/, t => bilanIt(t)]
@@ -10307,8 +10551,8 @@
                   (num ? ' le n° ' + num : ' le numéro') + ' du bon côté, vérifie qu\'il tombe ' +
                   'devant l\'entrée, puis supprime ce POI.',
                 '⚠️ Vérifie quand même sur place : le script mesure des distances, ' +
-                  'il ne voit pas la boite aux lettres.' ]
-            : [ 'Si l\'entrée (la boite aux lettres) donne bien sur ' +
+                  'il ne voit pas la boîte aux lettres.' ]
+            : [ 'Si l\'entrée (la boîte aux lettres) donne bien sur ' +
                   (rueNom ? '« ' + rueNom + ' »' : 'la rue de l\'adresse') +
                   ' : le numéro doit être porté par le segment. Sélectionne la voie, ouvre ' +
                   '« Ajouter des numéros de rue », pose' + (num ? ' le n° ' + num : ' le numéro') +
@@ -15724,7 +15968,7 @@
   function majCompteurTraites() {
     if (!ui.traites) return;
     const n = findings.filter(f => f.traite).length;
-    ui.traites.textContent = n ? n + ' traite' + (n > 1 ? 's' : '') : '';
+    ui.traites.textContent = n ? n + ' traité' + (n > 1 ? 's' : '') : '';
   }
 
   /**
@@ -16350,19 +16594,19 @@
   function bandeauInterrompu() {
     if (!lastScan || !lastScan.interrompu) return '';
     return `<div class="agn-stat agn-alerte">
-      <b>⚠ Analyse interrompue.</b> Les reports ci-dessous sont ceux trouves
-      avant l'arret : la commune n'a pas ete parcourue en entier.</div>`;
+      <b>⚠ Analyse interrompue.</b> Les reports ci-dessous sont ceux trouvés
+      avant l'arrêt : la commune n'a pas été parcourue en entier.</div>`;
   }
 
   function bandeauSource() {
     if (!sourceDonnees || sourceDonnees.mode !== 'balayage') return '';
     return `<div class="agn-stat agn-alerte">
-      <b>⚠ Lecture directe indisponible — analyse en mode degrade.</b><br>
-      La commune a ete parcourue en deplacant la carte, ce qui est beaucoup plus
+      <b>⚠ Lecture directe indisponible — analyse en mode dégradé.</b><br>
+      La commune a été parcourue en déplaçant la carte, ce qui est beaucoup plus
       lent et peut manquer des objets en bordure.<br>
       <span style="opacity:.85">Motif : ${esc(sourceDonnees.raison || 'inconnu')}</span><br>
-      Si ca se reproduit, l'API interne de WME a probablement change : c'est a
-      signaler, le script doit être adapte.</div>`;
+      Si ça se reproduit, l'API interne de WME a probablement changé : c'est à
+      signaler, le script doit être adapté.</div>`;
   }
 
   /**
@@ -16457,7 +16701,7 @@
     // cartouches, qui ne concluent pas sur un recensement partiel (v2.10).
     const partiel = !!(lastScan && lastScan.interrompu);
     const titre = partiel
-      ? '⚠️ <b>Zonage a verifier</b> — analyse interrompue, ce constat n\'est pas fiable :'
+      ? '⚠️ <b>Zonage à vérifier</b> — analyse interrompue, ce constat n\'est pas fiable :'
       : '⚠️ <b>Il manque au moins un polygone.</b>';
     const lignes = manquantes.map(v => v.degre === 'aucun'
       ? '« <b>' + esc(v.nom) + '</b> » est portée par ' + v.total +
@@ -16603,7 +16847,7 @@
             (s.adr.hnHorsAgglo
               ? '<br><span style="opacity:.8">La conversion cadre elle-même sur les numéros : ' +
                 'WME ne les charge qu\'à partir du zoom ' + ZOOM_NUMEROS + '.</span>' : '')
-          : 'Analyse non lancee.'}
+          : 'Analyse non lancée.'}
       </div>${bandeauVillesSansPolygone()}${bandeauCommunesVoisines()}${bandeauInterrompu()}${bandeauSource()}`;
     }
     ui.results.innerHTML = '';

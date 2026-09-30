@@ -13,8 +13,11 @@
  * `traduireDOM` cherche chaque noeud entier (dictionnaire, puis motifs ancres).
  * Les donnees (noms de voies, communes, nombres) sont realistes.
  *
- * ⚠️ HORS PERIMETRE, et dit : les onglets POI et Numerotation, et les bandeaux
- *    sous le bilan. Ils ne sont pas couverts ici.
+ * ⭐ Etendu le meme jour aux onglets POI et Numerotation, aux bandeaux sous le
+ *   bilan et a la barre de navigation : 99 noeuds sur 127 y sortaient en
+ *   francais.
+ * ⚠️ HORS PERIMETRE, et dit : les boites de dialogue (choix d'adresse, de nom)
+ *    et les messages de correction — non releves ici.
  *
  * ⚠️ Fonctions EXTRAITES du userscript, jamais recopiees.
  *
@@ -99,16 +102,151 @@ const NOEUDS = [
   'Autoroutes à cheval sur une limite communale ou d\'agglomération : elles ne portent aucune ville, ni en principal ni en alternatif. Les couper ne changerait rien à leur nommage. Leur nom reste audité.'
 ];
 
+// --- Onglets POI et Numerotation, bandeaux sous le bilan, barre de navigation ---
+const NOEUDS_AUTRES = [
+  "‹ Précédent",
+  "Suivant ›",
+  "3 traités",
+  "1 traité",
+  "⚠ 3 / 5 sélectionnés — dézoome d'un cran, puis reclique sur la ligne",
+  "WME ne descend que les segments présents dans la vue : ceux restés dehors ne peuvent pas être sélectionnés. Dézoome d'un cran, puis reclique sur cette ligne.",
+  "Aucun écart dans cet onglet — regarde les autres.",
+  "Aucun écart détecté.",
+  "‹sans nom› / ‹sans ville›",
+  "Boulangerie Martin — ‹sans rue› / ‹sans commune› n° 3",
+  "‹sans nom : Boulangerie› — Rue X / Ancey",
+  "POI résidentiel — n° 5",
+  "POI résidentiel · POI v123456",
+  "Numéros de rue ·",
+  ": — → renseigner la rue et la commune (Ancey)",
+  ": — → renseigner le nom de la voie",
+  ": D980 → un numéro de route n'est pas une adresse : renseigner le nom de la voie",
+  ": — → renseigner Ancey",
+  ": — → renseigner Ancey (la rue « Rue X » est conservée)",
+  ": — → renseigner le numéro de rue",
+  ": — → n° 12 ? — c'est le point d'adresse le plus proche sur « Rue X » (15 m, numéro de rue), à vérifier avant de saisir",
+  ": Montfaucon → Ancey ? — à 35 m de la limite communale, l'adresse de la commune voisine peut être la bonne",
+  ": Montfaucon → Ancey — le lieu est dans le contour de Ancey, à 120 m de la limite",
+  ": Montfaucon → Ancey — le lieu est dans le contour de Ancey",
+  ": — → renseigner « A9 » (autoroute à 40 m), et AUCUNE commune",
+  ": — → renseigner le nom de l'autoroute dont ce lieu dépend, et AUCUNE commune",
+  ": — → aucun nom de rue à proximité — seulement D980 (12 m), D6 (30 m) : ⚡ pour choisir ou saisir l'adresse",
+  ": — → proposition : Rue X / Ancey — n° 12 ? (voie à 15 m, la suivante à 40 m, numéro à 8 m)",
+  ": — → proposition : Rue X / Ancey (voie à 15 m)",
+  ": — → proposition : Rue X / Ancey (voie à 15 m, la suivante à 40 m) — autres possibilités : Rue Y (40 m), D6 (55 m) (⚡ pour choisir)",
+  "🛠 D'où vient cette proposition",
+  "Voie nommée la plus proche du point d'accès : « Rue X », à 15 m, la voie suivante étant à 40 m. Le nom est cherché sur le principal ET les alternatifs : hors agglomération, c'est justement l'alternatif qui porte le nom de rue.",
+  "Voie nommée la plus proche du lieu : « Rue X », à 15 m, et aucune autre voie nommée à moins de 60 m. Le nom est cherché sur le principal ET les alternatifs : hors agglomération, c'est justement l'alternatif qui porte le nom de rue.",
+  "Les seules voies à moins de 60 m portent un numéro de route : ce n'est pas une adresse postale, le script ne le propose donc pas d'office. Le nom est cherché sur le principal ET les alternatifs : hors agglomération, c'est justement l'alternatif qui porte le nom de rue.",
+  "⚠️ Numéro n° 12 relevé à 8 m sur cette voie : c'est le point d'adresse le plus proche, PAS une certitude — à cette distance ce peut être celui du voisin. Le script ne l'applique jamais.",
+  "Aucun numéro à moins de 30 m sur cette voie : à saisir à la main.",
+  "La commune appliquée est celle du contour INSEE (Ancey), pas celle du segment.",
+  "⚡ ouvre la liste des noms relevés autour du lieu — le plus probable en tête, les numéros de route ensuite, et une saisie libre. La commune appliquée sera celle du contour INSEE (Ancey).",
+  "⚠ position déduite de la surface (60 % dans la commune) : ce POI n'a pas de point d'accès",
+  "⚠ position prise sur : point d'accès",
+  "⚠ position prise sur : position du lieu",
+  "⚠ position prise sur : centre du lieu",
+  "Analyse non lancée.",
+  "Audit des POI indisponible.",
+  "POI en écart sur",
+  "audité(s) à Ancey.",
+  "12 conforme(s) · 3 hors du contour communal ·",
+  "12 conforme(s).",
+  "2 élément(s) naturel(s) écarté(s)",
+  "4 bâti(s) sans nom écarté(s)",
+  "1 sur adresse d'autoroute",
+  "Rivière, fleuve, mer, lac, étang, île, forêt, plantation, canal, marais, plage : ces lieux décrivent le paysage et n'ont pas d'adresse postale. Ils sont écartés volontairement.",
+  "Zones sans nom qui servent à dessiner le bâti sur l'écran de l'application. Ce ne sont pas des adresses : les commerces qu'elles abritent sont des POI à part entière, eux-mêmes audités.",
+  "Aires, échangeurs, jonctions et péages, ou tout POI dont la rue est déjà une autoroute. Règle FR : leur adresse est le nom de l'autoroute dont ils dépendent, et AUCUNE ville. Ils sont audités sur cette cible-là, pas sur une adresse postale.",
+  "Le contrôle « numéro de rue manquant » est décoché : il concerne environ la moitié des POI. Coche-le dans les réglages quand tu veux t'y attaquer.",
+  "POI résidentiel injustifié",
+  "POI résidentiel en agglo",
+  ": n° 12 porté par le segment → à passer en POI résidentiel",
+  ": n° 12 porté par le segment → à passer en POI résidentiel — adresse à saisir à la conversion",
+  ": n° 12 porté par le segment → à passer en POI résidentiel — adresse à choisir à la conversion",
+  ": n° 12 porté par le segment → à passer en POI résidentiel — Rue X / Ancey",
+  ": n° 12 sur « D980 / ‹sans ville› » — le nom principal est un numéro de route → nom de rue présent en alternatif : « Rue X »",
+  ": n° 12 sur « D980 / ‹sans ville› » — le nom principal est un numéro de route → aucun nom de rue sur ce segment, même en alternatif",
+  ": n° 5 porté par un POI résidentiel → le numéro doit être porté par le segment (à faire à la main)",
+  ": POI résidentiel sans numéro → à trancher : numéro porté par le segment, ou entrée sur une autre voie",
+  "⚠ aucune adresse exploitable sur ce segment : la rue du POI ne peut pas être déterminée",
+  "⚠ ce segment ne porte qu'un numéro de route : le nom du POI sera demandé à la conversion",
+  "⚠ plusieurs noms de rue sur ce segment (Rue A, Rue B) : le choix sera demandé",
+  "⚠ voie en limite communale (Ancey, Montfaucon) : la commune de chaque numéro sera demandée",
+  "⚠ le segment porte la ville « Montfaucon » alors que le contour donne « Ancey » : c'est la commune INSEE qui est appliquée au POI",
+  "⚠ Relevé à la demande d'un éditeur, pour mesurer l'ampleur du cas. Ce n'est pas un écart : aucune règle française ne l'interdit à ce jour. Ne corrige rien sur cette seule base.",
+  "⚠ ce POI porte une photo : il a été posé par un contributeur venu sur place — regarde-le de près avant de le supprimer",
+  "🛠 Pourquoi ce POI n'a pas lieu d'être",
+  "🛠 Deux issues possibles — c'est le terrain qui tranche",
+  "le n° 5 est déjà posé sur « Rue X » à 12 m : ce POI fait doublon (constaté sur : numéro existant).",
+  "le point d'accès donne sur « Rue X », c'est-à-dire sur la voie de l'adresse elle-même : rien ne justifie un POI (constaté sur : point d'accès).",
+  "le POI est le long de « Rue X » (8 m), la voie de son adresse : un numéro porté par le segment dirait la même chose (constaté sur : position du POI).",
+  "Sélectionne la voie, ouvre « Ajouter des numéros de rue », pose le n° 5 du bon côté, vérifie qu'il tombe devant l'entrée, puis supprime ce POI.",
+  "Sélectionne la voie, ouvre « Ajouter des numéros de rue », pose le numéro du bon côté, vérifie qu'il tombe devant l'entrée, puis supprime ce POI.",
+  "⚠️ Vérifie quand même sur place : le script mesure des distances, il ne voit pas la boîte aux lettres.",
+  "Si l'entrée (la boîte aux lettres) donne bien sur « Rue X » : le numéro doit être porté par le segment. Sélectionne la voie, ouvre « Ajouter des numéros de rue », pose le n° 5 du bon côté, vérifie qu'il tombe devant l'entrée, puis supprime ce POI.",
+  "Si l'entrée (la boîte aux lettres) donne bien sur la rue de l'adresse : le numéro doit être porté par le segment. Sélectionne la voie, ouvre « Ajouter des numéros de rue », pose le numéro du bon côté, vérifie qu'il tombe devant l'entrée, puis supprime ce POI.",
+  "Si l'entrée donne sur une AUTRE voie que l'adresse postale : laisse le POI en place. C'est précisément ce qu'il sert à dire, et un numéro porté par le segment ne saurait pas l'exprimer. Marque la ligne comme traitée (✓) pour ne pas la revoir.",
+  "numéro(s) lu(s) à Ancey, dont",
+  "numéro(s) lu(s) à Ancey",
+  "hors agglomération.",
+  "(contrôle « numéros hors agglomération » décoché).",
+  "Ils ont été lus pour repérer les POI résidentiels qui font doublon avec un numéro déjà posé.",
+  "Mesure demandée par un éditeur, sans valeur normative : aucune règle française n'interdit ce cas à ce jour.",
+  "📏 Mesure :",
+  "numéro(s) en agglomération sur une voie dont le nom principal est un numéro de route, dont",
+  "avec un nom de rue en alternatif.",
+  "aucun",
+  "numéro en agglomération sur une voie nommée « Dxxx » ici — le contrôle a bien tourné, cette commune n'a pas le cas.",
+  "POI résidentiel(s), dont",
+  "en agglomération ·",
+  "en agglomération.",
+  "sans justification",
+  "3 à leur place (accès sur une autre voie)",
+  "2 avec photo",
+  "Le numéro est déjà porté par la voie, ou l'entrée donne sur la voie de l'adresse elle-même : le POI n'exprime aucun décalage.",
+  "Leur point d'accès donne sur une AUTRE voie que leur adresse : c'est exactement ce qu'un POI résidentiel sert à dire. Ils ne sont pas signalés.",
+  "Ces POI portent une photo : quelqu'un est venu sur place les poser. Ils restent signalés, mais en fin de liste.",
+  "La conversion cadre elle-même sur les numéros : WME ne les charge qu'à partir du zoom 18.",
+  "⚠ Analyse interrompue.",
+  "Les reports ci-dessous sont ceux trouvés avant l'arrêt : la commune n'a pas été parcourue en entier.",
+  "⚠ Lecture directe indisponible — analyse en mode dégradé.",
+  "La commune a été parcourue en déplaçant la carte, ce qui est beaucoup plus lent et peut manquer des objets en bordure.",
+  "Motif : inconnu",
+  "Si ça se reproduit, l'API interne de WME a probablement changé : c'est à signaler, le script doit être adapté.",
+  "Zonage à vérifier",
+  "— analyse interrompue, ce constat n'est pas fiable :",
+  "Il manque au moins un polygone.",
+  "» est portée par 12 segment(s), dont",
+  "n'est dans un polygone.",
+  "3 seulement",
+  "dans un polygone — il est probablement trop petit.",
+  "Relance l'analyse en entier pour trancher.",
+  "Ces segments se déclarent en agglomération, mais le zonage les place dehors :",
+  "les écarts les concernant sont faux, et les corrections proposées iraient dans le mauvais sens",
+  ". Trace le polygone manquant, puis relance.",
+  "12 segment(s) portent le nom d'une commune voisine",
+  "Ils sont pourtant dans Ancey : c'est leur",
+  "adresse",
+  "qui est fausse, pas le zonage.",
+  "Rien à tracer",
+  "— les corrections proposées rétablissent déjà Ancey, et ces segments forment leurs propres reports dans la liste."
+];
+
 console.log('\n=== Onglet Segments : chaque noeud ressort en italien ===\n');
 verifier('1. TEMOIN : l\'infobulle du seuil, deja traduite avant la 2.50.10, ressort bien',
   !!trad('Seuil de rattachement'), true);
-const manquants = NOEUDS.filter(n => !trad(n));
-verifier('2. ⭐⭐ ' + NOEUDS.length + ' noeuds : aucun ne reste sans traduction', manquants, []);
-const brut = NOEUDS.map(trad).filter(v => v && /\$\d/.test(v));
+const TOUS = NOEUDS.concat(NOEUDS_AUTRES);
+const manquants = TOUS.filter(n => !trad(n));
+verifier('2. ⭐⭐ ' + TOUS.length + ' noeuds (Segments ' + NOEUDS.length + ', POI / Numérotation / bandeaux ' +
+  NOEUDS_AUTRES.length + ') : aucun ne reste sans traduction', manquants, []);
+const brut = TOUS.map(trad).filter(v => v && /\$\d/.test(v));
 verifier('3. aucun « $1 » resté brut', brut, []);
 // Un mot francais caracteristique ne doit plus apparaitre dans la traduction.
-const RE_FR = /\b(agglomération|couper|déborde|commune voisine|plusieurs|longe la limite|sans cartouche|hors agglo|Ignorés|règle propre|laissée)\b/;
-const francais = NOEUDS.filter(n => trad(n) && RE_FR.test(trad(n)));
+// ⚠️ « Traduit » ne suffit pas : un motif peut rendre la phrase FRANCAISE telle quelle (c'etait le cas
+//    des lignes « avant → apres » de l'onglet POI avant leurs motifs).
+const RE_FR = /\b(agglomération|couper|déborde|commune voisine|plusieurs|longe la limite|sans cartouche|hors agglo|Ignorés|règle propre|laissée|renseigner|porté|proposition|autres possibilités|voie|contour|à passer|constaté|Sélectionne|trancher|Aucun|écart|analyse|numéro|polygone|reports)\b/;
+const francais = TOUS.filter(n => trad(n) && RE_FR.test(trad(n)));
 verifier('4. aucune traduction ne garde un morceau de phrase française', francais, []);
 
 console.log('\n=== Valeurs exactes ===\n');
@@ -135,7 +273,10 @@ console.log('\n=== Français : les accents des textes affichés ===\n');
 const FAUTES = ['Chemin pietonnier', 'Marquer comme traite"', 'Troncons eloignes', '>eparpilles<',
   "' numero' +", 'alternatifs reels ?', 'pas decrire la fonction', 'est porte par la rue',
   'position deduite', 'être determinee', "' porte par le segment'", "champ: 'abreviation'",
-  "mitoyenIndecis + '  »"];
+  "mitoyenIndecis + '  »",
+  // onglets POI et Numerotation, bandeaux
+  "' traite' + (n", 'ceux trouves', "l'arret :", 'mode degrade', 'ete parcourue', 'Si ca se reproduit',
+  'Zonage a verifier', 'Analyse non lancee', '(la boite aux lettres)', 'voit pas la boite', "lu(s) a '"];
 verifier('13. plus aucune des fautes relevées le 30/09/2026', FAUTES.filter(f => src.includes(f)), []);
 
 console.log('\n' + ok + ' ok, ' + ko + ' echec(s)\n');
