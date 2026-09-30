@@ -172,7 +172,22 @@ const connue = k => horsDico.indexOf(k) >= 0 || detendu(k).test(horsDico) ||
   //    `${siPanneaux(', quand les panneaux…')}` : la restriction aux clés
   //    balisées en refusait trois, parfaitement servies.
   morceauxConnus(k);
-const orphelines = clesIt.filter(k => !connue(k));
+// ⚠️ v2.50.10 — CLES ASSEMBLEES PAR CONCATENATION, chacune avec la PREUVE de l'assemblage dans le
+//    code : un ternaire coupe la phrase (« donner ' + (n > 1 ? 'aux …' : 'au numéro …') ») bien
+//    au-dela des 40 caracteres de `detendu`. Elargir la fenetre pour elles aurait affaibli le
+//    controle de TOUTES les cles ; la preuve, elle, tombe si le code qui les produit disparait.
+const PAR_CONCATENATION = {
+  "Ce script applique des règles de nommage propres à chaque pays. Appliquer ailleurs les règles d'un autre pays abîmerait la carte.":
+    /propres à chaque pays' \+\s*\(pays\.nom \?[\s\S]{0,120}: ''\)/,
+  "Ce segment ne porte qu'un numéro de route, qui ne fait pas une adresse. Saisis le nom à donner au numéro":
+    /Saisis le nom à donner ' \+ \(f\.hns\.length > 1[\s\S]{0,80}'au numéro <b>'/,
+  'Quelle adresse donner au numéro':
+    /'Quelle adresse donner ' \+ \(f\.hns\.length > 1[\s\S]{0,80}'au numéro <b>'/,
+  'WME Naming Auditor — masquer la fenêtre': /SCRIPT_NAME \+ \(ouvert \? ' — masquer la fenêtre'/,
+  'WME Naming Auditor — afficher la fenêtre': /: ' — afficher la fenêtre'\)/
+};
+const prouvee = k => PAR_CONCATENATION[k] && PAR_CONCATENATION[k].test(horsDico);
+const orphelines = clesIt.filter(k => !connue(k) && !prouvee(k));
 verifier('4. ⭐ toute clé italienne se retrouve AILLEURS que dans le dictionnaire',
   orphelines, []);
 

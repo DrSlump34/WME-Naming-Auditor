@@ -41,7 +41,7 @@
     ["T", "6 commune(s) dans la vue sur 3195"],
     ["T", "1 polygone"],
     ["A", "Vérification de la disponibilité des panneaux…"],
-    ["A", "Choisis dans les villes que WME connait, ou saisis librement."],
+    ["A", "Choisis dans les villes que WME connaît, ou saisis librement."],
     ["A", "Étiquette (repérage seul)"],
     ["A", "Le nom appliqué devient « Village (Commune) » au lieu du seul nom de la commune INSEE. Le village est lu sur la City du segment."],
     ["T", "village rattaché"],

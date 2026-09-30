@@ -2284,7 +2284,7 @@
       // donc ODbL VIRAL. Admin Express (IGN) est en Licence Ouverte : on garde
       // `gouv`. Seuls les PANNEAUX de cette API sont exploitables (voir plus
       // bas), et pour une tout autre raison : ils viennent de l'Etat.
-      indisponible: 'Ses contours de communes sont derives d\'OpenStreetMap (ODbL, ' +
+      indisponible: 'Ses contours de communes sont dérivés d\'OpenStreetMap (ODbL, ' +
         'licence virale). La source « geo.api.gouv.fr » ci-dessus livre les mêmes ' +
         'communes en Licence Ouverte : c\'est elle qu\'il faut utiliser.'
     }
@@ -2690,7 +2690,7 @@
     if (prog) prog.etape('Téléchargement des contours', liste.length);
     for (let i = 0; i < liste.length; i++) {
       const d = liste[i];
-      if (prog) { prog.verifier(); prog.fixer(i).sous('département ' + d); await prog.respirer(true); }
+      if (prog) { prog.verifier(); prog.fixer(i).sous(REF.sourceContours.uniteLabel + ' ' + d); await prog.respirer(true); }
       try {
         const fc = JSON.parse(await telecharger(REF.sourceContours.url(d), prog));
         const lot = (fc.features || []).filter(f => f && f.geometry);
@@ -2848,7 +2848,7 @@
         ui.statutContours.innerHTML = '<div class="agn-stat agn-alerte">' +
           '<b>Chargement automatique indisponible.</b> ' + esc(e.message || String(e)) +
           '<br>Charge les contours à la main (sélecteur de départements ci-dessus), ' +
-          'ou decoche l\'option dans les réglages.</div>';
+          'ou décoche l\'option dans les réglages.</div>';
       }
     } finally { autoEnCours = false; }
   }
@@ -3569,7 +3569,7 @@
       (f.nb > 1 ? `<div class="agn-b-l"><b>${f.nb} segments</b> dans la même situation</div>` : '') +
       f.ecarts.map(e => `<div class="agn-b-l"><b>${esc(e.champ)}</b> : ${esc(e.avant)} → ${esc(e.apres)}</div>`).join('') +
       (f.doute ? `<div class="agn-b-w">⚠ ${esc(f.doute)}</div>` : '') +
-      (f.traite ? '<div class="agn-b-ok">✓ marque comme traite</div>' : '');
+      (f.traite ? '<div class="agn-b-ok">✓ marqué comme traité</div>' : '');
     bulle.style.display = 'block';
     placerBulle();
   }
@@ -4833,6 +4833,10 @@
       };
       z.appendChild(a);
     });
+    // ⚠️ v2.50.10 : la zone vit dans `document.body`, hors de la fenetre observee — ses infobulles
+    //    restaient en francais. Traduite a chaque dessin (redessinee a chaque mouvement de carte :
+    //    un observateur permanent ne ferait que la meme chose, en plus cher).
+    traduireDOM(z);
   }
 
   function demarrerDrag(e, index) {
@@ -5291,8 +5295,8 @@
         if (dicoLeCorrige(s => f.re.test(s))) return;
         const propreCorrection = f.corriger ? f.corriger(nom) : null;
         ecarts.push(propreCorrection && propreCorrection !== nom
-          ? { champ: f.cle + ou, avant: nom, apres: propreCorrection }
-          : { champ: f.cle + ou, avant: nom, apres: f.message, sansProposition: true });
+          ? { champ: (f.libelle || f.cle) + ou, avant: nom, apres: propreCorrection }
+          : { champ: (f.libelle || f.cle) + ou, avant: nom, apres: f.message, sansProposition: true });
       });
       if (c.fonctionDirection && REF.reFonction.test(nom)) {
         ecarts.push({ champ: 'fonction dans le nom' + ou, avant: nom,
@@ -6505,7 +6509,7 @@
         "Da spuntare solo se il comune NON ha DAVVERO alcun cartello di centro abitato: tutto il comune sarà allora analizzato come fuori dal centro abitato.",
       "cette commune n'a <b>aucune agglomération</b> (tout est hors agglo)":
         "questo comune non ha <b>alcun centro abitato</b> (tutto è fuori dal centro abitato)",
-      "Choisis dans les villes que WME connait, ou saisis librement.":
+      "Choisis dans les villes que WME connaît, ou saisis librement.":
         "Scegli tra le città che WME conosce, o scrivi liberamente.",
       "Étiquette (repérage seul)":
         "Etichetta (solo come riferimento)",
@@ -7075,7 +7079,176 @@
       'qui est fausse, pas le zonage.':
         'che è sbagliato, non la zonizzazione.',
       'Rien à tracer':
-        'Niente da tracciare'
+        'Niente da tracciare',
+      // Fautes d'ecriture italiennes : le report affichait la CLE (« sigleEspace ») faute de libelle.
+      'sigle avec un espace':
+        'sigla con uno spazio',
+      'sigle avec un espace (alt)':
+        'sigla con uno spazio (alt)',
+      'date en chiffres romains':
+        'data in numeri romani',
+      'date en chiffres romains (alt)':
+        'data in numeri romani (alt)',
+      // --- Relevé intégral du 30/09/2026 (tools/releve-textes.js) : le reste de l'interface ---
+      // ── Familles de couleurs (FAMILLES, l. 346-348) ─────────────────────────
+      'Panneau relevé (rien à confronter)': 'Cartello rilevato (niente da confrontare)',
+      'Panneau dans un polygone': 'Cartello dentro un poligono',
+      'Panneau HORS polygone': 'Cartello FUORI dal poligono',
+      // ── Barre de progression (l. 1171, 1260) ────────────────────────────────
+      'Travail en cours…': 'Lavoro in corso…',
+      'interruption en cours…': 'interruzione in corso…',
+      // ── Lecture d'un fichier de contours (l. 2089-2115) ─────────────────────
+      'Fichier illisible.': 'File illeggibile.',
+      'Analyse du fichier': 'Analisi del file',
+      'Mise en base des contours': 'Salvataggio dei confini in archivio',
+      'aucune commune exploitable (nom introuvable dans les propriétés)':
+        'nessun comune utilizzabile (nome non trovato nelle proprietà)',
+      // ── Erreurs réseau de `telecharger` (l. 2140-2150), affichées entre parenthèses ──
+      'appel refusé': 'chiamata rifiutata',
+      'délai dépassé': 'tempo scaduto',
+      'appel interrompu': 'chiamata interrotta',
+      'interrompu': 'interrotto',
+      // ── Dictionnaire de rédaction (l. 2204, 2232-2248) ──────────────────────
+      'feuille principale absente : les règles ne peuvent pas s\'appliquer':
+        'foglio principale assente: le regole non possono essere applicate',
+      '🏷️ Dictionnaire de rédaction : inactif.': '🏷️ Dizionario di redazione: inattivo.',
+      '🏷️ Dictionnaire de rédaction : <b>inactif</b> — WME Check Road Name est installé et dit déjà la même chose. Cocher la case ci-dessus pour l\'activer quand même.':
+        '🏷️ Dizionario di redazione: <b>inattivo</b> — WME Check Road Name è installato e dice già la stessa cosa. Seleziona la casella qui sopra per attivarlo comunque.',
+      // fragments (l'élément #agn-r-dico reste verrouillé après une 1re traduction en bloc)
+      '🏷️ Dictionnaire de rédaction :': '🏷️ Dizionario di redazione:',
+      'inactif': 'inattivo',
+      '— WME Check Road Name est installé et dit déjà la même chose. Cocher la case ci-dessus pour l\'activer quand même.':
+        '— WME Check Road Name è installato e dice già la stessa cosa. Seleziona la casella qui sopra per attivarlo comunque.',
+      '⚠️ Dictionnaire de rédaction': '⚠️ Dizionario di redazione',
+      'non chargé': 'non caricato',
+      'une seule feuille sur deux': 'un solo foglio su due',
+      // ── Sources de contours (l. 2278 = même texte que REF.sourceContours.aide, l. 8125) ──
+      'Numéro de département (01 à 95, 2A, 2B, 971…). ~3 Mo et ~10 s par département.':
+        'Numero di dipartimento (da 01 a 95, 2A, 2B, 971…). ~3 MB e ~10 s per dipartimento.',
+      'Ses contours de communes sont dérivés d\'OpenStreetMap (ODbL, licence virale). La source « geo.api.gouv.fr » ci-dessus livre les mêmes communes en Licence Ouverte : c\'est elle qu\'il faut utiliser.':
+        'I suoi confini comunali derivano da OpenStreetMap (ODbL, licenza virale). La fonte « geo.api.gouv.fr » qui sopra fornisce gli stessi comuni in Licence Ouverte: è quella da usare.',
+      // ── Panneaux (l. 2426-2438) ──────────────────────────────────────────────
+      'aucune source de panneaux dans ce pays': 'nessuna fonte di cartelli in questo paese',
+      'format de réponse inattendu': 'formato di risposta inatteso',
+      'champs de réponse inattendus': 'campi di risposta inattesi',
+      // ── Téléchargement des contours (l. 2685-2706) ──────────────────────────
+      'aucun département sélectionné': 'nessun dipartimento selezionato',
+      'Téléchargement des contours': 'Scaricamento dei confini',
+      'aucun contour renvoyé': 'nessun confine restituito',
+      // ── Chargement automatique (l. 2849-2851) ───────────────────────────────
+      'Chargement automatique indisponible.': 'Caricamento automatico non disponibile.',
+      'Charge les contours à la main (sélecteur de départements ci-dessus), ou décoche l\'option dans les réglages.':
+        'Carica i confini a mano (con il selettore qui sopra), oppure deseleziona l\'opzione nelle impostazioni.',
+      'Toutes les communes de la vue': 'Tutti i comuni della vista',
+      '📍 Sous les yeux': '📍 Sotto gli occhi',
+      'Commune en cours': 'Comune attuale',
+
+      '⛔ WME a refusé l\'enregistrement': '⛔ WME ha rifiutato il salvataggio',
+      '🔎 <b>Ce n\'est pas un doublon d\'adresse.</b> Waze garde une trace résiduelle de ce numéro précis, côté serveur, invisible dans l\'éditeur : le POI est refusé même après avoir supprimé et enregistré le numéro de rue du même nom. Le numéro de rue, lui, reste acceptable — seul le lieu est bloqué.<br><b>Rien à corriger sur la carte</b> : annule (Ctrl+Z), et signale l\'adresse exacte au staff sur le forum Waze — ils savent purger le résidu, et l\'adresse redevient enregistrable pour tout le monde.':
+        '🔎 <b>Non è un indirizzo duplicato.</b> Waze conserva una traccia residua di questo numero preciso, lato server, invisibile nell\'editor: il POI viene rifiutato anche dopo aver eliminato e salvato il numero civico con lo stesso nome. Il numero civico, di suo, resta accettabile — è bloccato solo il luogo.<br><b>Nulla da correggere sulla mappa</b>: annulla (Ctrl+Z) e segnala l\'indirizzo esatto allo staff sul forum Waze — sanno ripulire il residuo, e l\'indirizzo torna salvabile per tutti.',
+      'Ce n\'est pas un doublon d\'adresse.': 'Non è un indirizzo duplicato.',
+      'Waze garde une trace résiduelle de ce numéro précis, côté serveur, invisible dans l\'éditeur : le POI est refusé même après avoir supprimé et enregistré le numéro de rue du même nom. Le numéro de rue, lui, reste acceptable — seul le lieu est bloqué.':
+        'Waze conserva una traccia residua di questo numero preciso, lato server, invisibile nell\'editor: il POI viene rifiutato anche dopo aver eliminato e salvato il numero civico con lo stesso nome. Il numero civico, di suo, resta accettabile — è bloccato solo il luogo.',
+      'Rien à corriger sur la carte': 'Nulla da correggere sulla mappa',
+      ': annule (Ctrl+Z), et signale l\'adresse exacte au staff sur le forum Waze — ils savent purger le résidu, et l\'adresse redevient enregistrable pour tout le monde.':
+        ': annulla (Ctrl+Z) e segnala l\'indirizzo esatto allo staff sul forum Waze — sanno ripulire il residuo, e l\'indirizzo torna salvabile per tutti.',
+      'Message repris de WME (sa propre alerte est cachée derrière cette fenêtre). Il disparaîtra quand l\'alerte de WME se fermera.':
+        'Messaggio ripreso da WME (il suo avviso è nascosto dietro questa finestra). Sparirà quando l\'avviso di WME si chiuderà.',
+
+      'dans la même situation': 'nella stessa situazione',
+      '✓ marqué comme traité': '✓ segnato come trattato',
+
+      'Glisser pour déplacer, clic droit pour supprimer': 'Trascina per spostare, clic destro per eliminare',
+      'Cliquer pour ajouter un sommet': 'Clicca per aggiungere un vertice',
+      'Interroge geo.api.gouv.fr pour savoir quel département est sous les yeux, et télécharge ses contours quand ils manquent.':
+        'Interroga geo.api.gouv.fr per sapere quale dipartimento hai sotto gli occhi, e ne scarica i confini quando mancano.',
+      'département': 'dipartimento',
+      'départements': 'dipartimenti',
+      'Trouve les provinces sous les yeux à partir de leurs limites, SANS aucun appel réseau, et télécharge celles qui manquent.':
+        'Trova le province che hai sotto gli occhi a partire dai loro limiti, SENZA alcuna chiamata di rete, e scarica quelle che mancano.',
+      'les sigles s\'écrivent sans espace (« SS12 », pas « SS 12 »)':
+        'le sigle si scrivono senza spazio (« SS12 », non « SS 12 »)',
+      'les dates s\'écrivent en chiffres arabes (« Via 4 Novembre »)':
+        'le date si scrivono in cifre arabe (« Via 4 Novembre »)',
+      '📖 Les règles officielles italiennes': '📖 Le regole ufficiali italiane',
+      'Territoire non pris en charge : outil désactivé.': 'Territorio non supportato: strumento disattivato.',
+      'Ce script applique des règles de nommage propres à chaque pays, et la carte est sur':
+        'Questo script applica regole di denominazione proprie di ogni paese, e la mappa è su',
+      '. Appliquer ailleurs les règles d\'un autre pays abîmerait la carte.':
+        '. Applicare altrove le regole di un altro paese danneggerebbe la mappa.',
+      'Ce script applique des règles de nommage propres à chaque pays. Appliquer ailleurs les règles d\'un autre pays abîmerait la carte.':
+        'Questo script applica regole di denominazione proprie di ogni paese. Applicare altrove le regole di un altro paese danneggerebbe la mappa.',
+      'Pays pris en charge :': 'Paesi supportati:',
+      'France, Italie': 'Francia, Italia',
+      'France': 'Francia',
+      'Italie': 'Italia',
+      '(pour la France : métropole, Corse et outre-mer).': '(per la Francia: territorio metropolitano, Corsica e oltremare).',
+      'Territoire indéterminé : analyse en attente.': 'Territorio indeterminato: analisi in attesa.',
+      'Zoome à 14 ou plus sur la commune : WME ne charge aucune donnée en dessous, et le script a besoin de lire le pays avant d\'appliquer ses règles.':
+        'Fai zoom a 14 o più sul comune: sotto questo livello WME non carica alcun dato, e lo script ha bisogno di leggere il paese prima di applicare le sue regole.',
+      'Activation des calques de numérotation': 'Attivazione dei livelli della numerazione',
+      'Lecture des numéros de rue': 'Lettura dei numeri civici',
+      'Analyse des segments': 'Analisi dei segmenti',
+      'Audit des POI': 'Controllo dei POI',
+      'POI résidentiels': 'Luoghi residenziali',
+      'Préparation du balayage': 'Preparazione della scansione',
+      'La carte se déplace le temps du balayage, puis revient à sa vue.':
+        'La mappa si sposta durante la scansione, poi torna alla sua vista.',
+      'Mise en forme des résultats': 'Impaginazione dei risultati',
+      'Choisis d\'abord une commune.': 'Scegli prima un comune.',
+      'Sans polygone, toute la commune serait tenue pour hors agglomération et l\'analyse remonterait des écarts qui n\'existent pas.':
+        'Senza poligono, tutto il comune sarebbe considerato fuori dal centro abitato e l\'analisi segnalerebbe difformità che non esistono.',
+      'Trace l\'agglomération (bouton ci-dessus), ou coche': 'Traccia il centro abitato (pulsante qui sopra), oppure spunta',
+      '« cette commune n\'a aucune agglomération »': '« questo comune non ha alcun centro abitato »',
+      'si elle n\'en a réellement aucune.': 'se davvero non ne ha nessuno.',
+      'lecture directe indisponible — l\'audit des POI a besoin des points d\'accès et des catégories, que le balayage de la carte ne fournit pas. Relance quand la lecture directe remarchera.':
+        'lettura diretta non disponibile — il controllo dei POI ha bisogno dei punti di accesso e delle categorie, che la scansione della mappa non fornisce. Rilancia quando la lettura diretta funzionerà di nuovo.',
+      'Correction en cours…': 'Correzione in corso…',
+      'Thématique entièrement traitée': 'Tema interamente trattato',
+      'Ce segment ne porte qu\'un numéro de route, qui ne fait pas une adresse. Saisis le nom à donner aux':
+        'Questo segmento porta solo un numero di strada, che non costituisce un indirizzo. Inserisci il nome da dare ai',
+      'Ce segment ne porte qu\'un numéro de route, qui ne fait pas une adresse. Saisis le nom à donner au numéro':
+        'Questo segmento porta solo un numero di strada, che non costituisce un indirizzo. Inserisci il nome da dare al numero civico',
+      'numéros.': 'numeri civici.',
+      'Quelle adresse donner aux': 'Quale indirizzo dare ai',
+      'Quelle adresse donner au numéro': 'Quale indirizzo dare al numero civico',
+      'numéros ?': 'numeri civici?',
+      'Ce segment porte': 'Questo segmento porta',
+      'noms. Lequel doit devenir le': 'nomi. Quale deve diventare il',
+      'nom principal': 'nome principale',
+      'tout vider': 'svuota tutto',
+      'Quelle adresse pour ce POI ?': 'Quale indirizzo per questo POI?',
+      'Voici les noms relevés autour du lieu, du plus probable au moins probable.':
+        'Ecco i nomi rilevati intorno al luogo, dal più probabile al meno probabile.',
+      'Voici les noms relevés autour du lieu, du plus probable au moins probable. Les numéros de route sont en dernier : ce ne sont pas des adresses postales.':
+        'Ecco i nomi rilevati intorno al luogo, dal più probabile al meno probabile. I numeri di strada sono in fondo: non sono indirizzi postali.',
+      'Un seul nom a été relevé autour du lieu.': 'È stato rilevato un solo nome intorno al luogo.',
+      'Sélectionne, parmi les segments affichés, ceux qui portent la ville en nom principal — donc ceux qui se déclarent EN agglomération. Ne porte que sur ce qui est chargé à l\'écran.':
+        'Seleziona, tra i segmenti visualizzati, quelli che portano la città nel nome principale — quindi quelli che si dichiarano NEL centro abitato. Riguarda solo ciò che è caricato sullo schermo.',
+      'Sélectionne, parmi les segments affichés, ceux dont le nom principal ne porte AUCUNE ville — donc ceux qui se déclarent HORS agglomération. Ne porte que sur ce qui est chargé à l\'écran.':
+        'Seleziona, tra i segmenti visualizzati, quelli il cui nome principale non porta ALCUNA città — quindi quelli che si dichiarano FUORI dal centro abitato. Riguarda solo ciò che è caricato sullo schermo.',
+      'Choisis d\'abord une commune : le script a besoin de son nom et de son contour.':
+        'Scegli prima un comune: lo script ha bisogno del suo nome e dei suoi confini.',
+      'Territoire non pris en charge : aucun référentiel de nommage ne le sert.':
+        'Territorio non supportato: nessun riferimento di denominazione lo copre.',
+      'Édition d\'un tracé en cours (💾 pour enregistrer, Échap pour annuler).':
+        'Modifica di un tracciato in corso (💾 per salvare, Esc per annullare).',
+      '⚠ aucun segment chargé : déplace ou dézoome la carte.':
+        '⚠ nessun segmento caricato: sposta la mappa o riduci lo zoom.',
+      '⚠️ Il en manque probablement.': '⚠️ Probabilmente ne mancano.',
+      'Sous tes yeux — pré-coché, à toi de confirmer': 'Sotto i tuoi occhi — già spuntato, sta a te confermare',
+      'Téléchargement interrompu — rien n\'a été modifié.': 'Download interrotto — non è stato modificato nulla.',
+      'Rien n\'est perdu': 'Non si perde nulla',
+      ': ils se rechargent tout seuls si tu y reviens, et tes agglomérations tracées n\'ont pas bougé.':
+        ': si ricaricano da soli se ci torni, e i centri abitati che hai tracciato non sono cambiati.',
+      'Estimation à partir du nombre de points de contour (~70 octets par point, facteur mesuré). Ordre de grandeur, pas une comptabilité.':
+        'Stima basata sul numero di punti dei confini (~70 byte per punto, fattore misurato). Ordine di grandezza, non una contabilità.',
+      'Choisis dans les villes que WME connaît, ou saisis librement.':
+        'Scegli tra le città che WME conosce, o scrivi liberamente.',
+      'WME Naming Auditor — masquer la fenêtre': 'WME Naming Auditor — nascondi la finestra',
+      'WME Naming Auditor — afficher la fenêtre': 'WME Naming Auditor — mostra la finestra',
+      'Règles de nommage FR': 'Regole di denominazione FR',
+      '« a un numéro de rue invalide »': '« numero civico non valido » (messaggio di WME)'
     }
   };
 
@@ -7184,7 +7357,7 @@
     [/^(.+) \? — à (\d+) m de la limite communale, l'adresse de la commune voisine peut être la bonne$/,
       '$1? — a $2 m dal confine comunale, l\'indirizzo del comune vicino può essere quello giusto'],
     [/^(.+) — le lieu est dans le contour de (.+?)(?:, à (\d+) m de la limite)?$/,
-      (t, a, c, d) => a + ' — il luogo è nel contorno di ' + c + (d ? ', a ' + d + ' m dal confine' : '')],
+      (t, a, c, d) => a + ' — il luogo è entro i confini di ' + c + (d ? ', a ' + d + ' m dal confine' : '')],
     [/^aucun nom de rue à proximité — seulement (.+) : ⚡ pour choisir ou saisir l'adresse$/,
       'nessun nome di via nelle vicinanze — solo $1: ⚡ per scegliere o inserire l\'indirizzo'],
     [/^proposition : (.+?)(?: — autres possibilités : (.+) \(⚡ pour choisir\))?$/,
@@ -7209,7 +7382,9 @@
   const SOURCES_POSITION_IT = {
     'point d\'accès': 'punto di accesso', 'position du lieu': 'posizione del luogo',
     'centre du lieu': 'centro del luogo', 'aucune géométrie': 'nessuna geometria',
-    'numéro existant': 'numero esistente', 'position du POI': 'posizione del POI'
+    'numéro existant': 'numero esistente', 'position du POI': 'posizione del POI',
+    // Valeurs internes aujourd'hui jamais affichees : couvertes par precaution.
+    'accès principal': 'accesso principale', 'part de surface': 'quota di superficie'
   };
   function valeurEcartIt(v) {
     for (const [re, rep] of VALEURS_ECART_IT) {
@@ -7267,7 +7442,7 @@
     [/^voie en limite communale \((.+)\) : la commune de chaque numéro sera demandée$/,
       'strada sul confine comunale ($1): il comune di ogni numero sarà chiesto'],
     [/^le segment porte la ville « (.+) » alors que le contour donne « (.+) » : c'est la commune (INSEE|ISTAT) qui est appliquée au POI$/,
-      'il segmento porta la città « $1 » mentre il contorno dà « $2 »: è il comune $3 che viene applicato al POI'],
+      'il segmento porta la città « $1 » mentre i confini danno « $2 »: è il comune $3 che viene applicato al POI'],
     [/^Relevé à la demande d'un éditeur, pour mesurer l'ampleur du cas\. Ce n'est pas un écart : aucune règle française ne l'interdit à ce jour\. Ne corrige rien sur cette seule base\.$/,
       'Rilevato su richiesta di un editor, per misurare l\'ampiezza del caso. Non è una difformità: nessuna regola francese lo vieta a oggi. Non correggere nulla solo su questa base.']
   ];
@@ -7311,7 +7486,7 @@
     [/^(\d+) giratoire\(s\)$/, '$1 rotatoria/e'],
     // --- bilans POI et Numerotation, bandeau des villes sans polygone ---
     [/^(\d+) conforme\(s\)$/, '$1 conforme/i'],
-    [/^(\d+) hors du contour communal$/, '$1 fuori dal contorno comunale'],
+    [/^(\d+) hors du contour communal$/, '$1 fuori dai confini comunali'],
     [/^(\d+) élément\(s\) naturel\(s\) écarté\(s\)$/, '$1 elemento/i naturale/i escluso/i'],
     [/^(\d+) bâti\(s\) sans nom écarté\(s\)$/, '$1 edificio/i senza nome escluso/i'],
     [/^(\d+) sur adresse d'autoroute$/, '$1 su indirizzo autostradale'],
@@ -7367,8 +7542,328 @@
     }
     return (debut ? '· ' : '') + out.join(' · ') + (point ? '.' : '') + (fin ? ' ·' : '');
   }
+  // --- Aides du relevé intégral (30/09/2026) : barre de correction, échecs, gestionnaire des contours ---
+  // ⚠️ Motifs AUTONOMES : ils ne s'appuient sur aucun symbole du script (TEXTES, lieuIt), pour
+  //    tourner à l'identique dans le testeur et une fois collés dans MOTIFS.it.
+  // Seul libellé de barre actif pendant `chargerNumeros` : la série de corrections (15897).
+  const LIB_BARRE_IT = { 'Correction': 'Correzione' };
+  // « de Ancey », « d'Ancey », « du Pontet » → italien (même rendu que `lieuIt` du script).
+  const deIt = (art, q) => 'di ' + (art === 'du ' ? 'Le ' : art === 'des ' ? 'Les ' : '') + q;
+  /**
+   * « département » ou « provincia » selon le RÉFÉRENTIEL servi : le gestionnaire des contours
+   * écrit « département » en dur, mais en Italie il liste des PROVINCES (REF.sourceContours).
+   */
+  const enItalie = () => (typeof REF !== 'undefined' && REF && REF.code === 'IT');
+  const uniteIt = forme => {
+    const it = enItalie();
+    return {
+      s: it ? 'provincia' : 'dipartimento',
+      p: it ? 'province' : 'dipartimenti',
+      sp: it ? 'provincia/e' : 'dipartimento/i',
+      art_p: it ? 'le province' : 'i dipartimenti',
+      art_s: it ? 'la provincia' : 'il dipartimento',
+      un: it ? 'una provincia' : 'un dipartimento',
+      scarico: it ? 'provincia/e scaricata/e' : 'dipartimento/i scaricato/i'
+    }[forme];
+  };
+  const jetons = t => (typeof jetonsIt === 'function' ? jetonsIt(t) : t);
+
+  const RE_ECRITS = /^([\s\S]+) — ⚠️ (\d+) écriture\(s\) déjà posée\(s\) : Ctrl\+Z pour les annuler avant d'enregistrer$/;
+  const ecritsIt = n => ' — ⚠️ ' + n + ' scrittura/e già applicata/e: Ctrl+Z per annullarle prima di salvare';
+  /** Un motif d'échec d'une correction, SEUL (sans le libellé du report ni le numéro). Ancrés. */
+  const MSG_CORR_IT = [
+    // --- verrou territorial ---
+    [/^territoire non pris en charge \((.+)\) : aucun référentiel de nommage ne le sert$/,
+      (t, p) => 'territorio non supportato (' + (p === 'inconnu' ? 'sconosciuto' : p) + '): nessun riferimento di denominazione lo copre'],
+    [/^territoire indéterminé : impossible de savoir quelles règles appliquer$/,
+      'territorio indeterminato: impossibile sapere quali regole applicare'],
+    [/^rien d'automatisable$/, 'niente di automatizzabile'],
+    // --- choix annulés ---
+    [/^choix du nom principal annulé$/, 'scelta del nome principale annullata'],
+    [/^choix de l'adresse annulé$/, 'scelta dell\'indirizzo annullata'],
+    [/^conversion annulée$/, 'conversione annullata'],
+    // --- POI : adresse ---
+    [/^la voie « (.+) » n'est pas chargée dans WME : l'État et le pays de l'adresse ne peuvent pas être lus — réessaie, la carte vient d'être cadrée$/,
+      'la strada « $1 » non è caricata in WME: lo Stato e il paese dell\'indirizzo non si possono leggere — riprova, la mappa è appena stata inquadrata'],
+    [/^contexte administratif introuvable \(État\/pays\) : zoome sur la zone puis réessaie$/,
+      'contesto amministrativo introvabile (Stato/paese): fai zoom sulla zona e riprova'],
+    [/^contexte administratif introuvable \(État\/pays\) sur le segment (\S+) : zoome sur la zone puis réessaie$/,
+      'contesto amministrativo introvabile (Stato/paese) sul segmento $1: fai zoom sulla zona e riprova'],
+    [/^adresse refusée par WME \(([\s\S]*)\)$/, 'indirizzo rifiutato da WME ($1)'],
+    [/^le n° (\S+) est une piste, pas une certitude : saisis-le à la main après vérification$/,
+      'il n° $1 è un indizio, non una certezza: inseriscilo a mano dopo averlo verificato'],
+    // --- conversion des numéros ---
+    [/^numéros non chargés par WME malgré le cadrage — réessaie après avoir zoomé sur la zone$/,
+      'numeri civici non caricati da WME nonostante l\'inquadratura — riprova dopo aver fatto zoom sulla zona'],
+    [/^aucun numéro converti$/, 'nessun numero civico convertito'],
+    [/^(\d+) numéro\(s\) non chargé\(s\) par WME, laissés de côté$/,
+      '$1 numero/i civico/i non caricato/i da WME, lasciato/i da parte'],
+    [/^nom de rue indéterminé$/, 'nome della via indeterminato'],
+    [/^commune indéterminable \(aucun contour chargé sous ce numéro et le segment n'en porte pas\) — charge le département voisin, ou choisis la commune à la main$/,
+      () => 'comune non determinabile (nessun confine caricato sotto questo numero, e il segmento non ne porta) — carica ' +
+        uniteIt('art_s') + ' confinante, o scegli il comune a mano'],
+    [/^POI non créé \(([\s\S]*)\)$/, 'POI non creato ($1)'],
+    [/^adresse du POI refusée \(([\s\S]*)\), POI retiré$/, 'indirizzo del POI rifiutato ($1), POI rimosso'],
+    [/^adresse du POI refusée \(([\s\S]*)\) — ⚠️ LE POI EST RESTÉ SANS ADRESSE, à supprimer à la main$/,
+      'indirizzo del POI rifiutato ($1) — ⚠️ IL POI È RIMASTO SENZA INDIRIZZO, da eliminare a mano'],
+    [/^point d'entrée non repris \(([\s\S]*)\) — à poser à la main sur le POI$/,
+      'punto di accesso non ripreso ($1) — da applicare a mano sul POI'],
+    [/^numéro non retirable, POI annulé \(([\s\S]*)\)$/, 'numero civico non rimovibile, POI annullato ($1)'],
+    [/^⚠️ ADRESSE EN DOUBLE — le POI a été créé mais ni le numéro ni le POI n'ont pu être retirés\. N'enregistre pas : annule dans WME \(Ctrl\+Z\) ou supprime le POI à la main\.$/,
+      '⚠️ INDIRIZZO DOPPIO — il POI è stato creato ma né il numero civico né il POI si sono potuti rimuovere. Non salvare: annulla in WME (Ctrl+Z) o elimina il POI a mano.'],
+    // --- segments ---
+    [/^segment\(s\) non chargé\(s\) par WME malgré le cadrage — réessaie$/,
+      'segmento/i non caricato/i da WME nonostante l\'inquadratura — riprova'],
+    [/^segment\(s\) verrouillé\(s\) au-dessus de ton niveau$/, 'segmento/i bloccato/i sopra il tuo livello'],
+    [/^cartouche : la rue n'est pas encore chargée — réessaie$/, 'scudetto: la via non è ancora caricata — riprova'],
+    [/^rue « (.+) » introuvable$/, 'via « $1 » introvabile'],
+    [/^cartouche de « (.+) » non reporté : pose-le à la main$/, 'scudetto di « $1 » non riportato: applicalo a mano'],
+    [/^commune « (.+) » absente de Waze : le script ne crée pas de commune\. Vérifie ou crée-la à la main, puis relance$/,
+      'comune « $1 » assente da Waze: lo script non crea comuni. Verifica o crealo a mano, poi rilancia'],
+    [/^ville vide introuvable dans la zone chargée : zoome puis réessaie$/,
+      'città vuota introvabile nella zona caricata: fai zoom e riprova'],
+    // --- bilan de la série ---
+    [/^corrigé en partie : (\d+) écart\(s\) restent à faire à la main$/,
+      'corretto in parte: $1 difformità restano da fare a mano'],
+    [/^série interrompue : (\d+) report\(s\) non traité\(s\)$/, 'serie interrotta: $1 segnalazione/i non trattata/e'],
+    // --- suffixes (récursifs) ---
+    [/^([\s\S]+) — rien n'a été écrit$/, (t, a) => {
+      const x = msgCorrIt(a);
+      return x ? x + ' — non è stato scritto nulla' : null;
+    }],
+    [RE_ECRITS, (t, a, n) => { const x = msgCorrIt(a); return x ? x + ecritsIt(n) : null; }]
+  ];
+  function msgCorrIt(m) {
+    for (const [re, rep] of MSG_CORR_IT) {
+      const r = m.match(re);
+      if (!r) continue;
+      const v = typeof rep === 'function' ? rep(...r) : m.replace(re, rep);
+      if (v != null) return v;
+    }
+    return null;
+  }
+  /** « 12 : POI non créé (…) » — un échec de conversion, précédé de SON numéro. */
+  function hnCorrIt(s) {
+    const r = s.match(/^(.+?) : ([\s\S]+)$/);
+    if (!r) return null;
+    const x = msgCorrIt(r[2]);
+    return x ? r[1] + ': ' + x : null;
+  }
+  /** Ce qui suit « libellé — » : un motif seul, ou l'avertissement d'une conversion (« · » puis « ; »). */
+  function restCorrIt(s) {
+    const direct = msgCorrIt(s) || hnCorrIt(s);
+    if (direct) return direct;
+    const out = [];
+    for (const p of s.split(' · ')) {
+      const x = msgCorrIt(p) || (() => {
+        const hs = p.split(' ; ').map(hnCorrIt);
+        return hs.every(Boolean) ? hs.join(' ; ') : null;
+      })();
+      if (!x) { out.length = 0; break; }
+      out.push(x);
+    }
+    if (out.length) return out.join(' · ');
+    // En dernier recours : une erreur BRUTE de WME (catch de la correction) suivie du rappel des
+    // écritures déjà posées. L'erreur reste telle quelle, le rappel est traduit.
+    const r = s.match(RE_ECRITS);
+    return r ? r[1] + ecritsIt(r[2]) : null;
+  }
+  /** Un échec entier : « Rue des Écoles — <motif> ». Le libellé peut lui-même contenir « — ». */
+  function echecCorrIt(e) {
+    const seul = msgCorrIt(e);
+    if (seul) return seul;
+    for (let i = e.indexOf(' — '); i > 0; i = e.indexOf(' — ', i + 1)) {
+      // ⚠️ Le libellé d'un report ne contient pas « ; » : sans ce garde, deux échecs collés se
+      //    liraient comme UN seul, au libellé absurde.
+      if (e.slice(0, i).includes(' ; ')) break;
+      const x = restCorrIt(e.slice(i + 3));
+      if (x) return jetons(e.slice(0, i)) + ' — ' + x;
+    }
+    return null;
+  }
+  /** La liste des échecs, jointe par « ; » — qui peut AUSSI séparer les numéros d'un seul échec. */
+  function listeEchecsIt(s) {
+    const parts = s.split(' ; ');
+    const out = [];
+    let vu = false;
+    for (let i = 0; i < parts.length;) {
+      let j = parts.length, t = null;
+      for (; j > i; j--) { t = echecCorrIt(parts.slice(i, j).join(' ; ')); if (t) break; }
+      if (t) { out.push(t); vu = true; i = j; } else { out.push(parts[i]); i++; }
+    }
+    return vu ? out.join(' ; ') : null;
+  }
+  /** Le sous-titre de la barre de progression d'une correction. */
+  const SOUS_CORR_IT = {
+    'chargement du segment…': 'caricamento del segmento…',
+    'interruption en cours…': 'interruzione in corso…'
+  };
+
   const MOTIFS = {
     it: [
+      // --- Relevé intégral du 30/09/2026 : EN TETE, comme au banc de chaque zone (les motifs
+      //     precis passent avant les motifs larges des reports, qui rendent le texte tel quel) ---
+      // --- messages d'erreur composés (sous-messages traduits à leur tour) ---
+      [/^aucune commune exploitable : (\d+) contour\(s\) sans (?:code|codice) (INSEE|ISTAT) valide$/,
+        'nessun comune utilizzabile: $1 confine/i senza codice $2 valido'],
+      [/^(\d+) règle\(s\) écartée\(s\), trop lente\(s\) — elles pourraient figer WME$/,
+        '$1 regola/e scartata/e perché troppo lenta/e — potrebbero bloccare WME'],
+      [/^([\s\S]+) — appel direct bloqué par WME ; installe le script dans Tampermonkey pour utiliser cette source$/,
+        (t, a) => (TEXTES.it[a] || traduireMotif(a) || a) +
+          ' — chiamata diretta bloccata da WME; installa lo script in Tampermonkey per usare questa fonte'],
+      [/^api\.wazefrance\.com : ([\s\S]+)$/,
+        (t, m) => 'api.wazefrance.com: ' + (TEXTES.it[m] || traduireMotif(m) || m)],
+      [/^rien de récupéré(?: — (\S+) \(([\s\S]+)\))?$/,
+        (t, c, m) => 'niente recuperato' + (c ? ' — ' + c + ' (' + (TEXTES.it[m] || traduireMotif(m) || m) + ')' : '')],
+      // « principal : appel refusé · public : HTTP 503 » — le détail du dictionnaire de rédaction
+      [/^(principal|public) : ([\s\S]+?)(?: · ((?:principal|public) : [\s\S]+|feuille principale absente : [\s\S]+))?$/,
+        (t, f, m, suite) => (f === 'principal' ? 'principale' : 'pubblico') + ': ' +
+          (TEXTES.it[m] || traduireMotif(m) || m) +
+          (suite ? ' · ' + (TEXTES.it[suite] || traduireMotif(suite) || suite) : '')],
+      // --- barre de progression : « libellé — sous-étape » (l. 1206) ---
+      [/^Lecture de (.+)$/, 'Lettura di $1'],
+      [/^Contours manquants — (.+)$/, 'Confini mancanti — $1'],
+      [/^département (\S+)$/, 'dipartimento $1'],
+      [/^province (\S+)$/, 'provincia $1'],
+      [/^(.+?) — interruption en cours…$/,
+        (t, a) => (TEXTES.it[a] || traduireMotif(a) || a) + ' — interruzione in corso…'],
+      // --- statut des contours (l. 2109, 2115) ---
+      [/^Fichier illisible : ([\s\S]+)$/,
+        (t, m) => 'File illeggibile: ' + (TEXTES.it[m] || traduireMotif(m) || m)],
+      [/^(\d+) commune\(s\) chargée\(s\) ; (?:(\d+) contour\(s\) écarté\(s\) faute de (?:code|codice) (INSEE|ISTAT) valide)?(, )?(?:(\d+) sans nom)?\.$/,
+        (t, n, sc, inst, virg, sn) => {
+          if (!sc && !sn) return null;
+          return n + ' comune/i caricato/i; ' +
+            (sc ? sc + ' confine/i scartato/i per mancanza di un codice ' + inst + ' valido' : '') +
+            (sc && sn ? ', ' : '') + (sn ? sn + ' senza nome' : '') + '.';
+        }],
+      // --- chargement manuel : « Échec : 30 (HTTP 404) ; 34 (aucun contour renvoyé) » (l. 15259) ---
+      [/^[EÉ]chec : ([\s\S]+)$/, (t, l) => 'Errore: ' + l.split(' ; ').map(x => {
+        const r = x.match(/^(\S+) \(([\s\S]+)\)$/);
+        return r ? r[1] + ' (' + (TEXTES.it[r[2]] || traduireMotif(r[2]) || r[2]) + ')' : x;
+      }).join('; ')],
+      // --- chargement automatique (l. 2827-2840) ---
+      [/^Contours de ([\s\S]+?) chargés automatiquement — <b>(\d+)<\/b> commune\(s\)\.$/,
+        'Confini di $1 caricati automaticamente — <b>$2</b> comune/i.'],
+      [/^Contours de ([\s\S]+?) chargés automatiquement —$/, 'Confini di $1 caricati automaticamente —'],
+      [/^commune\(s\)\.$/, 'comune/i.'],
+      [/^Contours de ([\s\S]+?) non chargés : ([\s\S]+)\. Nouvel essai dans une minute, au prochain déplacement de la carte — ou relance-le à la main ci-dessus\.$/,
+        (t, noms, e) => 'Confini di ' + noms + ' non caricati: ' + e.split(' ; ').map(x => {
+          const r = x.match(/^(\S+) \(([\s\S]+)\)$/);
+          return r ? r[1] + ' (' + (TEXTES.it[r[2]] || traduireMotif(r[2]) || r[2]) + ')' : x;
+        }).join('; ') + '. Nuovo tentativo tra un minuto, al prossimo spostamento della mappa — oppure rilancialo a mano qui sopra.'],
+      [/^Chargement automatique de ([\s\S]+?) impossible : ([\s\S]+)\. Tu peux le relancer à la main ci-dessus\.$/,
+        (t, noms, m) => 'Caricamento automatico di ' + noms + ' impossibile: ' +
+          (TEXTES.it[m] || traduireMotif(m) || m) + '. Puoi rilanciarlo a mano qui sopra.'],
+      [/^<b>Chargement automatique indisponible\.<\/b> ([\s\S]*)<br>Charge les contours à la main \(sélecteur de départements ci-dessus\), ou décoche l'option dans les réglages\.$/,
+        (t, m) => '<b>Caricamento automatico non disponibile.</b> ' + (TEXTES.it[m] || traduireMotif(m) || m) +
+          '<br>Carica i confini a mano (con il selettore qui sopra), oppure deseleziona l\'opzione nelle impostazioni.'],
+      // --- panneaux : « ⚠ <message> » (l. 4318) ---
+      [/^⚠ (aucune source de panneaux dans ce pays|api\.wazefrance\.com : [\s\S]+)$/,
+        (t, m) => '⚠ ' + (TEXTES.it[m] || traduireMotif(m) || m)],
+      // --- dictionnaire de rédaction : blocs (l. 2241-2248) ---
+      [/^⚠️ Dictionnaire de rédaction <b>non chargé<\/b> — le contrôle est coché mais ne peut rien signaler(?: \(([\s\S]+)\))?\.$/,
+        (t, d) => '⚠️ Dizionario di redazione <b>non caricato</b> — il controllo è selezionato ma non può segnalare nulla' +
+          (d ? ' (' + (TEXTES.it[d] || traduireMotif(d) || d) + ')' : '') + '.'],
+      [/^— le contrôle est coché mais ne peut rien signaler(?: \(([\s\S]+)\))?\.$/,
+        (t, d) => '— il controllo è selezionato ma non può segnalare nulla' +
+          (d ? ' (' + (TEXTES.it[d] || traduireMotif(d) || d) + ')' : '') + '.'],
+      [/^🏷️ (\d+) règle\(s\) de rédaction chargée\(s\)(?: — <b>une seule feuille sur deux<\/b>(?: \(([\s\S]+)\))?)?\. Source : dictionnaire communautaire FR de <b>WME Check Road Name<\/b> \(buchet37\)\.$/,
+        (t, n, d) => '🏷️ ' + n + ' regola/e di redazione caricata/e' +
+          (/une seule feuille/.test(t) ? ' — <b>un solo foglio su due</b>' +
+            (d ? ' (' + (TEXTES.it[d] || traduireMotif(d) || d) + ')' : '') : '') +
+          '. Fonte: dizionario della comunità FR di <b>WME Check Road Name</b> (buchet37).'],
+      [/^🏷️ (\d+) règle\(s\) de rédaction chargée\(s\)( —)?$/, '🏷️ $1 regola/e di redazione caricata/e$2'],
+      [/^(?:\(([\s\S]+)\))?\. Source : dictionnaire communautaire FR de$/,
+        (t, d) => (d ? '(' + (TEXTES.it[d] || traduireMotif(d) || d) + ')' : '') + '. Fonte: dizionario della comunità FR di'],
+      [/^🏷️ (\d+) règle\(s\) de rédaction chargée\(s\)\. Source : dictionnaire communautaire FR de$/,
+        '🏷️ $1 regola/e di redazione caricata/e. Fonte: dizionario della comunità FR di'],
+      // --- infobulle du bouton « Télécharger et charger » (l. 15202, qui porte l'aide de la l. 2278) ---
+      [/^Télécharge les contours des (départements|provinces|dipartimenti|province) coché(?:e)?s et les AJOUTE à ta base, sans effacer les autres\. ([\s\S]+)$/,
+        (t, u, aide) => 'Scarica i confini ' + (/^prov/.test(u) ? 'delle province selezionate' : 'dei dipartimenti selezionati') +
+          ' e li AGGIUNGE al tuo archivio, senza cancellare gli altri. ' + (TEXTES.it[aide] || aide)],
+      // Infobulle d'un report : essayée en BLOC (la div porte un <b>), le nombre varie.
+      [/^<b>(\d+) segments<\/b> dans la même situation$/, '<b>$1 segmenti</b> nella stessa situazione'],
+      // Infobulle du filtre (15191) : l'unité arrive déjà traduite par tr().
+      [/^Filtre la liste par numéro ou par nom de (.+)$/,
+        (t, u) => 'Filtra l\'elenco per numero o per nome di ' + (u === 'département' ? 'dipartimento' : u)],
+      // Une faute d'écriture italienne sans proposition : « : avant → message ».
+      [/^: (.+) → les (sigles|dates) s'écrivent (sans espace \(« SS12 », pas « SS 12 »\)|en chiffres arabes \(« Via 4 Novembre »\))$/,
+        (t, avant, k) => ': ' + avant + ' → ' + (k === 'sigles'
+          ? 'le sigle si scrivono senza spazio (« SS12 », non « SS 12 »)'
+          : 'le date si scrivono in cifre arabe (« Via 4 Novembre »)')],
+      // Barre de progression : « libellé — sous-libellé » tient dans UN nœud (textContent).
+      [/^(.+) — (cadrage sur l'écart…|chargement des numéros de rue…)$/, (t, l, s) => {
+        const lt = LIB_BARRE_IT[l];
+        return lt ? lt + ' — ' + (s === 'cadrage sur l\'écart…' ? 'inquadratura sulla difformità…' : 'caricamento dei numeri civici…') : null;
+      }],
+      // « Lecture de <commune> » / « Lecture de <fichier> » (2089, 11409), forme élidée comprise (voir fautesFr).
+      // ⚠️ « Lecture des numéros… » est exclu : il a ses propres clés.
+      [/^Lecture (de |d'|du |des )(?!numéros)(.+)$/, (t, art, q) => 'Lettura ' + deIt(art, q)],
+      [/^Balayage (de |d'|du |des )(.+)$/, (t, art, q) => 'Scansione ' + deIt(art, q)],
+      // Bandeau « lecture directe indisponible » (16612) : le motif est le message d'une Error.
+      // ⚠️ AVANT le motif générique « Motif : (.+) », qui laisse le message en français.
+      [/^Motif : (chemin de l'API introuvable \(W\.Config\.paths\.features\)|HTTP (\d+)|r[ée]ponse inattendue)$/,
+        (t, m, http) => 'Motivo: ' + (http ? 'HTTP ' + http
+          : /^chemin/.test(m) ? 'percorso dell\'API introvabile (W.Config.paths.features)' : 'risposta inattesa')],
+      // Error de resoudreStreet (11683-11687), seule ou reprise dans le bandeau d'échecs (15968).
+      [/^(?:Errori \((\d+)\): (.+?) — )?(?:commune « (.+) » absente de Waze : le script ne crée pas de commune\. Vérifie ou crée-la à la main, puis relance\.|ville « (.+) » introuvable)(?: — ⚠️ (\d+) écriture\(s\) déjà posée\(s\) : Ctrl\+Z pour les annuler avant d'enregistrer)?$/,
+        (t, n, lib, commune, ville, ecr) => (n ? 'Errori (' + n + '): ' + lib + ' — ' : '') +
+          (commune != null
+            ? 'comune « ' + commune + ' » assente da Waze: lo script non crea comuni. Verifica o crealo a mano, poi rilancia.'
+            : 'città « ' + (ville === 'sans ville' ? 'senza città' : ville) + ' » introvabile') +
+          (ecr ? ' — ⚠️ ' + ecr + ' scrittura/e già applicata/e: Ctrl+Z per annullarle prima di salvare' : '')],
+      // --- progression d'une correction : « Correction — <libellé ou étape> » ---
+      [/^Correction — ([\s\S]+)$/, (t, s) => 'Correzione — ' + (SOUS_CORR_IT[s] || jetons(s))],
+      // --- bandeau : « Errori (n): » (déjà traduit par trf) suivi des échecs, en français ---
+      [/^Errori \((\d+)\): ([\s\S]+?)( …)?$/, (t, n, l, fin) => {
+        const x = listeEchecsIt(l);
+        return x ? 'Errori (' + n + '): ' + x + (fin || '') : null;
+      }],
+      // --- bloc critique : un échec par ligne, « libellé — motif » ---
+      [/^(?=[\s\S]* — )[\s\S]+$/, t => echecCorrIt(t)],
+      // --- boîtes de choix : blocs d'une ligne (div.agn-d) ---
+      [/^Le choix s'applique aux <b>(\d+)<\/b> segments de ce report\.$/,
+        'La scelta si applica ai <b>$1</b> segmenti di questa segnalazione.'],
+      [/^La commune appliquée sera <b>(.+)<\/b> \(contour (INSEE|ISTAT)\)(?:, et le n° (\S+) reste à saisir à la main après vérification)?\.$/,
+        (t, c, i, n) => 'Il comune applicato sarà <b>' + c + '</b> (confini ' + i + ')' +
+          (n ? ', e il n° ' + n + ' resta da inserire a mano dopo averlo verificato.' : '.')],
+      [/^(.+) — <b>selon la position<\/b> de chaque numéro$/, '$1 — <b>secondo la posizione</b> di ogni numero civico'],
+      [/^— (\d+) m · numéro de route$/, '— $1 m · numero di strada'],
+      // --- analyse : erreurs brutes précédées d'un libellé ---
+      [/^Analyse impossible : ([\s\S]+)$/, 'Analisi impossibile: $1'],
+      [/^Audit des POI : ([\s\S]+)$/, 'Controllo dei POI: $1'],
+      [/^Lecture des numéros : ([\s\S]+)$/, 'Lettura dei numeri civici: $1'],
+      // --- sélection par ville ---
+      [/^Aucun segment (avec la ville|sans ville) en principal dans (.+), sur les (\d+) de la vue\.$/,
+        (t, q, c, n) => 'Nessun segmento ' + (q === 'avec la ville' ? 'con la città' : 'senza città') +
+          ' come principale a ' + c + ', sui ' + n + ' della vista.'],
+      [/^segment\(s\) (avec la ville|sans ville) en principal, sur les (\d+) de la vue(?: · (\d+) écarté\(s\), hors de la commune)?\.$/,
+        (t, q, n, h) => 'segmento/i ' + (q === 'avec la ville' ? 'con la città' : 'senza città') +
+          ' come principale, sui ' + n + ' della vista' + (h ? ' · ' + h + ' escluso/i, fuori dal comune' : '') + '.'],
+      [/^WME ne descend les segments que par vue, et lâche ceux qui en sortent : la sélection ne peut porter que sur ce qui est affiché\. Un zoom plus large \(jusqu'à (\d+), où WME charge encore tout\) en prend davantage ; au-delà, déplace la carte et reclique — secteur par secteur\.$/,
+        'WME scarica i segmenti solo vista per vista, e abbandona quelli che ne escono: la selezione può riguardare solo ciò che è visualizzato. Uno zoom più ampio (fino a $1, dove WME carica ancora tutto) ne prende di più; oltre, sposta la mappa e riclicca — settore per settore.'],
+      // --- gestionnaire des contours (« département » : dipartimento en France, provincia en Italie) ---
+      [/^Aucun contour chargé\. (Déplace-toi sur ta zone : le département se télécharge tout seul|Coche un département ci-dessus, ou charge un fichier GeoJSON)\.$/,
+        (t, q) => 'Nessun confine caricato. ' + (/^Déplace/.test(q)
+          ? 'Spostati sulla tua zona: ' + uniteIt('art_s') + ' si scarica automaticamente.'
+          : 'Spunta ' + uniteIt('un') + ' qui sopra, o carica un file GeoJSON.')],
+      [/^Ce département est gardé : (commune en cours|sous les yeux)\.$/,
+        (t, r) => (enItalie() ? 'Questa provincia è tenuta' : 'Questo dipartimento è tenuto') + ': ' +
+          (r === 'commune en cours' ? 'comune attuale.' : 'sotto i tuoi occhi.')],
+      [/^Retirer (.+) de la mémoire\. Il se rechargera tout seul si tu y reviens\.$/,
+        'Togli $1 dalla memoria. Si ricaricherà automaticamente se ci torni.'],
+      [/^de contours en mémoire, rechargés à chaque démarrage\. Retire les départements sur lesquels tu ne travailles plus — ils se rechargent tout seuls si tu y reviens\.$/,
+        () => 'di confini in memoria, ricaricati a ogni avvio. Togli ' + uniteIt('art_p') +
+          ' su cui non lavori più — si ricaricano automaticamente se ci torni.'],
+      // Bloc entier de la purge (div.agn-stat.agn-info) : seul moyen d'ôter l'espace avant « : ».
+      [/^🧹 <b>(\d+)<\/b> département\(s\) déchargé\(s\) \((.*?)\) — (.+?) libérés\. <b>Rien n'est perdu<\/b> : ils se rechargent tout seuls si tu y reviens, et tes agglomérations tracées n'ont pas bougé\.$/,
+        (t, n, l, p) => '🧹 <b>' + n + '</b> ' + uniteIt('scarico') + ' (' + l + ') — ' + p + ' liberati. ' +
+          '<b>Non si perde nulla</b>: si ricaricano da soli se ci torni, e i centri abitati che hai tracciato non sono cambiati.'],
+      [/^département\(s\) déchargé\(s\) \((.*?)\) — (.+?) libérés\.$/,
+        (t, l, p) => uniteIt('scarico') + ' (' + l + ') — ' + p + ' liberati.'],
+      [/^commune\(s\) en base — (\d+) département\(s\),$/,
+        (t, n) => 'comune/i in archivio — ' + n + ' ' + uniteIt('sp') + ','],
       // --- volet -------------------------------------------------------------
       [/^(\d+) commune\(s\) dans la vue sur (\d+)$/, '$1 comune/i nella vista su $2'],
       [/^⚠ (\d+) \/ (\d+) sélectionnés? — dézoome d'un cran, puis reclique sur la ligne$/,
@@ -7450,9 +7945,9 @@
       [/^Aucun numéro à moins de (\d+) m sur cette voie : à saisir à la main\.$/,
         'Nessun numero a meno di $1 m su questa strada: da inserire a mano.'],
       [/^La commune appliquée est celle du contour (INSEE|ISTAT) \((.+)\), pas celle du segment\.$/,
-        'Il comune applicato è quello del contorno $1 ($2), non quello del segmento.'],
+        'Il comune applicato è quello dei confini $1 ($2), non quello del segmento.'],
       [/^⚡ ouvre la liste des noms relevés autour du lieu — le plus probable en tête, les numéros de route ensuite, et une saisie libre\. La commune appliquée sera celle du contour (INSEE|ISTAT) \((.+)\)\.$/,
-        '⚡ apre l\'elenco dei nomi rilevati intorno al luogo — il più probabile in testa, poi i numeri di strada, e un inserimento libero. Il comune applicato sarà quello del contorno $1 ($2).'],
+        '⚡ apre l\'elenco dei nomi rilevati intorno al luogo — il più probabile in testa, poi i numeri di strada, e un inserimento libero. Il comune applicato sarà quello dei confini $1 ($2).'],
       [/^(.+) \(constaté sur : (.+)\)\.$/, (t, r, s) => {
         const m = RAISONS_RPP_IT.find(([re]) => re.test(r));
         return m && SOURCES_POSITION_IT[s] ? r.replace(m[0], m[1]) + ' (constatato su: ' + SOURCES_POSITION_IT[s] + ').' : null;
@@ -7476,7 +7971,12 @@
       [/^(?=[\s\S]*‹sans )[\s\S]+$/, t => jetonsIt(t)],
       // ⚠️ EN DERNIER : il reconnait toute suite « N … · N … » du bilan, et rend
       //    `null` des qu'un morceau lui est inconnu.
-      [/^(?:·\s)?\d+ [\s\S]*$/, t => bilanIt(t)]
+      [/^(?:·\s)?\d+ [\s\S]*$/, t => bilanIt(t)],
+      // ⚠️ À placer VERS LA FIN des motifs : ne répond que si les DEUX moitiés se traduisent.
+      [/^(.+?) — (.+)$/, (t, a, b) => {
+        const h = TEXTES.it[a] || traduireMotif(a), q = TEXTES.it[b] || traduireMotif(b);
+        return h && q ? h + ' — ' + q : null;
+      }]
     ]
   };
 
@@ -7564,7 +8064,12 @@
     if (!m || !texte) return null;
     for (const [re, rep] of m) {
       const r = texte.match(re);
-      if (r) return typeof rep === 'function' ? rep(...r) : texte.replace(re, rep);
+      if (!r) continue;
+      // ⚠️ Un motif-fonction peut RENONCER (`null`) : on passe alors au suivant, au lieu de
+      //    rendre le texte non traduit — sinon un motif large (bilan, jetons) masquerait ceux
+      //    qui le suivent (v2.50.10).
+      const v = typeof rep === 'function' ? rep(...r) : texte.replace(re, rep);
+      if (v != null) return v;
     }
     return null;
   }
@@ -7572,7 +8077,8 @@
   // ⚠️ Les attributs qui S'AFFICHENT. `alt` et `aria-label` n'existent pas dans
   //    cette interface, mais les ajouter ici ne coute rien le jour ou ils
   //    arrivent — alors qu'un attribut oublie ne se voit jamais.
-  const ATTRS_VISIBLES = ['title', 'placeholder', 'aria-label', 'alt'];
+  // ⚠️ v2.50.10 : `label` aussi — les groupes `<optgroup label>` de la liste des communes restaient en français.
+  const ATTRS_VISIBLES = ['title', 'placeholder', 'aria-label', 'alt', 'label'];
 
   /**
    * TRADUIRE A LA SORTIE — le choix d'architecture du 09/09.
@@ -7694,7 +8200,14 @@
       // marque, chaque bloc traduit repartirait pour un tour, et un
       // dictionnaire ou une traduction serait elle-meme une cle tournerait
       // indefiniment dans le navigateur de l'editeur.
-      if (n.getAttribute && n.getAttribute('data-agn-tr')) return;
+      // ⚠️ v2.50.10 : la marque ne vaut que pour le contenu qu'ELLE a ecrit (`__agnTr`). Un element
+      //    persistant que le script REECRIT ensuite (`#agn-r-dico`, bandeaux) restait verrouille et
+      //    ne se traduisait plus qu'en fragments. Contenu intact ⇒ on ne repasse pas (pas de boucle) ;
+      //    contenu change ⇒ on leve la marque et on retraduit.
+      if (n.getAttribute && n.getAttribute('data-agn-tr')) {
+        if (n.__agnTr === undefined || n.__agnTr === n.innerHTML) return;
+        n.removeAttribute('data-agn-tr');
+      }
 
       // ⭐⭐⭐⭐ LE BLOC AVANT LE FRAGMENT (v2.43). Dans l'aide, une phrase est
       // COUPEE par ses `<b>` : « Un numéro de route (», « Dxxx », «) doit
@@ -7722,6 +8235,8 @@
           //    avant que la ligne suivante ne s'execute.
           if (n.setAttribute) n.setAttribute('data-agn-tr', '1');
           n.innerHTML = blocTrad;
+          // Relu APRES l'ecriture : c'est la forme que le navigateur rendra a la prochaine lecture.
+          n.__agnTr = n.innerHTML;
           return;
         }
       }
@@ -7772,6 +8287,14 @@
           if (lot.type === 'attributes') {
             if (LANGUE === 'fr') typographierAttribut(lot.target, lot.attributeName);
             else traduireAttribut(lot.target, lot.attributeName);
+            continue;
+          }
+          // Un element traduit EN BLOC dont le script vient de reecrire le contenu : on le reprend
+          // en entier (voir la marque `data-agn-tr` dans `traduireDOM`), pas seulement ses enfants.
+          const cible = lot.target;
+          if (LANGUE !== 'fr' && cible && cible.getAttribute && cible.getAttribute('data-agn-tr') &&
+              cible.__agnTr !== undefined && cible.__agnTr !== cible.innerHTML) {
+            traduireDOM(cible);
             continue;
           }
           for (const n of lot.addedNodes) traduireDOM(n);
@@ -8357,6 +8880,7 @@
       formesInterdites: [
         {
           cle: 'sigleEspace',
+          libelle: 'sigle avec un espace',
           re: RE_SIGLE_ESPACE_IT,
           message: 'les sigles s\'écrivent sans espace (« SS12 », pas « SS 12 »)',
           // Reecriture MECANIQUE : on retire l'espace, rien d'autre.
@@ -8364,6 +8888,7 @@
         },
         {
           cle: 'dateRomaine',
+          libelle: 'date en chiffres romains',
           re: DATE_ROMAINE_IT,
           message: 'les dates s\'écrivent en chiffres arabes (« Via 4 Novembre »)',
           // ⚠️ Le mois est REPRIS TEL QUEL : sa casse appartient au nom, ce
@@ -8463,7 +8988,7 @@
       // ⚠️ Elle est redigee en FRANCAIS parce que le francais est la CLE de
       //    traduction de tout le script : c'est le dictionnaire qui la rend en
       //    italien. Le contenu suit le pays REGARDE, la langue suit l'editeur.
-      aideReglesTitre: '📖 Le regole ufficiali italiane',
+      aideReglesTitre: '📖 Les règles officielles italiennes',
       aideRegles: () => `
         <div class="agn-aide-src">📖 <b>Les sources, et elles font foi :</b>
           <a href="https://www.waze.com/discuss/t/denominazione-delle-strade/376292"
@@ -10617,7 +11142,7 @@
     const res = await fetch(chemin + '?' + p.toString(), { credentials: 'same-origin' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const j = await res.json();
-    if (!j || !j.segments || !j.segments.objects) throw new Error('reponse inattendue');
+    if (!j || !j.segments || !j.segments.objects) throw new Error('réponse inattendue');
     return adapterReponseApi(j);
   }
 
@@ -10811,7 +11336,7 @@
         Sans polygone, toute la commune serait tenue pour hors agglomération et
         l'analyse remonterait des écarts qui n'existent pas.<br>
         Trace l'agglomération (bouton ci-dessus), ou coche
-        <b>« commune sans agglomération »</b> si elle n'en a réellement aucune.</div>`;
+        <b>« cette commune n'a aucune agglomération »</b> si elle n'en a réellement aucune.</div>`;
       ui.results.innerHTML = '';
       replierSection('agglo', true);
       return;
@@ -11401,7 +11926,7 @@
     sourceDonnees = { mode: null, raison: null };
     let donneesApi = null;
     try {
-      prog.etape('Lecture de ' + communeActive.nom, 0);      // duree inconnue : barre glissante
+      prog.etape('Lecture ' + deLieu(communeActive.nom), 0);      // duree inconnue : barre glissante
       donneesApi = await chargerParApi(communeActive.bbox);
       sourceDonnees = { mode: 'api', raison: null };
     } catch (e) {
@@ -11461,9 +11986,9 @@
     // ⚠️ Le balayage DEPLACE la carte : quoi qu'il arrive — fin normale, echec
     // ou annulation — l'editeur doit retrouver sa vue. D'ou le `finally`.
     vueARendre = vueInitiale;
-    prog.etape('Preparation du balayage', 0);
+    prog.etape('Préparation du balayage', 0);
     const cellules = await preparerBalayage();
-    prog.etape('Balayage de ' + communeActive.nom, cellules.length);
+    prog.etape('Balayage ' + deLieu(communeActive.nom), cellules.length);
     prog.info('La carte se déplace le temps du balayage, puis revient à sa vue.');
     let n = 0;
     for (const cel of cellules) {
@@ -12345,7 +12870,7 @@
     for (const op of plan) {
       if (op.type !== 'principal' || !op.candidats) continue;
       const choix = await demanderNomPrincipal(f, op);
-      if (!choix) return { ok: false, motif: 'choix du nom principal annule' };
+      if (!choix) return { ok: false, motif: 'choix du nom principal annulé' };
       op.nom = choix.nom;
       if (choix.ville != null) op.ville = choix.ville;
     }
@@ -12403,7 +12928,7 @@
       const dispo = await chargerNumeros(f);
       if (!dispo) {
         return { ok: false, motif: 'numéros non chargés par WME malgré le cadrage — ' +
-          'réessaie après avoir zoome sur la zone' };
+          'réessaie après avoir zoomé sur la zone' };
       }
       // Adresse ambigue (limite communale, ou plusieurs noms de rue) : on
       // demande, on ne choisit pas a la place de l'editeur.
@@ -12457,7 +12982,7 @@
     if (!ids.length) {
       return { ok: false, motif: absents.length
         ? 'segment(s) non chargé(s) par WME malgré le cadrage — réessaie'
-        : 'segment(s) verrouille(s) au-dessus de ton niveau' };
+        : 'segment(s) verrouillé(s) au-dessus de ton niveau' };
     }
     const bloques = tous.length - ids.length;
     // ⚠️⚠️ AUDIT DU 25/09/2026 (A5, C1, A8, A10) : TOUT CE QUI PEUT ECHOUER SE VERIFIE AVANT LA
@@ -15195,7 +15720,7 @@
       //    geo.api.gouv.fr » — faux en Italie, qui répond sans réseau.
       if (ui.optAutoDep && sc.aideAuto) ui.optAutoDep.title = tr(sc.aideAuto);
       go.title = 'Télécharge les contours des ' + tr(sc.unitesLabel) +
-        ' cochées et les AJOUTE à ta base, sans effacer les autres. ' + tr(sc.aide);
+        (/^province/.test(sc.unitesLabel) ? ' cochées' : ' cochés') + ' et les AJOUTE à ta base, sans effacer les autres. ' + tr(sc.aide);
       // ⚠️ On VIDE la selection : des codes de departements francais n'ont
       //    aucun sens face a une liste de provinces italiennes, et les laisser
       //    lancerait un telechargement de fichiers inexistants.
@@ -15252,7 +15777,7 @@
         const r = await chargerDepuisGouv(codes, prog);
         prog.fin();
         if (r.echecs.length) ui.statutContours.innerHTML +=
-          '<div class="agn-stat agn-alerte">Echec : ' + esc(r.echecs.join(' ; ')) + '</div>';
+          '<div class="agn-stat agn-alerte">Échec : ' + esc(r.echecs.join(' ; ')) + '</div>';
       } catch (e) {
         prog.fin();
         // Une interruption voulue n'est pas un echec : on ne la peint pas en orange.
@@ -15595,7 +16120,7 @@
       const node = el(`
         <div class="agn-poly">
           <input type="text" class="agn-label" list="agn-villes-wme"
-                 title="Choisis dans les villes que WME connait, ou saisis librement."
+                 title="Choisis dans les villes que WME connaît, ou saisis librement."
                  placeholder="Étiquette (repérage seul)" value="${esc(a.label)}">
           <div class="agn-row">
             <label title="Le nom appliqué devient « Village (Commune) » au lieu du seul nom de la commune ${instituts()}. Le village est lu sur la City du segment."><input type="checkbox" class="agn-ratt" ${a.rattache ? 'checked' : ''}> village rattaché</label>
@@ -15920,7 +16445,7 @@
       // rien » d'une conversion tient a l'interieur d'`appliquerCorrection`).
       if (!(e && e.annulation)) { prog.fin(); throw e; }
       interrompu = true;
-      echecs.push('série interrompue : ' + (liste.length - traites) + ' report(s) non traite(s)');
+      echecs.push('série interrompue : ' + (liste.length - traites) + ' report(s) non traité(s)');
     }
     prog.fin();
     redrawEcarts(null);

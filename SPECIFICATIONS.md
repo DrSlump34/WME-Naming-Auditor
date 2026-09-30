@@ -639,7 +639,7 @@ doit le faire échouer.
 | Données et persistance | `test-chargement.js`, `test-fusion-prefs.js`, `test-purge-contours.js`, `test-ville-sans-polygone.js` |
 | Interface | `test-ui-sections.js`, `test-bandeau-erreur.js`, `test-guidage.js`, `check-accents-visibles.js` |
 | Territoire et mise à jour | `test-territoire.js`, `test-maj.js`, `test-pastille-maj.js` |
-| Italie et traduction | `test-italie.js`, `test-i18n.js`, `test-traduire-dom.js`, `test-italien-interface.js`, `test-zone-trace-it.js`, `test-reports-it.js` (reports, bilans, bandeaux) ; mesures : `couverture-i18n.js` (aide), `couverture-interface.js` (onglet, boîtes, volet) |
+| Italie et traduction | `test-italie.js`, `test-i18n.js`, `test-traduire-dom.js`, `test-italien-interface.js`, `test-zone-trace-it.js`, `test-reports-it.js` (reports, bilans, bandeaux), `test-interface-it.js` (relevé intégral du source) ; mesures : `couverture-i18n.js` (aide), `couverture-interface.js` (onglet, boîtes, volet) |
 | Écriture (audit 25/09) | `test-ecriture-preparee.js`, `test-lot-doute.js`, `test-coche-correction.js`, `test-composite-seul.js`, `test-autoroute-type.js`, `test-village-rattache.js`, `test-suppression-polygone.js` |
 | Charte et fenêtre | `test-fenetre-bornee.js`, `test-clavier-boites.js`, `test-voisines-perf.js` (plafond de temps) |
 
@@ -695,15 +695,24 @@ Points de méthode acquis :
 
 - **L'Italie est en phase de test.** Les traductions italiennes (interface et aide) restent à faire
   **relire par Silvio**.
-- **Reports en italien (v2.50.10)** : jusqu'à la 2.50.09, le contenu des reports n'était pas traduit du
-  tout — 46 nœuds sur 47 en français sur l'onglet Segments, 99 sur 127 sur les onglets POI et
-  Numérotation, les bandeaux sous le bilan et la barre de navigation. Les trois onglets sont couverts en
-  2.50.10 (`TYPES_VOIE_IT`, `valeurEcartIt`, `notesReportIt`, `bilanIt`, `aidePoiIt`, `RAISONS_RPP_IT`),
-  éprouvés par `test-reports-it.js` (188 nœuds). ⏳ Non relevés : les boîtes de dialogue (choix
-  d'adresse, de nom) et les messages de correction. ⚠️ Libellés de WME **cités en français**
-  (« Ajouter des numéros de rue », « Allumez vos feux ») : leur forme italienne n'a pas été relevée, la
-  traduction les décrit sans les citer. Libellés de type de voie descriptifs, **non relevés dans WME
-  en italien** — à faire relire par Silvio.
+- **Italien : relevé INTÉGRAL (v2.50.10, 30/09/2026).** Jusqu'à la 2.50.09, l'italien avait été complété
+  par zones, et le reste sortait en français (reports : 145 nœuds sur 174 ; puis barres de progression,
+  contours, boîtes de choix, corrections, bandeaux…). `tools/releve-textes.js` lit **tout le source**
+  (découpeur JS validé contre acorn : 0 chaîne ratée sur 4 759), extrait le texte visible (entre balises,
+  `title`/`placeholder`/`aria-label`/`label`) et le confronte au dictionnaire et aux motifs.
+  `tools/test-interface-it.js` en fait un **garde-fou** : un texte français affichable, ni traduit ni
+  trié dans `tools/fixtures/releve-textes-tri.json`, fait échouer le banc (vérifié par mutation) ; les
+  330 nœuds recomposés lors du relevé (`noeuds-interface-it-2026-09-30.json`) doivent ressortir en italien.
+  Mécanisme corrigé au passage : `traduireMotif` passe au motif suivant quand un motif renonce ; un
+  élément traduit EN BLOC puis réécrit par le script est retraduit (empreinte `__agnTr`, l'observateur
+  reprend la cible) ; `label` (groupes de la liste des communes) est traduit ; les poignées de sommets
+  (`#agn-poignees`, hors fenêtre) aussi.
+  ⏳ **Restent, et c'est dit** : relecture par Silvio (types de voie, formulations) ; les libellés de
+  **WME** cités en français (« Ajouter des numéros de rue », « Allumez vos feux », « a un numéro de rue
+  invalide ») ne sont pas repris en italien faute de relevé dans WME italien — la traduction décrit
+  sans citer ; `RE_REFUS_HN` ne reconnaît le refus de WME qu'en français et en anglais ; les erreurs
+  brutes du navigateur ou de WME (« Failed to fetch », `e.message`) restent telles quelles ; dans les
+  boîtes de choix, « … au numéro <b>12</b> ? » garde une espace avant « ? » en italien.
 - **Mineurs de l'audit du 25/09/2026** : tous traités en 2.50.06. Restent la relecture italienne par Silvio et la correction de `anonymous` dans `WMEPrefs` (bibliothèque d'origine).
 - **La couverture EB10 varie du simple au triple selon le département** (§ 13.1) — c'est mesuré,
   et c'est l'interface qui porte le guidage en conséquence.
