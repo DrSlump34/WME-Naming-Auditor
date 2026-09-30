@@ -182,7 +182,8 @@ for (const n of ['Domaine de Cazaux', 'Camp Redon', 'Route Nationale', 'Chemin N
 // les segments en agglomeration : c'est le SEUL garde-fou, puisque
 // `cartouchesPrincipal()` proposerait sinon exactement ce que la regle interdit.
 console.log('\n=== La règle officielle : rien en agglomération ===\n');
-const appel = src.match(/if \(!enAgglo\) collecterCartouche\(seg, nam, base\);/);
+// v2.50.10 : la condition exclut aussi les voies sans panneau en zone grise, qui n'ont pas de cote.
+const appel = src.match(/if \(!enAgglo && !zon\.sansPanneau\) collecterCartouche\(seg, nam, base\);/);
 verifier('23. le recensement est conditionné à « hors agglomération »', !!appel, true);
 // Verrou de non-regression : que l'ancien appel inconditionnel ne revienne pas.
 const inconditionnel = /\n\s*collecterCartouche\(seg, nam, base\);/.test(src);

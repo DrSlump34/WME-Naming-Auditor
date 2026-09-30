@@ -235,9 +235,15 @@ segment est signalé **à couper**, puisque le bon nommage dépend de l'endroit 
 3. l'**autoroute**, qui ne porte aucune ville quelle que soit la zone ;
 4. (v2.50.09, limite d'**agglomération** seulement) la voie **sans panneau EB10** — sentier (5),
    chemin de terre (8), chemin piétonnier (10), escalier (16), voie privée (17), parking (20) :
-   la « limite » n'y est que le tracé du polygone. Elle suit le **côté majoritaire** (≥ 50 % ⇒
-   agglo), puis son nommage est audité normalement (`zonageAgglo`, `ROADTYPE_SANS_PANNEAU_EB10`).
-   Remontée d'onryou, règle de l'auteur du 29/09/2026.
+   la « limite » n'y est que le tracé du polygone. Remontée d'onryou, règle de l'auteur du
+   29/09/2026 (`zonageAgglo`, `ROADTYPE_SANS_PANNEAU_EB10`).
+   **v2.50.10 (auteur, 30/09/2026)** : en zone grise, **la ville est laissée à l'éditeur** — ni
+   ajoutée ni retirée. Le nommage attendu est calculé des deux côtés et seuls les écarts **communs**
+   sont gardés (`ecartsCommuns`) ; le ⚡ n'écrivant que ce que portent les écarts, il ne peut plus
+   toucher à la ville. Le wiki (`375658`, chemins piétons) dit « en ville si le chemin ne dépasse
+   pas trop du calque » : un jugement, pas un seuil. Le côté majoritaire (≥ 50 %) ne sert plus
+   qu'aux notes, aux comptes et à la cible. Témoin : chemin de terre #440224630 (onryou), à qui la
+   2.50.09 proposait « ‹sans nom› / Ancey ».
 
 **Le bilan les compte à part plutôt que de les taire.**
 

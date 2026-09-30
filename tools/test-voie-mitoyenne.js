@@ -230,7 +230,8 @@ console.log('\n=== Voie qui longe la limite : l\'adresse d\'en face est conserve
 // 5. VERROUS DE CONTRAT — la geometrie tranche, pas le nom
 // ---------------------------------------------------------------------------
 verifier('19. ⚠️⚠️ la conservation est CONDITIONNEE a « longe la limite »',
-  /if \(longeLaLimite\) \{[\s\S]{0,600}?conserverAdressesVoisines\(nam, exp, etrangeres\)/.test(src), true);
+  // v2.50.10 : la cible se calcule par cote (`cibleDuCote`), la condition y est portee.
+  /return longeLaLimite \? conserverAdressesVoisines\(nam, e, etrangeres\) : e;/.test(src), true);
 // ⚠️⚠️ « Tant qu'on sait pas, on fait comme si on savait pas » (auteur, 27/07) :
 // sans le zonage de la voisine, on ne touche PAS au principal — mais les
 // alternatifs restent proposes, eux sont surs.
@@ -272,7 +273,9 @@ verifier('19 quinquies. une agglo chez la voisine lui donne le principal',
   verifier('19 sexies e. TEMOIN : l\'ancienne regle laissait le ⚡ effacer la ville',
     ancienne(decision(['agglo']), ECARTS).some(e => e.champ === 'principal'), true);
   verifier('19 sexies f. l\'appelant passe bien par la regle',
-    /ecartsNom = ecartsSelonMitoyennete\(decisionMitoyenne, ecartsNom\)/.test(src), true);
+    // v2.50.10 : passe par `ecartsNomDe`, appele pour chaque cote.
+    /const ecartsNomDe = e => ecartsSelonMitoyennete\(decisionMitoyenne,\s*c\.nommageZone \? diffNaming\(nam, e\) : \[\]\);/.test(src) &&
+    /let ecartsNom = ecartsNomDe\(exp\);/.test(src), true);
 }
 verifier('20. et « longe la limite » est MESURE, pas suppose',
   /partLeLongDeLaLimite\(coords, communeActive\) > 0/.test(src), true);

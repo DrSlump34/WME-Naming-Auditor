@@ -73,7 +73,8 @@ console.log('\n=== Inchange ===');
 verifier('« A9 » reconnu a son nom, sans le type : cas A', cible(nam('A9', ''), null, COMMUNE).cas, 'A');
 verifier('« N165 » de type ordinaire : cas H (H6)', cible(nam('N165', ''), null, COMMUNE).cas, 'H6');
 verifier('la cible recoit bien le type depuis l\'analyse',
-         /REF\.etatCible\(nam, enAgglo \? loc\.agglo : null, communeActive\.nom,\s*\{ autoroute: seg\.roadType === REF\.typeAutoroute \}\)/.test(src), true);
+         // v2.50.10 : la cible se calcule par cote (`cibleDuCote(ea)`), voir test-sans-panneau.js.
+         /REF\.etatCible\(nam, ea \? loc\.agglo : null, communeActive\.nom,\s*\{ autoroute: seg\.roadType === REF\.typeAutoroute \}\)/.test(src), true);
 
 console.log('\n=== Temoin ===');
 const mutant = src.replace('((opts && opts.autoroute) ? routes[0] || null : null)', 'null');

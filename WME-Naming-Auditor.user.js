@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.50.09
+// @version      2.50.10
 // @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies selon les règles du pays regardé (agglomération / centro abitato, contours communaux INSEE / ISTAT). Interface et aide en français et en italien. ⚠️ Le portage italien est en phase de TEST.
 // @author       DrSlump34
 // @license      MIT
@@ -2923,9 +2923,10 @@
    *
    * Voie ordinaire : rattachee a l'agglo au-dela de `seuil`, hors agglo en
    * dessous de `1 - seuil`, et « a couper au panneau EB10 » entre les deux.
-   * Voie SANS PANNEAU (`ROADTYPE_SANS_PANNEAU_EB10`) : jamais a couper, elle
-   * suit le cote ou elle a le plus de longueur (50 % pile ⇒ agglo). `sansPanneau`
-   * dit si ce rattachement a remplace une coupe, pour le bilan.
+   * Voie SANS PANNEAU (`ROADTYPE_SANS_PANNEAU_EB10`) : jamais a couper. En zone
+   * grise, `sansPanneau` est vrai : la ville est laissee a l'editeur (v2.50.10,
+   * voir `ecartsCommuns`). `enAgglo` y donne le cote majoritaire (50 % pile ⇒
+   * agglo), qui ne sert plus qu'aux notes, aux comptes et a la cible.
    *
    * PURE : tout entre par les parametres.
    */
@@ -2936,6 +2937,18 @@
       return { enAgglo: partAgglo >= 0.5, aCouper: false, sansPanneau: grise };
     }
     return { enAgglo: partAgglo >= seuil, aCouper: grise, sansPanneau: false };
+  }
+
+  /**
+   * Les ecarts presents dans les DEUX listes (meme champ, meme avant, meme
+   * apres) : ce qu'on peut affirmer d'un segment quel que soit son cote.
+   * Sert aux voies sans panneau en zone grise (v2.50.10).
+   * PURE.
+   */
+  function ecartsCommuns(a, b) {
+    const cle = e => e.champ + '\u0001' + e.avant + '\u0001' + e.apres;
+    const dansB = new Set(b.map(cle));
+    return a.filter(e => dansB.has(cle(e)));
   }
 
   function coupeCommunaleUtile(nam) {
@@ -6547,8 +6560,8 @@
         "La versione {v} è disponibile.",
       "Seuil de rattachement":
         "Soglia di attribuzione",
-      "Part de longueur au-delà de laquelle un segment à cheval est rattaché d'office à un côté. En dessous, il est signalé comme à couper — sauf chemins de terre, sentiers, escaliers, voies privées et parkings : sans panneau d'entrée, ils suivent le côté majoritaire.":
-        "Quota di lunghezza oltre la quale un segmento a cavallo viene attribuito d'ufficio a un lato. Al di sotto, viene segnalato come da tagliare — tranne strade sterrate, sentieri, scalinate, strade private e parcheggi: senza cartello di inizio centro abitato, seguono il lato prevalente.",
+      "Part de longueur au-delà de laquelle un segment à cheval est rattaché d'office à un côté. En dessous, il est signalé comme à couper — sauf chemins de terre, sentiers, escaliers, voies privées et parkings : sans panneau d'entrée, ils ne sont jamais à couper, et entre les deux leur ville est laissée à l'éditeur.":
+        "Quota di lunghezza oltre la quale un segmento a cavallo viene attribuito d'ufficio a un lato. Al di sotto, viene segnalato come da tagliare — tranne strade sterrate, sentieri, scalinate, strade private e parcheggi: senza cartello di inizio centro abitato, non vanno mai tagliati, e tra le due soglie la loro città è lasciata all'editor.",
       "Inclure parkings et voies privées":
         "Includi parcheggi e strade private",
       "Parkings et voies privées sont exclus par défaut : une absence de nom n'y est pas une anomalie. Les inclure les audite comme n'importe quelle voie (nom, rédaction, zone). ⚠️ Sans cocher, une ville en trop hors agglomération est signalée quand même : c'est une faute quel que soit le type de voie.":
@@ -10578,7 +10591,8 @@
       // existe ou non en Alt ». Ce n'etait donc pas un ecart a signaler, mais une
       // correction qui aurait ABIME le nommage. On ne recense plus ces voies —
       // ni report, ni proposition, ni bouton.
-      if (!enAgglo) collecterCartouche(seg, nam, base);
+      // ⚠️ Une voie sans panneau en zone grise n'a pas de cote (v2.50.10) : pas recensee.
+      if (!enAgglo && !zon.sansPanneau) collecterCartouche(seg, nam, base);
 
       // ⚠️⚠️ UNE AUTOROUTE NE SE COUPE PAS SUR UNE LIMITE (auteur, 23/08). Le
       // raisonnement des zones grises est « coupe d'abord, on nommera chaque
@@ -10666,8 +10680,6 @@
       // « d'en face » est LEGITIME, et la cible ne doit pas la jeter.
       const longeLaLimite = voisines.length > 0 &&
                             partLeLongDeLaLimite(coords, communeActive) > 0;
-      let exp = REF.etatCible(nam, enAgglo ? loc.agglo : null, communeActive.nom,
-                              { autoroute: seg.roadType === REF.typeAutoroute });
       // ⭐ Qui porte le principal ? Voir `decisionPrincipalMitoyen`.
       let mitoyenIndecis = null, mitoyenVoisine = null, decisionMitoyenne = 'ici';
       if (longeLaLimite) {
@@ -10678,22 +10690,41 @@
         if (decisionMitoyenne === 'voisine') {
           mitoyenVoisine = voisines.filter((cv, k) => zonagesVoisins[k] === 'agglo').map(cv => cv.nom).join(' », « ');
         }
-        exp = conserverAdressesVoisines(nam, exp, etrangeres);
       }
-      let ecartsNom = c.nommageZone ? diffNaming(nam, exp) : [];
+      const cibleDuCote = ea => {
+        const e = REF.etatCible(nam, ea ? loc.agglo : null, communeActive.nom,
+                                { autoroute: seg.roadType === REF.typeAutoroute });
+        return longeLaLimite ? conserverAdressesVoisines(nam, e, etrangeres) : e;
+      };
       // ⚠️⚠️ « Tant qu'on sait pas, on fait comme si on savait pas » (l'auteur, 27/07) — et quand on
       // SAIT que c'est la voisine qui porte le principal, on ne l'efface pas non plus. Voir
       // `ecartsSelonMitoyennete`.
-      ecartsNom = ecartsSelonMitoyennete(decisionMitoyenne, ecartsNom);
+      const ecartsNomDe = e => ecartsSelonMitoyennete(decisionMitoyenne,
+                                                      c.nommageZone ? diffNaming(nam, e) : []);
       // ⚠️ Un CONTEXTE est passé en second argument (v2.40) : certains
       //    contrôles nationaux portent sur le segment lui-même et sur la zone,
       //    pas seulement sur son nommage — l'obligation italienne d'allumer
       //    les feux hors centro abitato en est le premier cas. Les contrôles
       //    existants ne prennent qu'un argument et l'ignorent : aucun d'eux ne
       //    change de comportement.
-      const ecartsCart = REF.controles
+      const ecartsCartDe = ea => REF.controles
         .filter(ct => ct.portee === 'segment' && c[ct.cle] && ct.executer)
-        .reduce((acc, ct) => acc.concat(ct.executer(nam, { seg, enAgglo })), []);
+        .reduce((acc, ct) => acc.concat(ct.executer(nam, { seg, enAgglo: ea })), []);
+      const exp = cibleDuCote(enAgglo);
+      let ecartsNom = ecartsNomDe(exp);
+      let ecartsCart = ecartsCartDe(enAgglo);
+      // ⚠️⚠️ VOIE SANS PANNEAU EN ZONE GRISE (v2.50.10, auteur 30/09) : ni ville
+      // ajoutee ni ville retiree. Le wiki laisse juger l'editeur (chemin pieton
+      // « en ville s'il ne depasse pas trop du calque ») ; le cote majoritaire
+      // faisait basculer la proposition au pourcent pres (onryou, #440224630).
+      // On ne garde que les ecarts VRAIS DES DEUX COTES (`ecartsCommuns`) : le ⚡
+      // n'ecrit que ce que portent les ecarts, il ne peut donc plus toucher a la
+      // ville. `cible` reste celle du cote majoritaire : un ecart « principal »
+      // commun a la meme valeur des deux cotes.
+      if (zon.sansPanneau) {
+        ecartsNom = ecartsCommuns(ecartsNom, ecartsNomDe(cibleDuCote(!enAgglo)));
+        ecartsCart = ecartsCommuns(ecartsCart, ecartsCartDe(!enAgglo));
+      }
       const ecarts = ecartsNom.concat(ecartsCart, forme);
       if (!ecarts.length) continue;
       if (ecartsCart.length) zones.cartouche++;
@@ -10760,6 +10791,8 @@
       if (dCommune >= SEUIL_DEBORD_M) notes.push('déborde de ' + dCommune + ' m sur la commune voisine');
       if (enAgglo && dAgglo >= SEUIL_DEBORD_M) notes.push('déborde de ' + dAgglo + ' m hors de l\'agglomération');
       if (!enAgglo && dAgglo >= SEUIL_DEBORD_M) notes.push('mord de ' + dAgglo + ' m sur l\'agglomération');
+      if (zon.sansPanneau) notes.push('à cheval sur l\'agglomération sans panneau d\'entrée (' +
+        pourcent(loc.partAgglo) + ' dedans) : la ville est laissée à ton appréciation');
       if (dCommune >= SEUIL_DEBORD_M || dAgglo >= SEUIL_DEBORD_M) zones.limitrophe++;
 
       findings.push(Object.assign({}, base, { cas: exp.cas, ecarts, cible: exp,
@@ -14148,7 +14181,7 @@
 
         <div class="agn-sb-vue" data-vue="analyse">
           ${sect('analyse', 'Analyse', `
-            <label class="agn-sb-l" title="Part de longueur au-delà de laquelle un segment à cheval est rattaché d'office à un côté. En dessous, il est signalé comme à couper — sauf chemins de terre, sentiers, escaliers, voies privées et parkings : sans panneau d'entrée, ils suivent le côté majoritaire.">
+            <label class="agn-sb-l" title="Part de longueur au-delà de laquelle un segment à cheval est rattaché d'office à un côté. En dessous, il est signalé comme à couper — sauf chemins de terre, sentiers, escaliers, voies privées et parkings : sans panneau d'entrée, ils ne sont jamais à couper, et entre les deux leur ville est laissée à l'éditeur.">
               <span>Seuil de rattachement</span>
               <input type="number" id="agn-r-seuil" min="50" max="100" step="5"> %</label>
             <label class="agn-sb-c"><input type="checkbox" id="agn-r-sansadresse" title="Parkings et voies privées sont exclus par défaut : une absence de nom n'y est pas une anomalie. Les inclure les audite comme n'importe quelle voie (nom, rédaction, zone). ⚠️ Sans cocher, une ville en trop hors agglomération est signalée quand même : c'est une faute quel que soit le type de voie.">
@@ -16276,8 +16309,8 @@
             z.limComRien + ' à cheval sans rien à couper</span>' : ''}${
           z.autoSansCoupe ? ' · <span title="Autoroutes à cheval sur une limite communale ou d\'agglomération : elles ne portent aucune ville, ni en principal ni en alternatif. Les couper ne changerait rien à leur nommage. Leur nom reste audité.">' +
             z.autoSansCoupe + ' autoroute(s) sans coupe</span>' : ''}${
-          z.sansPanneau ? ' · <span title="Chemins de terre, sentiers, chemins piétonniers, escaliers, voies privées et parkings à cheval sur le polygone d\'agglomération. Ils ne portent pas de panneau d\'entrée d\'agglomération : la limite n\'y est que le tracé du polygone. Ils ne sont pas à couper, ils suivent le côté où ils ont le plus de longueur.">' +
-            z.sansPanneau + ' sans panneau, rattaché(s) au côté majoritaire</span>' : ''}${
+          z.sansPanneau ? ' · <span title="Chemins de terre, sentiers, chemins piétonniers, escaliers, voies privées et parkings à cheval sur le polygone d\'agglomération. Ils ne portent pas de panneau d\'entrée d\'agglomération : la limite n\'y est que le tracé du polygone. Ils ne sont pas à couper, et leur ville est laissée à ton appréciation : le script ne propose ni de l\'ajouter ni de la retirer.">' +
+            z.sansPanneau + ' sans panneau, ville laissée à l\'éditeur</span>' : ''}${
           z.limitrophe ? ' · ' + z.limitrophe + ' débordent légèrement' : ''}${
           z.cartouche ? ' · ' + z.cartouche + ' cartouche(s) à poser' : ''}${
           z.special ? ' · ' + z.special + ' voie(s) à règle propre' : ''}${

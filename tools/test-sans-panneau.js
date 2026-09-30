@@ -95,5 +95,73 @@ verifier('10. la branche EB10 est commandee par zon.aCouper',
 verifier('11. plus aucun test « partAgglo < haut » en dur dans la boucle',
   /loc\.partAgglo\s*<\s*haut/.test(src), false);
 
+// ---------------------------------------------------------------------------
+// v2.50.10 — EN ZONE GRISE, LA VILLE EST LAISSEE A L'EDITEUR (auteur, 30/09/2026).
+// Remontee d'onryou : chemin de terre #440224630, sans nom ni ville, a qui WNA
+// proposait « ‹sans nom› / Ancey » (C3) parce qu'il etait majoritaire dans le
+// polygone. Le wiki laisse juger l'editeur (« ne depasse pas trop du calque ») :
+// on ne garde que les ecarts vrais DES DEUX COTES.
+// ---------------------------------------------------------------------------
+console.log('\n=== Zone grise : ecarts communs aux deux cotes (v2.50.10) ===\n');
+
+const api = new Function([
+  relire('RE_ROUTE'), relire('RE_COMMUNALE'), relire('RE_AUTOROUTE'),
+  relire('RE_NOM_COMPOSITE'),
+  'const REF = { reRoute: RE_ROUTE, reCommunale: RE_COMMUNALE,' +
+  '  reAutoroute: RE_AUTOROUTE, reNomComposite: RE_NOM_COMPOSITE };',
+  relire('isRoute'), relire('isCommunale'),
+  relire('fmt'), relire('key'),
+  'const options = { altEnTrop: false };',
+  extraire('villeAgglo'), extraire('expectedNaming'), extraire('diffNaming'),
+  extraire('ecartsCommuns'),
+  'return { expectedNaming, diffNaming, ecartsCommuns };'
+].join('\n'))();
+
+const COMMUNE = 'Ancey';
+const AGGLO = { rattache: false };
+function nam(p, a) {
+  const e = x => ({ name: x[0] || '', cityName: x[1] || '',
+                    signText: x[2] || '', signType: x[2] ? 1092 : null });
+  return { primary: e(p), primaryId: 100, alts: (a || []).map(e) };
+}
+/** Ce que la boucle retient pour une voie sans panneau en zone grise. */
+function communs(n) {
+  const dA = api.diffNaming(n, api.expectedNaming(n, AGGLO, COMMUNE));
+  const dH = api.diffNaming(n, api.expectedNaming(n, null, COMMUNE));
+  return { dA, dH, reste: api.ecartsCommuns(dA, dH) };
+}
+
+{
+  // 12. Le cas d'onryou : sans nom, sans ville.
+  const r = communs(nam(['', '']));
+  verifier('12. temoin : cote agglo, C3 reclame la ville (sinon le test ne prouve rien)',
+    r.dA.length > 0, true);
+  verifier('12. cote hors agglo, H5 : rien a dire', r.dH.length, 0);
+  verifier('12. onryou #440224630 — plus aucune ville proposee', r.reste, []);
+}
+{
+  // 13. L'inverse : sans nom AVEC la ville. Hors agglo, H5 voudrait la retirer.
+  const r = communs(nam(['', COMMUNE]));
+  verifier('13. temoin : cote hors agglo, H5 retire la ville', r.dH.length > 0, true);
+  verifier('13. sans nom + ville — ville conservee (rien propose)', r.reste, []);
+}
+{
+  // 14. Pure : un ecart present des deux cotes SURVIT, un ecart d'un seul cote tombe.
+  const e1 = { champ: 'alt manquant', avant: '—', apres: 'C5 / Ancey' };
+  const e2 = { champ: 'principal', avant: 'x / ', apres: 'x / Ancey' };
+  verifier('14. ecart commun garde, ecart d\'un seul cote ecarte',
+    api.ecartsCommuns([e1, e2], [Object.assign({}, e1)]), [e1]);
+  verifier('15. meme champ, apres different — ecarte',
+    api.ecartsCommuns([e2], [{ champ: 'principal', avant: 'x / ', apres: 'x / ' }]), []);
+}
+
+// 16-18. Branchement dans la boucle : sans ces lignes, la fonction existerait sans servir.
+verifier('16. la boucle intersecte les ecarts de nom en zone grise sans panneau',
+  /if \(zon\.sansPanneau\) \{\s*ecartsNom = ecartsCommuns\(ecartsNom, ecartsNomDe\(cibleDuCote\(!enAgglo\)\)\);/.test(src), true);
+verifier('17. ... et les ecarts de controles (cartouches, feux IT)',
+  /ecartsCart = ecartsCommuns\(ecartsCart, ecartsCartDe\(!enAgglo\)\);/.test(src), true);
+verifier('18. pas de recensement cartouche pour une voie sans cote',
+  /if \(!enAgglo && !zon\.sansPanneau\) collecterCartouche/.test(src), true);
+
 console.log('\n' + ok + ' ok, ' + ko + ' echec(s)\n');
 process.exit(ko ? 1 : 0);
