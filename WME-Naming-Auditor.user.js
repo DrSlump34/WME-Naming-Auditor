@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.50.12
+// @version      2.51.00
 // @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies selon les règles du pays regardé (agglomération / centro abitato, contours communaux INSEE / ISTAT). Interface et aide en français et en italien. ⚠️ Le portage italien est en phase de TEST.
 // @author       DrSlump34
 // @license      MIT
@@ -6604,8 +6604,8 @@
         "Correzione",
       "Correction activée — {motifs}.<br>Les corrections ne sont <b>jamais enregistrées</b> automatiquement.":
         "Correzione attivata — {motifs}.<br>Le correzioni non vengono <b>mai salvate</b> automaticamente.",
-      "Correction désactivée : réservée aux L5, L6, Global Editors et staff (ton rang : {rang}).":
-        "Correzione disattivata: riservata a L5, L6, Global Editor e staff (il tuo livello: {rang}).",
+      "Correction désactivée : réservée aux L6, aux Champs (LC, GC, CC), aux Global Editors et au staff (ton rang : {rang}).":
+        "Correzione disattivata: riservata a L6, Champs (LC, GC, CC), Global Editor e staff (il tuo livello: {rang}).",
       "Lecture du profil en cours…":
         "Lettura del profilo in corso…",
       "Où voir les résultats":
@@ -12126,7 +12126,7 @@
   // ===========================================================================
   // CORRECTION
   //
-  // Reservee aux rangs eleves (L5/L6) et aux responsables : une correction de
+  // Reservee aux L6, aux Champs et aux responsables (L5 retires le 11/10/2026, decision de l'auteur) : une correction de
   // masse sur le nommage se voit, et se discute.
   //
   // Regles de sureté tenues ici :
@@ -12142,8 +12142,27 @@
   const _fx = t => { let x = 0x811c9dc5;
     for (let i = 0; i < t.length; i++) { x ^= t.charCodeAt(i); x = Math.imul(x, 0x01000193) >>> 0; }
     return x >>> 0; };
-  const _fz = [0x953f8f3, 0x853f760, 0xb53fc19, 0x10202895, 0x851b8c9];
-  const _fq = 0x122263d6;
+  const _fz = [0x853f760, 0xb53fc19, 0x10202895, 0x851b8c9, 0x4631c6b8, 0x3e2070ff, 0x56299123];
+  const _fq = 0x3549bc41;
+  // Roles lus dans les groupes du forum Discuss (meme site, session de l'editeur), une fois par
+  // session : le role de Champ n'existe que la. Les Emeritus n'en sont plus. `null` = pas encore lu.
+  let _fr = null, _fapres = null;
+  (async () => {
+    const j = [];
+    try {
+      const r = await hote.fetch('/discuss/session/current.json', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+      if (r.ok) {
+        const u = (await r.json()).current_user || {};
+        const gr = (u.groups || []).map(g => String(g.name)).filter(n => !/emeritus/i.test(n));
+        if (gr.some(n => /(^|-)local-champ$/i.test(n))) j.push('lc');
+        if (gr.some(n => /(^|-)global-champ$/i.test(n))) j.push('gc');
+        if (gr.includes('editors-coordinator')) j.push('cc');
+      }
+    } catch (e) { /* forum muet : rang seul */ }
+    _fr = j;
+    _fcache = null;
+    try { if (_fapres) _fapres(); } catch (e) { /* */ }
+  })();
 
   /**
    * Profil courant, lu sur DEUX sources independantes ; on retient la valeur la
@@ -12157,7 +12176,7 @@
     try { const a = hote.W.loginManager.user.attributes;
           if (typeof a.rank === 'number') v.push(a.rank);
           g = !!a.globalEditor; t = !!a.isStaff; } catch (e) { /* */ }
-    return { n: v.length ? Math.min(...v) : -1, g, t, src: v.length };
+    return { n: v.length ? Math.min(...v) : -1, g, t, src: v.length, r: _fr || [] };
   }
 
   /** Jeton d'habilitation : 0 si le profil n'ouvre aucun droit. */
@@ -12167,6 +12186,7 @@
     if (p.n >= 0) c.push('r' + p.n);
     if (p.g) c.push('g1');
     if (p.t) c.push('s1');
+    c.push(...p.r);
     for (const x of c) { const h = _fx(x); if (_fz.indexOf(h) >= 0) return h; }
     return 0;
   }
@@ -12174,7 +12194,7 @@
   /** Recoupement : le jeu de reference doit etre intact. */
   const _fv = () => (_fz.reduce((a, b) => (a ^ b) >>> 0, 0) >>> 0) === _fq;
 
-  let _fcache = null;
+  var _fcache = null;
 
   /**
    * Habilitation, calculee a la demande. Au demarrage, `getUserInfo()` et
@@ -12197,6 +12217,8 @@
       if (_fz.indexOf(_fx('r' + p.n)) >= 0) motifs.push(niveau);
       if (p.g) motifs.push('Global Editor');
       if (p.t) motifs.push('Staff');
+      const noms = { lc: 'Local Champ', gc: 'Global Champ', cc: 'Coordinator' };
+      for (const x of p.r) if (_fz.indexOf(_fx(x)) >= 0) motifs.push(noms[x]);
     }
     return { autorise: !!j && _fv(), niveau, motifs, rangsLus: p.src };
   }
@@ -14641,7 +14663,7 @@
    * voir le ⚡. »
    *
    * ⚠️⚠️ LE CRITERE N'EST PAS REINVENTE ICI : c'est `droits().autorise`, celui-la
-   * meme qui commande les boutons (L5, L6, Global Editors, staff). Un SECOND
+   * meme qui commande les boutons (L6, Champs, Global Editors, staff). Un SECOND
    * critere finirait par diverger du premier, et l'aide promettrait alors une
    * fonction absente — ou la tairait a quelqu'un qui l'a. Un seul modele d'etat.
    *
@@ -15502,13 +15524,14 @@
     // (bug vecu — « ton rang : ? » et correction desactivee a tort).
     const zoneDroits = q('#agn-r-droits');
     const peindreDroits = () => {
+      _fapres = peindreDroits;   // les roles de Champ arrivent apres : repeindre a leur arrivee
       const d = droits();
       zoneDroits.style.color = d.autorise ? '#2e7d32' : '#a34a00';
       zoneDroits.innerHTML = d.autorise
         ? trf('Correction activée — {motifs}.<br>Les corrections ne sont <b>jamais enregistrées</b> automatiquement.',
               { motifs: esc(d.motifs.join(', ')) })
         : d.rangsLus
-          ? trf('Correction désactivée : réservée aux L5, L6, Global Editors et staff (ton rang : {rang}).',
+          ? trf('Correction désactivée : réservée aux L6, aux Champs (LC, GC, CC), aux Global Editors et au staff (ton rang : {rang}).',
                 { rang: esc(d.niveau) })
           : tr('Lecture du profil en cours…');
       // ⭐ La mention du pied SUIT LE PROFIL (arbitrage de l'auteur, 25/09/2026) : « ne modifie
