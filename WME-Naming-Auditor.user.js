@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.53.00
+// @version      2.53.01
 // @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies. Pour L6, Champs, GE et staff, le bouton ⚡ écrit sans enregistrer : nom, ville, nom alternatif, cartouche, adresse d'un POI, et numéro hors agglomération converti en POI résidentiel (le numéro est supprimé) ; plafond de 150 éditions par heure. Serveurs contactés : geo.api.gouv.fr, api.wazefrance.com (au clic), Google Sheets, raw.githubusercontent.com, GreasyFork — coordonnées de zone, jamais d'identité.
 // @author       DrSlump34
 // @license      MIT
@@ -18293,11 +18293,27 @@
       } catch (e) { res(null); }
   });
   const _vmHx = t => { let x = 0x811c9dc5; for (let i = 0; i < t.length; i++) { x ^= t.charCodeAt(i); x = Math.imul(x, 0x01000193) >>> 0; } return x >>> 0; };
+  // L'auteur essaie ses versions avant de les publier. ⚠️ Le contrôle tourne au DÉBUT du démarrage, souvent
+  // AVANT que WME ait chargé le profil : getUserInfo() rend alors un pseudo vide (mesuré le 11/10/2026 —
+  // la 2.53.00 non publiée bloquée chez l'auteur). On attend donc le pseudo jusqu'à 10 s, puis on essaie
+  // la session Discuss (même site, mêmes cookies).
   const _vmAuteur = async () => {
+      const estAuteur = n => !!n && _vmHx(String(n).toLowerCase()) === 0xc0bef069;
       try {
           const w = (typeof unsafeWindow !== 'undefined' && unsafeWindow.getWmeSdk) ? unsafeWindow : window;
-          const u = await w.getWmeSdk({ scriptId: 'wme-naming-auditor-vm', scriptName: String(SCRIPT_NAME) + ' (version)' }).State.getUserInfo();
-          return !!(u && u.userName) && _vmHx(String(u.userName).toLowerCase()) === 0xc0bef069;
+          const sdk = w.getWmeSdk({ scriptId: 'wme-naming-auditor-vm', scriptName: String(SCRIPT_NAME) + ' (version)' });
+          for (let i = 0; i < 20; i++) {
+              let u = null;
+              try { u = await sdk.State.getUserInfo(); } catch (e) { u = null; }
+              if (u && u.userName) return estAuteur(u.userName);
+              await new Promise(r => setTimeout(r, 500));
+          }
+      } catch (e) { /* SDK indisponible : on tente Discuss */ }
+      try {
+          const w = (typeof unsafeWindow !== 'undefined' && unsafeWindow.fetch) ? unsafeWindow : window;
+          const r = await w.fetch('/discuss/session/current.json', { credentials: 'same-origin' });
+          const j = r.ok ? await r.json() : null;
+          return estAuteur(j && j.current_user && j.current_user.username);
       } catch (e) { return false; }
   };
   const _vmEmpreinte = async src => {
