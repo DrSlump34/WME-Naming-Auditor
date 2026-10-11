@@ -65,7 +65,8 @@ verifier('… une seule fois (pas au keyup)', frappe('keyup', 'Escape').sorties,
 verifier('Echap depuis un champ ferme aussi', frappe('keydown', 'Escape', {}, CHAMP).sorties, ['annuler', 'annuler']);
 
 console.log('\n=== Branchements ===');
-verifier('les trois boites passent par isolerClavier', (src.match(/isolerClavier\(boite, \(\) =>/g) || []).length, 3);
+// 2.53.00 : quatrième boîte, la confirmation détaillée du ⚡ de groupe (confirmerGroupe).
+verifier('les quatre boites passent par isolerClavier', (src.match(/isolerClavier\(boite, \(\) =>/g) || []).length, 4);
 verifier('plus aucun stopPropagation de touche sans condition',
          /\['keydown', 'keypress', 'keyup'\]\.forEach\(ev =>\s*boite\.addEventListener\(ev, e => e\.stopPropagation\(\)\)\)/.test(src), false);
 

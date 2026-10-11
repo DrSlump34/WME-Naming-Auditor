@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.52.01
+// @version      2.53.00
 // @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies. Pour L6, Champs, GE et staff, le bouton ⚡ écrit sans enregistrer : nom, ville, nom alternatif, cartouche, adresse d'un POI, et numéro hors agglomération converti en POI résidentiel (le numéro est supprimé) ; plafond de 150 éditions par heure. Serveurs contactés : geo.api.gouv.fr, api.wazefrance.com (au clic), Google Sheets, raw.githubusercontent.com, GreasyFork — coordonnées de zone, jamais d'identité.
 // @author       DrSlump34
 // @license      MIT
@@ -6869,6 +6869,14 @@
         'Togliere {nom} ({n} comuni, {poids})?\n\nI centri abitati che hai tracciato sono conservati.\nSi ricaricherà da solo se ci torni.',
       'Vider tous les contours en base ({n} communes, {poids}) ?\n\nLes agglomérations tracées, elles, sont conservées : elles sont rangées par code {institut}.':
         'Svuotare tutti i confini in memoria ({n} comuni, {poids})?\n\nI centri abitati tracciati restano: sono archiviati per codice {institut}.',
+      'Ce que le ⚡ va écrire, objet par objet :':
+        'Cosa scriverà il ⚡, oggetto per oggetto:',
+      'Appliquer ces corrections':
+        'Applica queste correzioni',
+      '{s} segment(s)':
+        '{s} segmento/i',
+      '{k} segment(s) verrouillé(s) au-dessus de ton niveau : non touché(s)':
+        '{k} segmento/i bloccato/i sopra il tuo livello: non toccato/i',
       'Appliquer {n} correction(s) sur {s} segment(s) ?':
         'Applicare {n} correzione/i su {s} segmento/i?',
       '{k} autre(s) avec un doute ne sont pas incluses : à faire une par une.':
@@ -14113,6 +14121,11 @@
   .agn-modale-t{font-weight:700;font-size:13px;margin-bottom:8px;color:var(--agn-rouge, #c62828)}
   .agn-modale-c{font-size:12px;margin-bottom:10px}
   .agn-modale-geo{background:var(--agn-fond-doux, #eceff1);border-radius:4px;padding:6px 8px;margin-top:8px;font-size:11px}
+  .agn-modale-in.agn-modale-large{width:520px}
+  .agn-modale-liste{max-height:45vh;overflow:auto;border:1px solid #dde3ea;border-radius:4px;padding:4px 8px;font-size:11px}
+  .agn-modale-item{padding:4px 0;border-bottom:1px solid #eceff1}
+  .agn-modale-item:last-child{border-bottom:0}
+  .agn-modale-in .agn-btn{margin-top:8px}
   #agn-err-save{background:#fdecea;border:1px solid #f5a29a;border-left:4px solid var(--agn-rouge, #c62828);
     border-radius:4px;padding:8px 10px;margin-bottom:8px;font-size:11px;color:#8a1c14}
   #agn-err-save b{font-size:12px}
@@ -14389,6 +14402,52 @@
    *  - le reste est garde.
    * PURE hors les ecouteurs qu'elle pose.
    */
+  /**
+   * Confirmation du ⚡ de groupe, avec la LISTE de ce qui va être écrit (doctrine France § 3.3).
+   * Par correction : son libellé, les segments touchés (les verrouillés au-dessus du rang sont dits,
+   * ils ne le seront pas) et chaque champ « avant → après ». Les écarts venus du dictionnaire public
+   * ne sont pas listés : le ⚡ ne les écrit pas (lecture seule depuis la 2.52.00).
+   * Rend une promesse : true = appliquer, false = annuler (bouton, Échap ou clic hors de la boîte).
+   */
+  function confirmerGroupe(aFaire, o) {
+    return new Promise(resolve => {
+      const lignes = aFaire.map(f => {
+        const touches = Math.max(0, (f.nb || 1) - (f.verrouilles || 0));
+        const qui = f.nb > 1 ? trf('{s} segment(s)', { s: touches }) : '#' + esc(String(f.segId));
+        const verrou = f.verrouilles
+          ? ' · <span class="agn-lock">🔒 ' + trf('{k} segment(s) verrouillé(s) au-dessus de ton niveau : non touché(s)', { k: f.verrouilles }) + '</span>' : '';
+        const ecarts = (f.ecarts || []).filter(e => !e.publique)
+          .map(e => '<div class="agn-d"><b>' + esc(String(e.champ)) + '</b> : ' + esc(String(e.avant)) + ' → ' + esc(String(e.apres)) + '</div>').join('');
+        return '<div class="agn-modale-item"><div><b>' + esc(String(f.libelle)) + '</b> <span class="agn-note">' + qui + '</span>' + verrou + '</div>' + ecarts + '</div>';
+      }).join('');
+      const boite = el(`
+        <div id="agn-modale">
+          <div class="agn-modale-in agn-modale-large" role="dialog" aria-modal="true">
+            <div class="agn-modale-t">${esc(trf('Appliquer {n} correction(s) sur {s} segment(s) ?', { n: aFaire.length, s: o.nbSeg }))}</div>
+            <div class="agn-modale-c">${esc(tr('Ce que le ⚡ va écrire, objet par objet :'))}</div>
+            <div class="agn-modale-liste">${lignes}</div>
+            <div class="agn-modale-geo">
+              ${o.douteux ? '<div>' + esc(trf('{k} autre(s) avec un doute ne sont pas incluses : à faire une par une.', { k: o.douteux })) + '</div>' : ''}
+              <div>${esc(texteQuota(o.q))}</div>
+              ${o.prevu > o.q.reste ? '<div class="agn-alerte">' + esc(tr('Le quota ne couvre pas tout le groupe : la série s\'arrêtera quand il sera épuisé.')) + '</div>' : ''}
+              <div>${esc(tr('Rien ne sera enregistré : tu reliras dans WME avant de cliquer sur Enregistrer.'))}</div>
+            </div>
+            <button class="agn-btn primary" id="agn-cg-ok">⚡ ${esc(tr('Appliquer ces corrections'))}</button>
+            <button class="agn-btn" id="agn-cg-non">${esc(tr('Annuler'))}</button>
+          </div>
+        </div>`);
+      document.body.appendChild(boite);
+      rendreDeplacable(boite.querySelector('.agn-modale-in'), boite.querySelector('.agn-modale-t'));
+      boite.addEventListener('mousedown', e => e.stopPropagation());
+      const fin = ok => { boite.remove(); resolve(ok); };
+      isolerClavier(boite, () => fin(false));
+      boite.querySelector('#agn-cg-ok').onclick = () => fin(true);
+      boite.querySelector('#agn-cg-non').onclick = () => fin(false);
+      boite.onclick = e => { if (e.target === boite) fin(false); };
+      boite.querySelector('#agn-cg-ok').focus();
+    });
+  }
+
   function isolerClavier(boite, annuler) {
     ['keydown', 'keypress', 'keyup'].forEach(ev => boite.addEventListener(ev, e => {
       const t = e.target, saisie = !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' ||
@@ -18109,12 +18168,11 @@
         const q = quotaCourant();
         if (!q.reste) { majQuotaAffiche(); return; }
         const prevu = aFaire.reduce((n, x) => n + editionsPrevues(x, planDeCorrection(x)), 0);
-        if (!confirm(trf('Appliquer {n} correction(s) sur {s} segment(s) ?', { n: aFaire.length, s: nbSeg }) + '\n\n' +
-          (douteux ? trf('{k} autre(s) avec un doute ne sont pas incluses : à faire une par une.', { k: douteux }) + '\n\n' : '') +
-          texteQuota(q) + '\n' +
-          (prevu > q.reste ? tr('Le quota ne couvre pas tout le groupe : la série s\'arrêtera quand il sera épuisé.') + '\n' : '') + '\n' +
-          tr('Rien ne sera enregistré : tu reliras dans WME avant de cliquer sur Enregistrer.'))) return;
-        corriger(aFaire, aFaire.map(x => corps.querySelector('.agn-item[data-idx="' + findings.indexOf(x) + '"]')));
+        // Doctrine France § 3.3 (2.53.00) : avant d'appliquer un lot, MONTRER la liste de ce qui va être
+        // écrit, objet par objet — un décompte ne suffit pas. Jusqu'à la 2.52.01 : un confirm chiffré.
+        confirmerGroupe(aFaire, { nbSeg, douteux, q, prevu }).then(ok => {
+          if (ok) corriger(aFaire, aFaire.map(x => corps.querySelector('.agn-item[data-idx="' + findings.indexOf(x) + '"]')));
+        });
       };
       grp.querySelector('.agn-ok-grp').onclick = e => {
         e.stopPropagation();                 // ne pas deplier/replier le groupe
