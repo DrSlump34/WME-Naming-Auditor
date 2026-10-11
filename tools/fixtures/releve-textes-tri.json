@@ -38,7 +38,21 @@
     "Mettre à jour": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script",
     "è stata ritirata: è pubblicata una versione corretta (v": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script",
     "o posterior). El script no se inicia hasta que se actualice (Tampermonkey ▸ Buscar actualizaciones).": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script",
-    "ou mais recente). O script não arranca enquanto não for atualizado (Tampermonkey ▸ Procurar atualizações).": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script"
+    "ou mais recente). O script não arranca enquanto não for atualizado (Tampermonkey ▸ Procurar atualizações).": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script",
+    "ne correspond pas au code publié (copie modifiée ou abîmée). Le script ne démarre pas : réinstallez-le depuis sa page officielle.": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script",
+    "a besoin de Tampermonkey pour vérifier son code : il ne démarre pas avec ce gestionnaire de scripts.": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script",
+    "n’est pas une version publiée. Le script ne démarre pas : installez-le depuis sa page officielle.": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script",
+    "Page officielle": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script",
+    "Official page": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script",
+    "Pagina ufficiale": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script",
+    "Offizielle Seite": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script",
+    "no coincide con el código publicado (copia modificada o dañada). El script no se inicia: reinstálalo desde su página oficial.": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script",
+    "necesita Tampermonkey para verificar su código: no se inicia con este gestor de scripts.": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script",
+    "no es una versión publicada. El script no se inicia: instálalo desde su página oficial.": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script",
+    "Página oficial": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script",
+    "não corresponde ao código publicado (cópia modificada ou danificada). O script não arranca: reinstale-o a partir da página oficial.": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script",
+    "precisa do Tampermonkey para verificar o seu código: não arranca com este gestor de scripts.": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script",
+    "não é uma versão publicada. O script não arranca: instale-o a partir da página oficial.": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script"
   },
   "couvertAuNoeud": {
     "Voie privée": "Voie privée · #123456789",

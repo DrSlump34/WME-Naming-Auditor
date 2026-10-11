@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.52.00
+// @version      2.52.01
 // @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies. Pour L6, Champs, GE et staff, le bouton ⚡ écrit sans enregistrer : nom, ville, nom alternatif, cartouche, adresse d'un POI, et numéro hors agglomération converti en POI résidentiel (le numéro est supprimé) ; plafond de 150 éditions par heure. Serveurs contactés : geo.api.gouv.fr, api.wazefrance.com (au clic), Google Sheets, raw.githubusercontent.com, GreasyFork — coordonnées de zone, jamais d'identité.
 // @author       DrSlump34
 // @license      MIT
@@ -63,7 +63,7 @@
  */
 
 /* eslint-disable no-console */
-(function () {
+(function _wmeIntegre() {
   'use strict';
 
   /**
@@ -18207,13 +18207,18 @@
     });
   }
 
-  // ─── VERSION MINIMALE (consigne de l'auteur, 11/10/2026) ────────────────────────────────────
-  // Une version dont une faille a été corrigée est RETIRÉE : l'auteur relève `min` dans version-min.json,
-  // à la racine du dépôt GitHub, et toute version plus ancienne refuse de démarrer — elle affiche un
-  // bandeau qui demande la mise à jour, et rien d'autre. Fichier injoignable ou illisible : le script
-  // démarre (une panne de GitHub ne doit pas paralyser les éditeurs ; décision de l'auteur, même jour).
-  // ⚠️ Le contrôle ne protège qu'à partir des versions qui le contiennent, et il tourne dans le
-  // navigateur : il arrête l'éditeur qui n'a pas mis à jour, pas celui qui retire ces lignes.
+  // ─── VERSION MINIMALE ET INTÉGRITÉ (consignes de l'auteur, 11/10/2026) ───────────────────────
+  // Au démarrage, le script lit version-min.json à la racine de son dépôt GitHub. Il NE DÉMARRE PAS :
+  //  - si sa version est plus ancienne que `min` (version retirée après une correction) ;
+  //  - si son code ne correspond pas à l'empreinte publiée pour sa version (`empreintes`) — copie
+  //    modifiée ou abîmée. L'empreinte est un SHA-256 du code, sans les lignes @downloadURL et
+  //    @updateURL que GreasyFork réécrit ;
+  //  - si le gestionnaire de scripts ne lui donne pas son code (Tampermonkey requis : choix de l'auteur) ;
+  //  - si sa version n'est pas publiée (absente de `empreintes`) — sauf pour l'auteur, qui essaie ses
+  //    versions avant de les publier.
+  // Fichier injoignable ou illisible : le script démarre (une panne de GitHub ne doit pas paralyser
+  // les éditeurs). ⚠️ Tout cela tourne dans le navigateur : il arrête la copie périmée ou bricolée,
+  // pas celui qui retire ces lignes ; la vraie barrière reste côté Waze.
   const _VM_URL = 'https://raw.githubusercontent.com/DrSlump34/WME-Naming-Auditor/master/version-min.json';
   const _VM_MAJ = 'https://greasyfork.org/scripts/588554';
   const _vmCmp = (a, b) => {
@@ -18221,43 +18226,101 @@
       for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d < 0 ? -1 : 1; }
       return 0;
   };
-  const _vmLire = () => new Promise(res => {
+  const _vmJson = () => new Promise(res => {
       setTimeout(() => res(null), 7000);   // gestionnaire de scripts qui ne rappelle jamais : on démarre
-      const v = String(VERSION), num = /^\d+(\.\d+)*$/;
-      if (!num.test(v)) { res(null); return; }      // version locale illisible (copie de travail) : on ne bloque rien
       try {
           GM_xmlhttpRequest({ method: 'GET', url: _VM_URL + '?t=' + Date.now(), timeout: 6000,
-              onload: r => {
-                  try {
-                      const j = r.status === 200 ? JSON.parse(r.responseText) : null;
-                      res(j && typeof j.min === 'string' && num.test(j.min) && _vmCmp(v, j.min) < 0 ? j : null);
-                  } catch (e) { res(null); }
-              },
+              onload: r => { try { res(r.status === 200 ? JSON.parse(r.responseText) : null); } catch (e) { res(null); } },
               onerror: () => res(null), ontimeout: () => res(null) });
       } catch (e) { res(null); }
   });
+  const _vmHx = t => { let x = 0x811c9dc5; for (let i = 0; i < t.length; i++) { x ^= t.charCodeAt(i); x = Math.imul(x, 0x01000193) >>> 0; } return x >>> 0; };
+  const _vmAuteur = async () => {
+      try {
+          const w = (typeof unsafeWindow !== 'undefined' && unsafeWindow.getWmeSdk) ? unsafeWindow : window;
+          const u = await w.getWmeSdk({ scriptId: 'wme-naming-auditor-vm', scriptName: String(SCRIPT_NAME) + ' (version)' }).State.getUserInfo();
+          return !!(u && u.userName) && _vmHx(String(u.userName).toLowerCase()) === 0xc0bef069;
+      } catch (e) { return false; }
+  };
+  const _vmEmpreinte = async src => {
+      const t = String(src).replace(/\r\n/g, '\n').split('\n').filter(l => !/^\/\/ @(downloadURL|updateURL)\b/.test(l)).join('\n');
+      const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t));
+      return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, '0')).join('');
+  };
+  // Rend null (démarrer) ou le motif du refus : 'retiree', 'modifiee', 'source', 'inconnue'.
+  // L'empreinte calculée est écrite dans la console : c'est le contrôle de l'auteur au moment de publier.
+  const _vmVerdict = async () => {
+      // Le texte de l'enveloppe du script, tel que le navigateur l'a chargé (indépendant du gestionnaire).
+      const src = (() => { try { return _wmeIntegre.toString(); } catch (e) { return ''; } })();
+      let h = '';
+      if (typeof src === 'string' && src.length) {
+          try { h = await _vmEmpreinte(src); console.info('[' + String(SCRIPT_NAME) + ' v' + String(VERSION) + '] empreinte ' + h); } catch (e) { h = ''; }
+      }
+      // Lisible depuis la page (les journaux d'un script Tampermonkey n'y arrivent pas) : l'empreinte, ou 'sans-source'.
+      try { document.documentElement.setAttribute('data-vm-' + _vmHx(_VM_URL).toString(36), h || 'sans-source'); } catch (e) { }
+      const j = await _vmJson();
+      if (!j || typeof j !== 'object') return null;
+      const v = String(VERSION), num = /^\d+(\.\d+)*$/;
+      if (num.test(v) && typeof j.min === 'string' && num.test(j.min) && _vmCmp(v, j.min) < 0) return { motif: 'retiree', min: j.min };
+      if (!j.empreintes || typeof j.empreintes !== 'object') return null;
+      const attendue = j.empreintes[v];
+      if (!attendue) return (await _vmAuteur()) ? null : { motif: 'inconnue' };
+      if (typeof src !== 'string' || !src.length) return null;
+      if (!h) return null;
+      return h === String(attendue).toLowerCase() ? null : { motif: 'modifiee' };
+  };
   const _vmBandeau = j => {
-      if (document.getElementById('vm-' + _VM_URL.length + '-' + String(SCRIPT_NAME).length)) return;
+      const ident = 'vm-' + _vmHx(_VM_URL).toString(36);
+      if (document.getElementById(ident)) return;
       const l = ((location.pathname.match(/^\/([a-z]{2})(-[A-Za-z]{2})?\//) || [])[1] || (navigator.language || 'en').slice(0, 2)).toLowerCase();
       const n = String(SCRIPT_NAME), v = String(VERSION), m = j.min;
       const T = {
-          fr: [`${n} v${v} est retirée : une version corrigée est publiée (v${m} ou plus récente). Le script ne démarre pas tant qu’il n’est pas mis à jour (Tampermonkey ▸ Rechercher des mises à jour).`, 'Mettre à jour'],
-          en: [`${n} v${v} has been withdrawn: a fixed version is published (v${m} or later). The script will not start until it is updated (Tampermonkey ▸ Check for updates).`, 'Update'],
-          it: [`${n} v${v} è stata ritirata: è pubblicata una versione corretta (v${m} o successiva). Lo script non si avvia finché non viene aggiornato (Tampermonkey ▸ Cerca aggiornamenti).`, 'Aggiorna'],
-          de: [`${n} v${v} wurde zurückgezogen: eine korrigierte Version ist veröffentlicht (v${m} oder neuer). Das Skript startet erst nach dem Update (Tampermonkey ▸ Nach Updates suchen).`, 'Aktualisieren'],
-          es: [`${n} v${v} ha sido retirada: hay una versión corregida publicada (v${m} o posterior). El script no se inicia hasta que se actualice (Tampermonkey ▸ Buscar actualizaciones).`, 'Actualizar'],
-          pt: [`${n} v${v} foi retirada: há uma versão corrigida publicada (v${m} ou mais recente). O script não arranca enquanto não for atualizado (Tampermonkey ▸ Procurar atualizações).`, 'Atualizar'],
-          he: [`${n} v${v} הוסרה: פורסמה גרסה מתוקנת (v${m} ומעלה). הסקריפט לא יופעל עד שיעודכן (Tampermonkey ▸ חיפוש עדכונים).`, 'עדכון'],
+          fr: { retiree: `${n} v${v} est retirée : une version corrigée est publiée (v${m} ou plus récente). Le script ne démarre pas tant qu’il n’est pas mis à jour (Tampermonkey ▸ Rechercher des mises à jour).`,
+                modifiee: `${n} v${v} ne correspond pas au code publié (copie modifiée ou abîmée). Le script ne démarre pas : réinstallez-le depuis sa page officielle.`,
+                source: `${n} a besoin de Tampermonkey pour vérifier son code : il ne démarre pas avec ce gestionnaire de scripts.`,
+                inconnue: `${n} v${v} n’est pas une version publiée. Le script ne démarre pas : installez-le depuis sa page officielle.`,
+                maj: 'Mettre à jour', page: 'Page officielle' },
+          en: { retiree: `${n} v${v} has been withdrawn: a fixed version is published (v${m} or later). The script will not start until it is updated (Tampermonkey ▸ Check for updates).`,
+                modifiee: `${n} v${v} does not match the published code (modified or damaged copy). The script will not start: reinstall it from its official page.`,
+                source: `${n} needs Tampermonkey to check its code: it will not start with this script manager.`,
+                inconnue: `${n} v${v} is not a published version. The script will not start: install it from its official page.`,
+                maj: 'Update', page: 'Official page' },
+          it: { retiree: `${n} v${v} è stata ritirata: è pubblicata una versione corretta (v${m} o successiva). Lo script non si avvia finché non viene aggiornato (Tampermonkey ▸ Cerca aggiornamenti).`,
+                modifiee: `${n} v${v} non corrisponde al codice pubblicato (copia modificata o danneggiata). Lo script non si avvia: reinstallalo dalla sua pagina ufficiale.`,
+                source: `${n} ha bisogno di Tampermonkey per verificare il proprio codice: non si avvia con questo gestore di script.`,
+                inconnue: `${n} v${v} non è una versione pubblicata. Lo script non si avvia: installalo dalla sua pagina ufficiale.`,
+                maj: 'Aggiorna', page: 'Pagina ufficiale' },
+          de: { retiree: `${n} v${v} wurde zurückgezogen: eine korrigierte Version ist veröffentlicht (v${m} oder neuer). Das Skript startet erst nach dem Update (Tampermonkey ▸ Nach Updates suchen).`,
+                modifiee: `${n} v${v} entspricht nicht dem veröffentlichten Code (veränderte oder beschädigte Kopie). Das Skript startet nicht: von der offiziellen Seite neu installieren.`,
+                source: `${n} braucht Tampermonkey, um seinen Code zu prüfen: mit diesem Skriptmanager startet es nicht.`,
+                inconnue: `${n} v${v} ist keine veröffentlichte Version. Das Skript startet nicht: von der offiziellen Seite installieren.`,
+                maj: 'Aktualisieren', page: 'Offizielle Seite' },
+          es: { retiree: `${n} v${v} ha sido retirada: hay una versión corregida publicada (v${m} o posterior). El script no se inicia hasta que se actualice (Tampermonkey ▸ Buscar actualizaciones).`,
+                modifiee: `${n} v${v} no coincide con el código publicado (copia modificada o dañada). El script no se inicia: reinstálalo desde su página oficial.`,
+                source: `${n} necesita Tampermonkey para verificar su código: no se inicia con este gestor de scripts.`,
+                inconnue: `${n} v${v} no es una versión publicada. El script no se inicia: instálalo desde su página oficial.`,
+                maj: 'Actualizar', page: 'Página oficial' },
+          pt: { retiree: `${n} v${v} foi retirada: há uma versão corrigida publicada (v${m} ou mais recente). O script não arranca enquanto não for atualizado (Tampermonkey ▸ Procurar atualizações).`,
+                modifiee: `${n} v${v} não corresponde ao código publicado (cópia modificada ou danificada). O script não arranca: reinstale-o a partir da página oficial.`,
+                source: `${n} precisa do Tampermonkey para verificar o seu código: não arranca com este gestor de scripts.`,
+                inconnue: `${n} v${v} não é uma versão publicada. O script não arranca: instale-o a partir da página oficial.`,
+                maj: 'Atualizar', page: 'Página oficial' },
+          he: { retiree: `${n} v${v} הוסרה: פורסמה גרסה מתוקנת (v${m} ומעלה). הסקריפט לא יופעל עד שיעודכן (Tampermonkey ▸ חיפוש עדכונים).`,
+                modifiee: `${n} v${v} אינו תואם לקוד שפורסם (עותק ששונה או נפגם). הסקריפט לא יופעל: התקינו אותו מחדש מהדף הרשמי.`,
+                source: `${n} זקוק ל-Tampermonkey כדי לאמת את הקוד שלו: הוא לא יופעל עם מנהל הסקריפטים הזה.`,
+                inconnue: `${n} v${v} אינה גרסה שפורסמה. הסקריפט לא יופעל: התקינו אותו מהדף הרשמי.`,
+                maj: 'עדכון', page: 'הדף הרשמי' },
       };
-      const [txt, btn] = T[l] || T.en;
+      const L = T[l] || T.en;
       const d = document.createElement('div');
-      d.id = 'vm-' + _VM_URL.length + '-' + n.length;
+      d.id = ident;
       d.dir = l === 'he' ? 'rtl' : 'ltr';
       d.setAttribute('role', 'alert');
       d.style.cssText = 'position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:100000;max-width:560px;padding:10px 14px;' +
           'background:#ffebee;color:#b71c1c;border:1px solid #c62828;border-radius:8px;font:600 12px/1.5 Rubik,Arial,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.25)';
-      const p = document.createElement('div'); p.textContent = txt; d.appendChild(p);
-      const a = document.createElement('a'); a.href = _VM_MAJ; a.target = '_blank'; a.rel = 'noopener'; a.textContent = btn + ' ↗';
+      const p = document.createElement('div'); p.textContent = L[j.motif] || L.inconnue; d.appendChild(p);
+      const a = document.createElement('a'); a.href = _VM_MAJ; a.target = '_blank'; a.rel = 'noopener';
+      a.textContent = (j.motif === 'retiree' ? L.maj : L.page) + ' ↗';
       a.style.cssText = 'display:inline-block;margin-top:6px;padding:3px 10px;border-radius:50px;background:#c62828;color:#fff;text-decoration:none';
       const x = document.createElement('button'); x.type = 'button'; x.textContent = '×'; x.setAttribute('aria-label', 'OK');
       x.style.cssText = 'position:absolute;top:2px;inset-inline-end:6px;border:0;background:none;color:#b71c1c;font-size:16px;cursor:pointer';
@@ -18265,8 +18328,8 @@
       d.appendChild(a); d.appendChild(x);
       (document.body || document.documentElement).appendChild(d);
   };
-  // Vrai si cette version est retirée : le bandeau est posé, et l'appelant ne démarre pas.
-  const _vmBloque = async () => { const j = await _vmLire(); if (j) { _vmBandeau(j); return true; } return false; };
+  // Vrai si le script ne doit pas démarrer : le bandeau est posé, et l'appelant s'arrête.
+  const _vmBloque = async () => { const j = await _vmVerdict(); if (j) { _vmBandeau(j); return true; } return false; };
   async function init() {
       if (await _vmBloque()) return;   // version retirée : bandeau, rien d’autre
     await waitForSdk();
