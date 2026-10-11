@@ -243,7 +243,8 @@ verifier('36. les espaces autour du nom ne font pas rater la source',
 // Verrou de CONTRAT : la pose doit être branchée là où l'alternatif s'écrit,
 // et NE PAS écraser le cartouche d'une Street existante (elle est partagée).
 verifier('37. la reprise est branchée après addAlternateStreet',
-  /addAlternateStreet\(\{ segmentIds: ids, streetId: rue\.id \}\);\s*\n(?:\s*ecrits\+\+;\s*\n)?(?:\s*\/\/[^\n]*\n)*\s*if \(!cartoucheDeStreet\(rue\.id\)\)/.test(src), true);
+  // 2.52.00 : la ligne qui note l'edition au quota (`editionSeg`) s'intercale, meme intention.
+  /addAlternateStreet\(\{ segmentIds: ids, streetId: rue\.id \}\);\s*\n(?:\s*ecrits\+\+;\s*\n)?(?:\s*ids\.forEach\(id => editionSeg\(id\)[^\n]*\n)?(?:\s*\/\/[^\n]*\n)*\s*if \(!cartoucheDeStreet\(rue\.id\)\)/.test(src), true);
 verifier('38. une Street qui porte déjà un cartouche n\'est jamais réécrite',
   /if \(!cartoucheDeStreet\(rue\.id\)\)/.test(src), true);
 
@@ -289,6 +290,47 @@ verifier('38. une Street qui porte déjà un cartouche n\'est jamais réécrite'
   verifier('48. TÉMOIN : interrupteur à true — le contrôle 46 tombe', t1.interrupteur, false);
   const t2 = coupe(src.replace('CARTOUCHE_SUR_RUE_HORS_AGGLO ? cartouchesPrincipal() : []', 'cartouchesPrincipal()'));
   verifier('49. TÉMOIN : appel sans interrupteur — le contrôle 47 tombe', t2.branche, false);
+}
+
+// ⚠️⚠️ 2.52.00 (audit doctrine, axe 4) : l'ecusson se pose sur la STREET. Un seul segment de la rue
+// verrouille au-dessus du rang ⇒ refus, a l'affichage (planDeCorrection) comme a l'ecriture
+// (rueHorsDroits, sur TOUS les segments charges qui portent la rue).
+{
+  const rue = (segs, opts) => {
+    opts = opts || {};
+    const sdk = { DataModel: { Segments: {
+      getAll: () => { if (opts.sdkMuet) throw new Error('x'); return segs; },
+      hasPermissions: ({ segmentId }) => { const s = segs.find(x => x.id === segmentId); if (!s) throw new Error('DataModelNotFoundError'); return !s.verrou; } } } };
+    const hote = opts.wMuet ? {} : { W: { model: { segments: { getObjectArray: () => [] } } } };
+    const tr = x => x, trf = (x, v) => x.replace(/\{(\w+)\}/g, (m, k) => v && v[k] != null ? String(v[k]) : m);
+    const code = extraire('segmentsPortantLaRue') + '\n' + extraire('rueHorsDroits') + '\nreturn rueHorsDroits;';
+    return new Function('sdk', 'hote', 'tr', 'trf', code)(sdk, hote, tr, trf);
+  };
+  const S = (id, verrou, alt) => ({ id, primaryStreetId: alt ? 99 : 10, alternateStreetIds: alt ? [10] : [], verrou });
+  verifier('50. rue entièrement à portée : écusson permis', rue([S(1), S(2)])(10), null);
+  verifier('51. UN segment verrouillé sur deux : refus',
+    /1 segment\(s\) de la rue verrouillé/.test(rue([S(1), S(2, true)])(10) || ''), true);
+  verifier('52. le segment verrouillé qui porte la rue en ALTERNATIF compte aussi',
+    !!rue([S(1), S(3, true, true)])(10), true);
+  verifier('53. aucun segment chargé : refus (jamais « [] = tout passe »)', !!rue([])(10), true);
+  verifier('54. lectures muettes (SDK et modèle interne) : refus', !!rue([S(1)], { sdkMuet: true, wMuet: true })(10), true);
+  // planDeCorrection : un seul verrouille suffit a fermer le ⚡ du cartouche.
+  const c = extraire('planDeCorrection');
+  verifier('55. planDeCorrection refuse le cartouche dès UN segment verrouillé', /if \(f\.cartouche\) \{[\s\S]{0,400}if \(f\.verrouilles\) return null;/.test(c), true);
+  // TÉMOIN : la regle d'avant (« tous verrouilles ») laisserait passer le cas 51 a l'affichage.
+  const ancien = c.replace('if (f.verrouilles) return null;', 'if (f.verrouilles === f.nb) return null;');
+  const plan = new Function('REF', ancien + '\nreturn planDeCorrection;')({ reRoute: /^D\d+/ });
+  verifier('56. TÉMOIN : avec l\'ancienne règle, 1 verrouillé sur 2 garderait le ⚡ (le contrôle 55 tombe)',
+    [!!plan({ cartouche: { streetId: 10, signText: 'D1', signType: 1 }, verrouilles: 1, nb: 2, ecarts: [] }),
+     /if \(f\.cartouche\) \{[\s\S]{0,400}if \(f\.verrouilles\) return null;/.test(ancien)], [true, false]);
+  // TÉMOIN : sans le filtre des droits, la rue a moitie verrouillee passerait.
+  const mut = src.replace('try { return !sdk.DataModel.Segments.hasPermissions({ segmentId: id }); }', 'try { return false; }');
+  verifier('57. TÉMOIN : le filtre des droits est trouvé dans le source', mut !== src, true);
+  const fMut = new Function('sdk', 'hote', 'tr', 'trf',
+    mut.slice(mut.indexOf('function segmentsPortantLaRue('), mut.indexOf('  /** Ce qui restera a faire')) + '\nreturn rueHorsDroits;');
+  const sdkM = { DataModel: { Segments: { getAll: () => [S(1), S(2, true)], hasPermissions: () => false } } };
+  verifier('58. TÉMOIN : droits ignorés ⇒ le refus du cas 51 disparaît (le contrôle 51 tombe)',
+    fMut(sdkM, {}, x => x, x => x)(10), null);
 }
 
 console.log(lignes.join('\n'));

@@ -72,7 +72,7 @@ const api = new Function([
   relire('nettoyerNom'),
   relire('RE_QUANTIF_IMBRIQUE'), relire('SEUIL_REGLE_LENTE_MS'), extraire('regleDangereuse'),
   extraire('analyserDictionnaire'), extraire('appliquerDictionnaire'),
-  extraire('nomEnCapitales'), extraire('ecartDeRedaction'),
+  extraire('nomEnCapitales'), relire('DICO_DEPART_PUBLIC'), extraire('ecartDeRedaction'),
   'return { DICO_FONCTIONS, nettoyerNom, analyserDictionnaire, appliquerDictionnaire,',
   '         nomEnCapitales, ecartDeRedaction };'
 ].join('\n'))();

@@ -47,8 +47,19 @@ const jouer = async ({ rang, global = false, staff = false, groupes = [], code =
     // TEMOIN : remettre l'empreinte de r4 dans la liste rouvre les L5.
     const avecL5 = bloc.replace('const _fz = [', 'const _fz = [0x953f8f3, ').replace(/const _fq = 0x[0-9a-f]+;/, 'const _fq = ' + (0x3549bc41 ^ 0x953f8f3) + ';');
     dit(avecL5 !== bloc, 'TEMOIN : la liste est trouvée dans le bloc');
-    const t = await jouer({ rang: 4, code: avecL5 });
+    // 2.52.00 : le recoupement du plafond (`_fs`) porte aussi sur le jeu d'empreintes. Retoucher la
+    // liste et `_fq` sans `_fs` laisse le ⚡ ÉTEINT ; il faut les trois pour rouvrir les L5.
+    const t0 = await jouer({ rang: 4, code: avecL5 });
+    dit(t0.autorise === false, '2.52.00 : liste + _fq retouchés sans _fs ⇒ ⚡ éteint', 'autorise=' + t0.autorise);
+    const avecL5bis = avecL5.replace(/const _fs = 0x[0-9a-f]+;/, 'const _fs = ' + ((0x357f5257 ^ 0x953f8f3) >>> 0) + ';');
+    dit(avecL5bis !== avecL5, 'TEMOIN : la somme du plafond est trouvée dans le bloc');
+    const t = await jouer({ rang: 4, code: avecL5bis });
     dit(t.autorise === true, 'TEMOIN : avec l empreinte de r4, un L5 serait autorisé', 'autorise=' + t.autorise);
+    // Le plafond fait partie du droit : un cœur de quota retouché (151 au lieu de 150) éteint le ⚡.
+    const quota151 = bloc.replace('const m = 0x96, f = 0x36ee80;', 'const m = 0x97, f = 0x36ee80;');
+    dit(quota151 !== bloc, 'TEMOIN : le cœur du quota est trouvé dans le bloc');
+    const t2 = await jouer({ rang: 5, code: quota151 });
+    dit(t2.autorise === false, 'plafond relevé à 151 dans le cœur ⇒ L6 refusé (⚡ éteint)', 'autorise=' + t2.autorise);
     dit(!/\bL5\b/.test(src.slice(src.indexOf('Correction désactivée'), src.indexOf('Correction désactivée') + 120)), 'le message de refus ne cite plus les L5');
     console.log('\n' + (ko ? '❌ ' + ko + ' ECHEC(S)' : '✅ TOUT PASSE') + '   (' + ok + ' assertions)\n');
     process.exit(ko ? 1 : 0);

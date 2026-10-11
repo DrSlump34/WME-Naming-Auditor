@@ -38,13 +38,17 @@ function monter(s, monde) {
     extraire(s, 'function resoudreStreet('),
     'return appliquerCorrection;'
   ].join('\n');
+  // 2.52.00 : quota et droits sur la rue entiere — doublures neutres (quota large, rue a portee) ;
+  // ils ont leurs propres bancs (test-quota.js, test-cartouches.js).
   return new Function('evaluerPays', 'pays', 'planDeCorrection', 'segmentsEditables', 'sdk',
     'readNaming', 'cartoucheAReprendre', 'cartoucheDeStreet', 'ecrireCartouche',
-    'villeVide', 'log', 'progEnCours', 'cadrerSur', 'demanderNomPrincipal', code)(
+    'villeVide', 'log', 'progEnCours', 'cadrerSur', 'demanderNomPrincipal',
+    'editionsPrevues', 'quotaCourant', 'refusQuota', 'reserverEditions', 'rueHorsDroits', 'tr', 'trf', code)(
     () => ({ etat: 'servi' }), {}, () => monde.plan, ids => ids.slice(), monde.sdk,
     seg => monde.nommage(seg.id), monde.cartoucheAReprendre, () => null,
     (id, t, ty) => { monde.cartouches.push([id, t, ty]); return true; },
-    () => ({ id: 0, isEmpty: true }), () => {}, null, () => {}, async () => null);
+    () => ({ id: 0, isEmpty: true }), () => {}, null, () => {}, async () => null,
+    () => 0, () => ({ reste: 150 }), () => ({ ok: false, quota: true }), () => {}, () => null, x => x, x => x);
 }
 
 /** Un monde : deux communes connues, un segment 1 portant « D26 » avec son ecusson. */

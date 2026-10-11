@@ -79,7 +79,7 @@ const api = new Function([
   relire('RE_QUANTIF_IMBRIQUE'), relire('SEUIL_REGLE_LENTE_MS'), extraire('regleDangereuse'),
   extraire('initialeIsolee'), extraire('analyserDictionnaire'),
   extraire('appliquerDictionnaire'), extraire('nomEnCapitales'),
-  extraire('ecartDeRedaction'),
+  relire('DICO_DEPART_PUBLIC'), extraire('ecartDeRedaction'),
   'let dico = { regles: [] };',
   'const options = { controles: {} };',
   extraire('verifierForme'), extraire('planDeCorrection'), extraire('resteAlaMain'),
@@ -295,6 +295,46 @@ verifier('22b. ⚠️⚠️ `villeActuelle` n\'a qu\'UNE source dans tout le scr
   (src.match(/villeActuelle:/g) || []).length === 1, true);
 verifier('23. ⚠️ l\'ecriture passe par `updateAddress` (le segment), pas par un renommage de Street',
   /op\.type === 'principal'[\s\S]{0,900}updateAddress/.test(src), true);
+
+// ---------------------------------------------------------------------------
+// 7. ⚠️⚠️ 2.52.00 — LE DICTIONNAIRE PUBLIC EST EN LECTURE SEULE (arbitrage de l'auteur du
+// 11/10/2026, audit doctrine axe 2). Une proposition a laquelle une regle de la feuille
+// « public » (lignes >= 2001) a contribue s'affiche, mais le ⚡ ne l'ecrit jamais.
+// ---------------------------------------------------------------------------
+{
+  const dicoAuDepart = (depart, ...csv) => ({ regles: api.analyserDictionnaire(csv.join('\n'), depart).regles });
+  const ecartAvec = d => { api.setDico(d); return api.verifierForme(nam('Av. du Chateau')).find(e => /^rédaction/.test(e.champ)); };
+  const principal = ecartAvec(dicoAuDepart(1, '/Av\\. /g,"""Avenue """,//', '/Chateau/g,"""Château""",//'));
+  verifier('24. regle du dictionnaire PRINCIPAL : proposition non marquee publique',
+    principal && principal.publique, false);
+  verifier('25. … et le ⚡ l\'applique toujours',
+    api.planDeCorrection(report([principal])),
+    [{ type: 'principal', nom: 'Avenue du Château', ville: 'Nîmes', garderVille: true }]);
+  const publique = ecartAvec(dicoAuDepart(2001, '/Av\\. /g,"""Avenue """,//', '/Chateau/g,"""Château""",//'));
+  verifier('26. regle du dictionnaire PUBLIC : la proposition s\'affiche, marquee publique',
+    publique && [publique.apres, publique.publique], ['Avenue du Château', true]);
+  verifier('27. ⚠️⚠️ … et le ⚡ ne l\'ecrit PAS (ni unitaire, ni de groupe)',
+    api.planDeCorrection(report([publique])), null);
+  verifier('28. … elle reste comptee « a la main »',
+    api.resteAlaMain(report([publique])), 1);
+  // Une seule regle publique dans la cascade suffit : le nom propose en depend.
+  const mixte = { regles: dicoAuDepart(1, '/Av\\. /g,"""Avenue """,//').regles
+    .concat(dicoAuDepart(2001, '/Chateau/g,"""Château""",//').regles) };
+  const em = ecartAvec(mixte);
+  verifier('29. cascade mixte (principal + public) : marquee publique, pas de ⚡',
+    [em && em.publique, api.planDeCorrection(report([em]))], [true, null]);
+  api.setDico(DICO_COMPLET);
+  verifier('30. l\'affichage dit que le ⚡ ne l\'ecrit pas',
+    /e\.publique \? '[^']*' \+ tr\('\(règle du dictionnaire public/.test(src), true);
+  // TEMOIN : sans le garde `!red.publique`, la meme proposition PARTIRAIT au ⚡.
+  const code = extraire('planDeCorrection');
+  const mut = code.replace(/!red\.publique &&\s*/, '');
+  verifier('31. TEMOIN : la mutation trouve bien le garde dans le source', mut !== code, true);
+  const planMut = new Function(mut + '\nreturn planDeCorrection;')();
+  verifier('32. TEMOIN : garde retire ⇒ la proposition publique serait ecrite',
+    planMut(report([publique])),
+    [{ type: 'principal', nom: 'Avenue du Château', ville: 'Nîmes', garderVille: true }]);
+}
 
 console.log(lignes.join('\n'));
 console.log('\n' + (ok + ko) + ' verifications OK, ' + ko + ' ECHEC(S)\n');

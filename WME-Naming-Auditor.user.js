@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.51.01
-// @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies selon les règles du pays regardé (agglomération / centro abitato, contours communaux INSEE / ISTAT). Interface et aide en français et en italien. ⚠️ Le portage italien est en phase de TEST.
+// @version      2.52.00
+// @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies. Pour L6, Champs, GE et staff, le bouton ⚡ écrit sans enregistrer : nom, ville, nom alternatif, cartouche, adresse d'un POI, et numéro hors agglomération converti en POI résidentiel (le numéro est supprimé) ; plafond de 150 éditions par heure. Serveurs contactés : geo.api.gouv.fr, api.wazefrance.com (au clic), Google Sheets, raw.githubusercontent.com, GreasyFork — coordonnées de zone, jamais d'identité.
 // @author       DrSlump34
 // @license      MIT
 // @icon         data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPScyNCcgaGVpZ2h0PScyNCcgdmlld0JveD0nMCAwIDI0IDI0Jz48cmVjdCB4PScxLjUnIHk9JzMnIHdpZHRoPScxNycgaGVpZ2h0PSc5JyByeD0nMS41JyBmaWxsPScjZmZmJyBzdHJva2U9JyM2MDdkOGInIHN0cm9rZS13aWR0aD0nMicvPjxwYXRoIGQ9J001IDcuNSBIMTUnIHN0cm9rZT0nIzkwYTRhZScgc3Ryb2tlLXdpZHRoPScxLjgnIHN0cm9rZS1saW5lY2FwPSdyb3VuZCcvPjxjaXJjbGUgY3g9JzE1JyBjeT0nMTUnIHI9JzQuNicgZmlsbD0nI2ZmZicgc3Ryb2tlPScjZWY2YzAwJyBzdHJva2Utd2lkdGg9JzIuNCcvPjxwYXRoIGQ9J00xOC40IDE4LjQgTDIyIDIyJyBzdHJva2U9JyNlZjZjMDAnIHN0cm9rZS13aWR0aD0nMycgc3Ryb2tlLWxpbmVjYXA9J3JvdW5kJy8+PC9zdmc+
@@ -25,6 +25,42 @@
 // @connect      googleusercontent.com
 // @run-at       document-idle
 // ==/UserScript==
+
+/*
+ * WME Naming Auditor — ce que le script fait, et à qui il parle (2.52.00, doctrine France des scripts).
+ *
+ * AUDIT (tout le monde) : lit le nommage et l'adressage d'une commune et signale les écarts aux
+ * règles du pays. Rien n'est écrit sur la carte.
+ *
+ * ÉCRITURE (bouton ⚡, réservé aux L6, aux Champs — LC, GC, CC —, aux Global Editors et au staff).
+ * Le script n'enregistre JAMAIS : chaque écriture reste en attente dans WME, annulable par Ctrl+Z,
+ * et c'est l'éditeur qui relit puis clique sur Enregistrer. Le ⚡ peut écrire :
+ *   - le nom principal et la ville d'un ou plusieurs segments ;
+ *   - un nom alternatif (en créant la rue si elle n'existe pas ; jamais une commune) ;
+ *   - le cartouche d'une rue — refusé si un seul segment de la rue dépasse le rang de l'éditeur ;
+ *   - le nom de rue et la ville de l'adresse d'un POI existant (jamais son numéro) ;
+ *   - la conversion d'UN numéro hors agglomération en POI résidentiel : le POI est créé, le
+ *     numéro supprimé. Adresse par adresse, jamais en lot ; refusée si un POI résidentiel porte
+ *     déjà ce numéro et cette rue à moins de 50 m.
+ * Le ⚡ de groupe n'applique que les noms et cartouches (ni adresse, ni POI, ni report douteux),
+ * et jamais une proposition du dictionnaire PUBLIC, qui reste en lecture seule.
+ * PLAFOND : 150 éditions scriptées par heure glissante et par éditeur (objet modifié ou créé),
+ * comptées à l'enregistrement, affichées, non réglables.
+ *
+ * SERVEURS CONTACTÉS (sans cookie, sauf WME lui-même) — ce qu'ils reçoivent :
+ *   - geo.api.gouv.fr : un numéro de département, ou le point de la vue quand « charger le
+ *     département survolé » est coché (décoché par défaut) ;
+ *   - api.wazefrance.com : des coordonnées de la commune, au clic sur « 🪧 Panneaux » seulement ;
+ *   - docs.google.com / googleusercontent.com : la clé des deux feuilles du dictionnaire de
+ *     rédaction, au démarrage si le contrôle est coché ;
+ *   - raw.githubusercontent.com : le fichier des contours italiens (Italie seulement), et au
+ *     démarrage le fichier version-min.json du dépôt (version minimale admise) ;
+ *   - update.greasyfork.org : le numéro de version publié, une fois par 24 h ;
+ *   - une adresse https saisie par l'éditeur, pour importer un fichier de zones partagé ;
+ *   - www.waze.com (même site, session de l'éditeur) : lecture rapide d'une commune et des
+ *     groupes du forum (rôle de Champ).
+ * Aucune identité d'éditeur ni aucun objet de la carte n'est envoyé à un serveur tiers.
+ */
 
 /* eslint-disable no-console */
 (function () {
@@ -797,6 +833,8 @@
    * Ne JAMAIS ajouter de raccourci d'edition, meme « pour rendre service ».
    * Verrou de test : voir tools/test-dictionnaire.js, tests 31-34.
    */
+  /** Premiere ligne du dictionnaire PUBLIC : ses regles sont en LECTURE SEULE (2.52.00). */
+  const DICO_DEPART_PUBLIC = 2001;
   const DICO_FEUILLES = [
     // Dictionnaire principal FR (regles generiques) puis dictionnaire public
     // (contributions : sigles, patronymes, lieux). Les numeros de ligne du
@@ -816,7 +854,7 @@
     //    c'est celui que CRN applique), mais l'aide le DIT : une proposition de
     //    ce dictionnaire n'est pas une regle arbitree, elle se relit.
     { cle: '1fZNOmDQSYgAam6Lj3z9YpNFu0-Sb6AjAyFdy_dH-roA', depart: 1, nom: 'principal' },
-    { cle: '1T-UVFQtp5OrKqMZPRsfRBMohIAwdgNoWQcA6Ry4UEgA', depart: 2001, nom: 'public' }
+    { cle: '1T-UVFQtp5OrKqMZPRsfRBMohIAwdgNoWQcA6Ry4UEgA', depart: DICO_DEPART_PUBLIC, nom: 'public' }
   ];
   /**
    * ⚠️⚠️ MESURE DU 03/08 — POURQUOI IL Y A **DEUX** @connect POUR UNE SEULE URL.
@@ -1016,8 +1054,12 @@
     }
     const res = appliquerDictionnaire(origine, regles);
     if (!res.nom || res.nom === origine) return null;
+    // ⚠️⚠️ 2.52.00 (arbitrage de l'auteur du 11/10/2026, audit doctrine axe 2) : le dictionnaire
+    // PUBLIC (lignes ≥ DICO_DEPART_PUBLIC) vit sans validation. Une proposition à laquelle une de
+    // ses règles a contribué est LUE SEULEMENT : elle s'affiche, l'éditeur la recopie lui-même,
+    // et `planDeCorrection` ne la donne jamais au ⚡ (ni unitaire, ni de groupe).
     return { champ: 'rédaction (dictionnaire FR)', avant: origine, apres: res.nom,
-             lignes: res.lignes };
+             lignes: res.lignes, publique: res.lignes.some(l => l >= DICO_DEPART_PUBLIC) };
   }
 
   const CLES_NOM = ['nom', 'NOM', 'name', 'NOM_COM', 'nom_commune', 'libelle', 'LIBELLE', 'com_name', 'nomcom'];
@@ -1099,9 +1141,11 @@
     vue: { segTable: true, segCarte: true, adrTable: true, adrCarte: true, panCarte: true,
            // Les VRAIS POI (v2.15) : leur propre onglet et leur propre calque.
            poiTable: true, poiCarte: true },
-    // Charger tout seul les contours du departement survole. Coche par defaut :
-    // c'est une corvee sans valeur ajoutee, et elle se refait a chaque fois.
-    autoDep: true,
+    // Charger tout seul les contours du departement survole.
+    // ⚠️ 2.52.00 (audit doctrine, axe 5) : DECOCHE par defaut. Coche, chaque arret de la carte
+    // envoie le point de la vue a geo.api.gouv.fr sans geste de l'editeur ; la doctrine France veut
+    // qu'un appel sortant reste eteint tant que l'editeur ne l'a pas allume lui-meme.
+    autoDep: false,
     // ⚠️⚠️ DECHARGER les departements dont on s'est eloigne. DECOCHE par defaut,
     // et ce n'est pas un oubli : le cumul est un CONTRAT affiche depuis la v1.88
     // (« charger un departement n'efface pas les autres »), et on n'enleve pas a
@@ -3211,7 +3255,11 @@
     // ⚠️ Sondage des panneaux dès qu'une commune est en cours : c'est lui qui
     // décide si « 🪧 Panneaux » et « ✏️ Proposer un tracé » ont un sens. Il ne
     // part qu'UNE FOIS par commune (cache), et son retour rafraîchit les boutons.
-    if (communeActive && !sondages.has(communeActive.code)) {
+    // ⚠️⚠️ 2.52.00 (audit doctrine, axe 5) : il ne part plus TOUT SEUL sur le réseau. Choisir une
+    // commune envoyait jusqu'à 12 requêtes à api.wazefrance.com sans geste de l'éditeur ; le
+    // relevé ne part désormais qu'au clic sur « 🪧 Panneaux ». Seul reste ici le cas SANS réseau :
+    // un pays sans source de panneaux (Italie), que `sonderPanneaux` tranche sans rien appeler.
+    if (communeActive && !REF.sourcePanneaux && !sondages.has(communeActive.code)) {
       const cible = communeActive.code;
       sonderPanneaux(communeActive).then(() => {
         if (communeActive && communeActive.code === cible) renderAgglos();
@@ -5391,7 +5439,7 @@
       // reste et donne le nom juste. Depuis l'option B, ils ne se doublonnent
       // plus : celui qui n'a rien de plus a dire se tait.
       if (e2) ecarts.push({ champ: e2.champ + ou, avant: e2.avant, apres: e2.apres,
-                            sansProposition: e2.sansProposition });
+                            sansProposition: e2.sansProposition, publique: !!e2.publique });
       // ⚠️⚠️ « Dxxx - Nom de la route » : ancienne regle FR, INTERDITE aujourd'hui.
       // Le remede depend de l'endroit ou le composite se trouve, et on le DIT,
       // parce que les deux cas ne se corrigent pas de la meme facon :
@@ -6606,6 +6654,40 @@
         "Correzione attivata — {motifs}.<br>Le correzioni non vengono <b>mai salvate</b> automaticamente.",
       "Correction désactivée : réservée aux L6, aux Champs (LC, GC, CC), aux Global Editors et au staff (ton rang : {rang}).":
         "Correzione disattivata: riservata a L6, Champs (LC, GC, CC), Global Editor e staff (il tuo livello: {rang}).",
+      // 2.52.00 — plafond de 150 éditions scriptées par heure, doublons RPP, cartouche hors droits,
+      // dictionnaire public en lecture seule.
+      '⚡ indisponible : quota illisible (pseudo de l\'éditeur introuvable).':
+        '⚡ non disponibile: quota illeggibile (nome utente dell\'editor non trovato).',
+      'Quota : {n} édition(s) scriptée(s) restante(s) sur {max} dans l\'heure glissante.':
+        'Quota: restano {n} modifiche da script su {max} nell\'ora mobile.',
+      'Quota de {max} éditions scriptées par heure atteint : reprise à {h}.':
+        'Quota di {max} modifiche da script all\'ora raggiunta: si riprende alle {h}.',
+      '{n} restante(s)':
+        '{n} rimanenti',
+      'reprise à {h}':
+        'ripresa alle {h}',
+      'cartouche refusé : les segments de la rue ne peuvent pas être lus':
+        'scudetto rifiutato: i segmenti della strada non possono essere letti',
+      'cartouche refusé : aucun segment de la rue n\'est chargé — zoome sur la voie puis réessaie':
+        'scudetto rifiutato: nessun segmento della strada è caricato — ingrandisci sulla strada e riprova',
+      'cartouche refusé : {n} segment(s) de la rue verrouillé(s) au-dessus de ton niveau':
+        'scudetto rifiutato: {n} segmento/i della strada bloccato/i sopra il tuo livello',
+      'conversion refusée : un seul numéro à la fois':
+        'conversione rifiutata: un solo numero alla volta',
+      '{num} : un RPP « {num} {rue} » existe déjà à {d} m — rien n\'a été créé ni retiré ; si c\'est un doublon, supprime le numéro à la main':
+        '{num}: un RPP « {num} {rue} » esiste già a {d} m — nulla è stato creato né rimosso; se è un doppione, elimina il numero a mano',
+      'cartouche de « {nom} » non reporté ({motif}) : pose-le à la main':
+        'scudetto di « {nom} » non riportato ({motif}): applicalo a mano',
+      'quota insuffisant : cette correction peut poser jusqu\'à {b} édition(s), il en reste {n} dans l\'heure — rien n\'a été écrit':
+        'quota insufficiente: questa correzione può fare fino a {b} modifiche, ne restano {n} nell\'ora — nulla è stato scritto',
+      'Rien n\'a été écrit.':
+        'Nulla è stato scritto.',
+      'série arrêtée par le quota : {n} report(s) non traité(s)':
+        'serie fermata dalla quota: {n} segnalazione/i non trattata/e',
+      'Le quota ne couvre pas tout le groupe : la série s\'arrêtera quand il sera épuisé.':
+        'La quota non copre tutto il gruppo: la serie si fermerà quando sarà esaurita.',
+      '(règle du dictionnaire public : à recopier à la main, le ⚡ ne l\'écrit pas)':
+        '(regola del dizionario pubblico: da ricopiare a mano, il ⚡ non la scrive)',
       "Lecture du profil en cours…":
         "Lettura del profilo in corso…",
       "Où voir les résultats":
@@ -12194,6 +12276,34 @@
   /** Recoupement : le jeu de reference doit etre intact. */
   const _fv = () => (_fz.reduce((a, b) => (a ^ b) >>> 0, 0) >>> 0) === _fq;
 
+  // ---- Plafond des éditions scriptées (2.52.00, doctrine France § 3.3) ------------------------
+  // Au plus 150 éditions posées par le ⚡ (unitaire ou de groupe) par heure GLISSANTE et par
+  // éditeur, comptées à l'enregistrement : une entrée par objet modifié ou créé (segment renommé,
+  // nom alternatif ajouté, rue créée, cartouche posé sur une rue, adresse d'un POI, RPP créé,
+  // numéro retiré). Modèle repris de WME BAN Coverage (`quotaHn`) : l'entrée est RÉSERVÉE dès
+  // l'écriture (jamais plus de 150 en attente), puis COMPTÉE si elle se retrouve après un
+  // enregistrement réussi, RENDUE si l'éditeur l'a annulée avant d'enregistrer, et gardée
+  // jusqu'au bout de sa fenêtre quand on ne peut pas trancher (jamais rendue sur un doute).
+  // Le plafond n'est pas un réglage. Ses deux valeurs ne sont pas écrites en clair : le cœur de
+  // calcul est SONDÉ par `_fc`, et la sonde entre dans un recoupement XOR avec le jeu de
+  // référence ci-dessus. Changer le cœur seul, ou la sonde seule, ÉTEINT le ⚡ au lieu de relever
+  // le plafond. Ne pas modifier sans l'accord de l'auteur du script.
+  const _qh = x => typeof x === 'number' ? x : x && typeof x.t === 'number' ? x.t : NaN;
+  function quotaEditions(entrees, maintenant) {
+    const m = 0x96, f = 0x36ee80;
+    const r = (entrees || []).filter(x => _qh(x) > maintenant - f).sort((a, b) => _qh(a) - _qh(b));
+    const reste = Math.max(0, m - r.length);
+    return { utilises: r.length, reste, max: m, libre: reste ? maintenant : _qh(r[r.length - m]) + f, garder: r };
+  }
+  const _fk = [0x96, 0x36ee80];
+  const _fs = 0x357f5257;
+  function _fc() {
+    const m = Date.now(), [a, f] = _fk, pl = n => Array.from({ length: n }, () => m);
+    return quotaEditions(pl(a), m).reste === 0 && quotaEditions(pl(a - 1), m).reste === 1 &&
+      quotaEditions([m - f + 6e4], m).utilises === 1 && quotaEditions([m - f - 6e4], m).utilises === 0 &&
+      ((_fz.reduce((x, y) => (x ^ y) >>> 0, 0) ^ a ^ f) >>> 0) === _fs;
+  }
+
   var _fcache = null;
 
   /**
@@ -12220,13 +12330,251 @@
       const noms = { lc: 'Local Champ', gc: 'Global Champ', cc: 'Coordinator' };
       for (const x of p.r) if (_fz.indexOf(_fx(x)) >= 0) motifs.push(noms[x]);
     }
-    return { autorise: !!j && _fv(), niveau, motifs, rangsLus: p.src };
+    // 2.52.00 : le plafond fait partie du droit — un cœur de quota retouché éteint le ⚡.
+    return { autorise: !!j && _fv() && _fc(), niveau, motifs, rangsLus: p.src };
   }
 
   /** La « ville vide » de la zone : c'est un objet City reel, pas un null. */
   function villeVide() {
     try { return sdk.DataModel.Cities.getAll().find(c => c.isEmpty) || null; }
     catch (e) { return null; }
+  }
+
+  // ==WNA-QUOTA== (2.52.00) — stockage du plafond, repris de WME BAN Coverage (==WBC-QUOTA==).
+  // Les entrées de quota, par éditeur : { t: heure de l'écriture, o: nature de l'objet, id, x: ce
+  // qu'il faudra retrouver après l'enregistrement, e: 0 réservée | 1 comptée, p: page }.
+  // ① rien de lisible — la liste est brouillée par une clé tirée du pseudo, sous un nom de clé
+  // neutre ; ② scellée — une copie retouchée n'est pas ignorée, elle BLOQUE le ⚡ une heure ;
+  // ③ en trois copies (localStorage, stockage de Tampermonkey, mémoire de la page) dont on garde
+  // la RÉUNION : effacer l'une ne rend rien.
+  // ⚠️ Limite d'un contrôle dans le navigateur : décourager, pas empêcher.
+  // Ne pas modifier sans l'accord de l'auteur du script.
+  let quotaMem = null;
+  const SESSION_Q = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  /** Pseudo de l'éditeur : le quota est PAR ÉDITEUR. Vide ⇒ pas de ⚡ (on ne saurait où compter). */
+  function quotaUtilisateur() {
+    let nom = '';
+    try { const u = sdk.State.getUserInfo(); if (u && u.userName) nom = String(u.userName); } catch (e) { /* */ }
+    if (!nom) {
+      try { const w = hote.W.loginManager.user;
+            nom = String(w.userName || (w.attributes && w.attributes.userName) || ''); } catch (e) { /* */ }
+    }
+    return nom;
+  }
+  const _qn = u => 'wna.q.' + _fx('q|' + u).toString(36);
+  const _qk = u => { let x = _fx('k|' + u) || 1;
+    return () => { x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0; return x & 255; }; };
+  const _qt = (u, b) => _fx(u + '|' + b + '|' + _fs).toString(36);
+  function _qf(u, l) {
+    const j = new TextEncoder().encode(JSON.stringify(l)), k = _qk(u);
+    let o = '';
+    for (let i = 0; i < j.length; i++) o += String.fromCharCode(j[i] ^ k());
+    const b = btoa(o);
+    return 'w2.' + _qt(u, b) + '.' + b;
+  }
+  // null : copie absente ; false : copie retouchée ou illisible ; sinon la liste.
+  function _qo(u, v) {
+    if (v == null || v === '') return null;
+    const m = /^w2\.([0-9a-z]+)\.([A-Za-z0-9+/=]*)$/.exec(String(v));
+    if (!m || _qt(u, m[2]) !== m[1]) return false;
+    try {
+      const o = atob(m[2]), k = _qk(u), j = new Uint8Array(o.length);
+      for (let i = 0; i < o.length; i++) j[i] = o.charCodeAt(i) ^ k();
+      const l = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(j));
+      return Array.isArray(l) ? l : false;
+    } catch (e) { return false; }
+  }
+  // Réunion de plusieurs copies : une entrée n'y figure qu'une fois (comptée l'emporte sur réservée).
+  function _qu(listes) {
+    const vus = new Map();
+    for (const l of listes) for (const x of l || []) {
+      if (typeof x === 'number') { vus.set('n' + x, x); continue; }
+      if (!x || typeof x !== 'object' || typeof x.t !== 'number') continue;
+      const c = [x.t, x.o, x.id].join('|'), y = vus.get(c);
+      if (!y || (x.e === 1 && y.e !== 1)) vus.set(c, x);
+    }
+    return [...vus.values()];
+  }
+  const _lsLire = c => { try { return localStorage.getItem(c); } catch (e) { return null; } };
+  const _gmLire = c => { try { return typeof GM_getValue === 'function' ? GM_getValue(c, null) : null; } catch (e) { return null; } };
+  const _gmEcrire = (c, v) => { try { if (typeof GM_setValue === 'function') GM_setValue(c, v); } catch (e) { /* */ } };
+  function lireEditions(u) {
+    const c = _qn(u), listes = [(quotaMem && quotaMem.u === u && quotaMem.l) || []];
+    let faux = false;
+    for (const v of [_lsLire(c), _gmLire(c)]) {
+      const l = _qo(u, v);
+      if (l === false) faux = true; else if (l) listes.push(l);
+    }
+    let l = _qu(listes);
+    if (faux) {
+      const m = Date.now();
+      l = l.concat(Array.from({ length: _fk[0] }, (_, i) => m + i / 1e3));
+      log('quota : copie retouchée ⇒ ⚡ bloqué une heure');
+      ecrireEditions(u, l);
+    }
+    return l;
+  }
+  function ecrireEditions(u, l) {
+    quotaMem = { u, l: l.slice() };
+    const c = _qn(u), v = _qf(u, l);
+    try { localStorage.setItem(c, v); } catch (e) { /* */ }
+    _gmEcrire(c, v);
+  }
+  // ==/WNA-QUOTA==
+
+  /**
+   * Le quota de l'éditeur, maintenant. Sans pseudo lisible ou avec un cœur retouché : AUCUNE place
+   * (le ⚡ se grise et dit pourquoi), jamais le plafond plein par défaut.
+   */
+  function quotaCourant() {
+    const u = quotaUtilisateur(), m = Date.now();
+    if (!u || !_fc()) return { utilises: 0, reste: 0, max: _fk[0], libre: m + _fk[1], bloque: true };
+    return quotaEditions(lireEditions(u), m);
+  }
+
+  /** Réserve les éditions qu'on vient de poser (`liste` : [{ o, id, x }]). */
+  function reserverEditions(liste) {
+    if (!liste || !liste.length) return;
+    const u = quotaUtilisateur();
+    if (!u) return;
+    const m = Date.now(), l = lireEditions(u);
+    liste.forEach((y, i) => l.push({ t: m + i / 1e3, o: y.o, id: String(y.id), x: y.x || null, e: 0, p: SESSION_Q }));
+    ecrireEditions(u, l);
+    majQuotaAffiche();
+  }
+
+  /**
+   * Après un enregistrement : une entrée réservée retrouvée sur l'objet devient comptée, une
+   * entrée dont l'objet ne porte PAS ce qu'on a écrit est rendue, une entrée indécidable reste
+   * réservée. `etat(x)` rend 'ok' | 'absent' | null. PURE.
+   */
+  function rapprocherEditions(entrees, etat) {
+    const garder = [], comptes = [], rendus = [];
+    for (const x of entrees || []) {
+      if (!x || typeof x !== 'object' || x.e === 1) { garder.push(x); continue; }
+      const st = etat ? etat(x) : null;
+      if (st === 'ok') { const y = Object.assign({}, x, { e: 1 }); garder.push(y); comptes.push(y); }
+      else if (st === 'absent') rendus.push(x);
+      else garder.push(x);
+    }
+    return { entrees: garder, comptes, rendus };
+  }
+
+  /** Normalisation d'un numéro de rue pour comparer (« 4 BIS » = « 4bis »). PURE. */
+  const normNumero = n => String(n == null ? '' : n).trim().toLowerCase().replace(/\s+/g, '');
+
+  /**
+   * Ce que l'objet d'une entrée porte APRÈS l'enregistrement, lu dans le modèle de WME.
+   * 'ok' : ce qu'on avait écrit y est ; 'absent' : l'objet est chargé et ne le porte pas (écriture
+   * annulée avant d'enregistrer) ; null : objet introuvable, on ne tranche pas.
+   */
+  function etatEdition(x) {
+    const d = x && x.x;
+    if (!d) return null;
+    try {
+      if (x.o === 's' || x.o === 'r') {
+        let nam = null;
+        try { nam = readNaming({ id: d.seg }); } catch (e) { return null; }
+        if (!nam) return null;
+        const pr = (d.nom != null) && nam.primary.name === d.nom && nam.primary.cityName === (d.ville || '');
+        const al = (d.alts || []).some(a => (nam.alts || []).some(b => b.name === a.nom && b.cityName === (a.ville || '')));
+        return (pr || al) ? 'ok' : 'absent';
+      }
+      if (x.o === 'c') {
+        const st = hote.W.model.streets.getObjectById(d.rue);
+        if (!st) return null;
+        const t = st.signText || (st.attributes && st.attributes.signText) || '';
+        return String(t).trim() === String(d.sign || '').trim() ? 'ok' : 'absent';
+      }
+      if (x.o === 'p') {
+        let a = null;
+        try { a = sdk.DataModel.Venues.getAddress({ venueId: String(d.venue) }); } catch (e) { return null; }
+        if (!a) return null;
+        return (a.street && a.street.name) === d.rue && (a.city && a.city.name) === d.ville ? 'ok' : 'absent';
+      }
+      if (x.o === 'v' || x.o === 'h') {
+        // Le RPP posé à la place du numéro : même numéro, résidentiel, à moins de 15 m. Juste après
+        // un enregistrement WME recharge ses POI : introuvable n'est PAS disparu (leçon de WBC
+        // 0.13.01) ⇒ jamais rendu. Un POI encore en attente a un identifiant NÉGATIF.
+        const k = Math.cos(d.lat * Math.PI / 180) * 111320;
+        for (const v of sdk.DataModel.Venues.getAll() || []) {
+          if (!v || !v.isResidential || !v.geometry || v.geometry.type !== 'Point') continue;
+          const [lon, lat] = v.geometry.coordinates;
+          if (Math.hypot((lon - d.lon) * k, (lat - d.lat) * 111320) > 15) continue;
+          let num = null;
+          try { num = (sdk.DataModel.Venues.getAddress({ venueId: String(v.id) }) || {}).houseNumber; } catch (e) { /* */ }
+          if (normNumero(num) !== normNumero(d.num)) continue;
+          if (!String(v.id).trim().startsWith('-')) return 'ok';
+        }
+        return null;
+      }
+    } catch (e) { return null; }
+    return null;
+  }
+
+  let rapprochementQ = null;
+  async function rapprocherQuota() {
+    const u = quotaUtilisateur();
+    if (!u) return;
+    const attente = lireEditions(u).filter(x => x && typeof x === 'object' && x.e === 0 && x.p === SESSION_Q);
+    if (!attente.length) return;
+    // Laisser WME recharger ses POI après l'enregistrement avant de les chercher.
+    if (attente.some(x => x.o === 'v' || x.o === 'h')) await new Promise(r => setTimeout(r, 3000));
+    // Relu APRÈS l'attente : une écriture faite entre-temps n'est pas perdue. Seules les entrées
+    // de CETTE page se tranchent : celles d'une autre page parlent d'objets qu'on n'a peut-être pas.
+    const res = rapprocherEditions(lireEditions(u), x => x.p === SESSION_Q ? etatEdition(x) : null);
+    ecrireEditions(u, res.entrees);
+    log('quota : ' + res.comptes.length + ' édition(s) enregistrée(s) comptée(s), ' + res.rendus.length + ' rendue(s)');
+    majQuotaAffiche();
+  }
+  const lancerRapprochementQ = () => {
+    rapprochementQ = (rapprochementQ || Promise.resolve()).then(rapprocherQuota).catch(e => log('quota : ' + e.message));
+  };
+
+  /** Heure courte, dans la langue de l'interface. */
+  const heureCourte = ms => new Date(ms).toLocaleTimeString(LANGUE === 'it' ? 'it-IT' : 'fr-FR',
+    { hour: '2-digit', minute: '2-digit' });
+
+  /** Le quota, en une phrase (bandeau, réglages, en-têtes de groupe). */
+  function texteQuota(q) {
+    q = q || quotaCourant();
+    if (q.bloque) return tr('⚡ indisponible : quota illisible (pseudo de l\'éditeur introuvable).');
+    return q.reste
+      ? trf('Quota : {n} édition(s) scriptée(s) restante(s) sur {max} dans l\'heure glissante.', { n: q.reste, max: q.max })
+      : trf('Quota de {max} éditions scriptées par heure atteint : reprise à {h}.', { max: q.max, h: heureCourte(q.libre) });
+  }
+
+  let minuterieQuota = null;
+  /**
+   * Repeint ce qui dépend du quota : ⚡ grisés quand il est épuisé (avec l'heure de reprise),
+   * compteurs des en-têtes de groupe, ligne des réglages. Programme le repeint au moment où une
+   * place se libère.
+   */
+  function majQuotaAffiche() {
+    const q = quotaCourant();
+    const txt = texteQuota(q);
+    try {
+      const racine = (typeof ui !== 'undefined' && ui && ui.results) ? ui.results : null;
+      if (racine) {
+        racine.querySelectorAll('.agn-fix-btn, .agn-fix-grp').forEach(b => {
+          if (b.dataset.agnOccupe) return;
+          b.disabled = !q.reste;
+          if (!q.reste) b.title = txt;
+          else if (b.dataset.agnTitre) b.title = b.dataset.agnTitre;
+        });
+        racine.querySelectorAll('.agn-quota').forEach(s => {
+          s.textContent = q.reste ? trf('{n} restante(s)', { n: q.reste }) : trf('reprise à {h}', { h: heureCourte(q.libre) });
+          s.title = txt;
+          s.classList.toggle('agn-quota-plein', !q.reste);
+        });
+      }
+      const z = document.getElementById('agn-r-quota');
+      if (z) z.textContent = txt;
+    } catch (e) { /* interface pas encore construite */ }
+    clearTimeout(minuterieQuota);
+    if (!q.reste && !q.bloque && q.libre > Date.now()) {
+      minuterieQuota = setTimeout(majQuotaAffiche, Math.min(q.libre - Date.now() + 1000, 3600000));
+    }
   }
 
   /**
@@ -12248,7 +12596,7 @@
    * rue. Le nom PRINCIPAL, lui, s'ecrit desormais en clair (voir
    * `contexteAdresse`), sans passer par la creation d'objets City/Street.
    */
-  function resoudreStreet(nom, nomVille) {
+  function resoudreStreet(nom, nomVille, info) {
     const DM = sdk.DataModel;
     let city = null;
     if (nomVille) {
@@ -12266,8 +12614,11 @@
     if (!city) throw new Error('ville « ' + (nomVille || 'sans ville') + ' » introuvable');
     // Le « sans nom » est un objet Street vide, pas un null : getStreet('')
     // le rend directement (verifie).
-    return DM.Streets.getStreet({ streetName: nom || '', cityId: city.id }) ||
-           DM.Streets.addStreet({ streetName: nom, cityId: city.id });
+    const deja = DM.Streets.getStreet({ streetName: nom || '', cityId: city.id });
+    if (deja) return deja;
+    // 2.52.00 : une rue CREEE est un objet de plus, elle compte au quota (voir `quotaEditions`).
+    if (info) info.cree = true;
+    return DM.Streets.addStreet({ streetName: nom, cityId: city.id });
   }
 
   /**
@@ -12384,7 +12735,10 @@
     }
     // --- Cartouche sur le nom principal (voie entiere, deja jugee eligible) ---
     if (f.cartouche) {
-      if (f.verrouilles === f.nb) return null;   // toute la voie hors de portee
+      // ⚠️⚠️ 2.52.00 (audit doctrine, axe 4) : l'ecusson se pose sur la STREET, que partagent tous
+      // les segments de la voie. UN SEUL segment verrouille au-dessus du rang suffit a refuser :
+      // avant, on ne refusait que si TOUS l'etaient, et l'ecusson gagnait les verrouilles aussi.
+      if (f.verrouilles) return null;
       return [{ type: 'cartouchePrincipal', streetId: f.cartouche.streetId,
                 signText: f.cartouche.signText, signType: f.cartouche.signType }];
     }
@@ -12443,7 +12797,9 @@
     // ecrit les deux champs d'un coup, et omettre la ville l'EFFACERAIT. Une
     // correction de redaction ne doit toucher qu'au nom.
     const red = cur.find(e => e.champ === 'rédaction (dictionnaire FR)');
-    if (red && red.apres && !red.sansProposition &&
+    // 4. JAMAIS une proposition du dictionnaire PUBLIC (2.52.00) : lecture seule, voir
+    //    `ecartDeRedaction`.
+    if (red && red.apres && !red.sansProposition && !red.publique &&
         !ops.some(o => o.type === 'principal')) {
       // `garderVille` : a l'ecriture, la ville est RELUE sur le segment (audit 25/09/2026, A10).
       ops.push({ type: 'principal', nom: red.apres, ville: f.villeActuelle || '', garderVille: true });
@@ -12474,6 +12830,10 @@
    * PURE.
    */
   function corrigeableEnGroupe(f) {
+    // ⚠️⚠️ 2.52.00 (arbitrage de l'auteur du 11/10/2026) : la conversion numero → RPP se fait
+    // ADRESSE PAR ADRESSE, jamais en lot ; l'adresse d'un POI aussi. Le bouton de groupe les
+    // ecartait deja par la famille ; on le dit ici, ou toute la decision « en lot » se prend.
+    if (f.adresse || f.poi) return false;
     if (!planDeCorrection(f)) return false;
     if (f.verrouilles && f.verrouilles >= (f.nb || 1)) return false;
     return !(f.doute && !f.cartouche);
@@ -12503,6 +12863,50 @@
         .filter(x => x.attributes && x.attributes.primaryStreetID === streetId)
         .map(x => x.attributes.id);
     } catch (e) { return []; }
+  }
+
+  /**
+   * Les segments CHARGES qui portent cette rue, en principal OU en alternatif (2.52.00, audit
+   * doctrine axe 4). Lus par le SDK et par le modele interne, reunis. Rend null si AUCUNE des deux
+   * lectures n'a abouti : l'appelant refuse alors, il ne conclut jamais « aucun segment, tout passe ».
+   */
+  function segmentsPortantLaRue(streetId) {
+    const cle = String(streetId), ids = new Set();
+    let lu = false;
+    try {
+      for (const s of sdk.DataModel.Segments.getAll() || []) {
+        if (!s) continue;
+        if (String(s.primaryStreetId) === cle || (s.alternateStreetIds || []).some(a => String(a) === cle)) ids.add(s.id);
+      }
+      lu = true;
+    } catch (e) { /* */ }
+    try {
+      for (const x of hote.W.model.segments.getObjectArray()) {
+        const a = x && x.attributes;
+        if (!a) continue;
+        if (String(a.primaryStreetID) === cle || (a.streetIDs || []).some(v => String(v) === cle)) ids.add(a.id);
+      }
+      lu = true;
+    } catch (e) { /* */ }
+    return lu ? [...ids] : null;
+  }
+
+  /**
+   * L'ecusson peut-il se poser sur cette rue ? Il vit sur la STREET : il gagne TOUS les segments
+   * qui la portent. Un seul segment charge hors des droits de l'editeur ⇒ refus. Rend le motif du
+   * refus, ou null. (2.52.00, audit doctrine axe 4.)
+   */
+  function rueHorsDroits(streetId) {
+    const ids = segmentsPortantLaRue(streetId);
+    if (ids == null) return tr('cartouche refusé : les segments de la rue ne peuvent pas être lus');
+    if (!ids.length) return tr('cartouche refusé : aucun segment de la rue n\'est chargé — zoome sur la voie puis réessaie');
+    const hors = ids.filter(id => {
+      try { return !sdk.DataModel.Segments.hasPermissions({ segmentId: id }); }
+      catch (e) { return true; }
+    });
+    return hors.length
+      ? trf('cartouche refusé : {n} segment(s) de la rue verrouillé(s) au-dessus de ton niveau', { n: hors.length })
+      : null;
   }
 
   /** Ce qui restera a faire a la main apres application. */
@@ -12544,6 +12948,12 @@
 
   function convertirHnEnPoi(f, choix) {
     const DM = sdk.DataModel;
+    // ⚠️⚠️ 2.52.00 (arbitrage de l'auteur du 11/10/2026) : UN numero par geste. Chaque report n'en
+    // porte qu'un depuis le 22/07 ; ce garde empeche qu'un report a plusieurs numeros, d'ou qu'il
+    // vienne, n'en convertisse plusieurs d'un coup.
+    if ((f.hns || []).length !== 1) throw new Error(tr('conversion refusée : un seul numéro à la fois'));
+    // Editions posees (quota) : le RPP cree et le numero retire, deux objets.
+    const editions = [];
     // Le NOM vient du choix de l'editeur quand il y avait ambiguite, sinon de
     // l'unique adresse portee par le segment.
     const nomRue = (choix && choix.nom) || f.rueCible.nom;
@@ -12594,6 +13004,16 @@
         echecs.push(hn.number + ' : commune indéterminable (aucun contour chargé sous ' +
           'ce numéro et le segment n\'en porte pas) — charge le département voisin, ' +
           'ou choisis la commune à la main');
+        continue;
+      }
+      // ── 0. Doublon : un RPP porte-t-il DEJA cette adresse ? (2.52.00, audit doctrine axe 3) ──
+      // Meme numero, meme rue (normalisation de `cleNumeroRue`), a moins de RPP_EXISTANT_M : on
+      // ne cree RIEN et on ne retire rien. Le numero reste, l'editeur tranche sur place.
+      const pt = hn.geometry && hn.geometry.coordinates;
+      const dbl = pt ? rppExistant(hn.number, nomRue, pt) : null;
+      if (dbl) {
+        echecs.push(trf('{num} : un RPP « {num} {rue} » existe déjà à {d} m — rien n\'a été créé ni retiré ; si c\'est un doublon, supprime le numéro à la main',
+          { num: hn.number, rue: nomRue, d: dbl.dist }));
         continue;
       }
       // ── 1. Creation du POI ─────────────────────────────────────────────────
@@ -12656,6 +13076,10 @@
         DM.HouseNumbers.deleteHouseNumber({ houseNumberId: hn.id });
         faits++; villesUtilisees.add(ville);
         crees.push(venueId);            // pour selectionner le POI ensuite
+        // Quota (2.52.00) : deux objets, le RPP cree et le numero retire. Tous deux se retrouvent
+        // apres l'enregistrement par le RPP (la conversion est en « tout ou rien »).
+        const ou = pt ? { lon: pt[0], lat: pt[1], num: String(hn.number) } : null;
+        editions.push({ o: 'v', id: venueId, x: ou }, { o: 'h', id: hn.id, x: ou });
       } catch (e) {
         // ⚠️ Le POI existe mais le numero resiste : on RETIRE le POI, sinon
         // l'adresse serait en double — pire que l'ecart de depart.
@@ -12673,7 +13097,34 @@
         }
       }
     }
-    return { faits, reprises, echecs, critiques, laisses, villes: [...villesUtilisees] };
+    return { faits, reprises, echecs, critiques, laisses, villes: [...villesUtilisees], editions };
+  }
+
+  /** Distance sous laquelle un RPP au meme numero et a la meme rue est un doublon (2.52.00). */
+  const RPP_EXISTANT_M = 50;
+
+  /**
+   * Un POI residentiel porte-t-il DEJA cette adresse, tout pres ? (2.52.00, audit doctrine axe 3)
+   * Lu dans le modele de WME : la conversion cadre la carte au zoom des numeros, les POI voisins
+   * y sont donc charges. Meme normalisation que `cleNumeroRue`. Rend { dist, id } ou null.
+   */
+  function rppExistant(numero, rue, point) {
+    let liste = [];
+    try { liste = sdk.DataModel.Venues.getAll() || []; } catch (e) { return null; }
+    const cle = cleNumeroRue(rue, numero);
+    let best = null;
+    for (const v of liste) {
+      if (!v || !v.isResidential) continue;
+      const p = centreGeom(v.geometry);
+      if (!p) continue;
+      const d = distanceM(point, p);
+      if (d > RPP_EXISTANT_M) continue;
+      let a = null;
+      try { a = sdk.DataModel.Venues.getAddress({ venueId: String(v.id) }); } catch (e) { continue; }
+      if (!a || cleNumeroRue(a.street && a.street.name, a.houseNumber) !== cle) continue;
+      if (!best || d < best.dist) best = { dist: Math.round(d), id: v.id };
+    }
+    return best;
   }
 
 
@@ -12918,6 +13369,11 @@
     }
     const plan = planDeCorrection(f);
     if (!plan) return { ok: false, motif: 'rien d\'automatisable' };
+    // ⚠️⚠️ QUOTA (2.52.00, doctrine France § 3.3) : avant toute question et toute ecriture. Une
+    // correction qui ne tient pas ENTIERE dans ce qui reste de l'heure ne commence pas.
+    const besoin = editionsPrevues(f, plan);
+    const qAvant = quotaCourant();
+    if (qAvant.reste < besoin) return refusQuota(qAvant, besoin);
     // ⚠️ On demande AVANT d'ecrire quoi que ce soit : une correction ne doit
     // jamais commencer par une ecriture puis s'interrompre sur une question.
     for (const op of plan) {
@@ -12966,6 +13422,7 @@
       } catch (e) {
         return { ok: false, motif: 'adresse refusée par WME (' + (e.message || e) + ')' };
       }
+      reserverEditions([{ o: 'p', id: op.venueId, x: { venue: String(op.venueId), rue: op.rue, ville: op.ville } }]);
       return { ok: true, nb: 1, ops: 1, bloques: 0,
                // Le numero n'est jamais ecrit : on le RAPPELLE, sinon l'editeur
                // croira l'adresse complete.
@@ -12992,6 +13449,7 @@
       }
       try {
         const r = convertirHnEnPoi(f, choix);
+        reserverEditions(r.editions);
         if (!r.faits) return { ok: false, motif: r.echecs[0] || 'aucun numéro converti',
                                critiques: r.critiques };
         // ⚠️⚠️ NE PAS reduire les echecs a un COMPTEUR (defaut corrige en v2.09) :
@@ -13048,6 +13506,13 @@
     const { adresses, nomsAvant } = preparation;
     const avertissements = [];
     let ecrits = 0;
+    // Quota (2.52.00) : une entree par OBJET modifie ou cree. Un segment renomme ET complete d'un
+    // alternatif dans la meme correction reste UN objet modifie.
+    const parSeg = new Map(), autres = [];
+    const editionSeg = id => {
+      if (!parSeg.has(id)) parSeg.set(id, { o: 's', id, x: { seg: id, alts: [] } });
+      return parSeg.get(id).x;
+    };
     try {
       for (const op of plan) {
         if (op.type === 'cartouchePrincipal') {
@@ -13057,6 +13522,7 @@
             throw new Error('cartouche : la rue n\'est pas encore chargée — réessaie');
           }
           ecrits++;
+          autres.push({ o: 'c', id: op.streetId, x: { rue: op.streetId, sign: op.signText } });
         } else if (op.type === 'principal') {
           // Nom principal : ecriture BRUTE (SDK v2.359). Plus besoin de resoudre
           // ni de creer City/Street — et « sans nom » / « sans ville » s'ecrivent
@@ -13065,22 +13531,28 @@
           //    pas celle de l'analyse — perimee, ou vide si l'API n'avait pas livre les villes.
           ids.forEach(id => {
             const a = adresses.get(id);
+            const ville = op.garderVille ? a.ville : (op.ville || '');
             sdk.DataModel.Segments.updateAddress({
               segmentId: id,
               addressData: { streetName: op.nom || '',
-                             cityName: op.garderVille ? a.ville : (op.ville || ''),
+                             cityName: ville,
                              stateId: a.stateId, countryId: a.countryId }
             });
             ecrits++;
+            Object.assign(editionSeg(id), { nom: op.nom || '', ville });
           });
         } else {
           // Alternatif : `addAlternateStreet` veut un ID, donc on resout encore.
           // On n'utilise PAS `alternateStreetIds` de `addressData` : il REMPLACE
           // la liste, ce qui effacerait des alternatifs legitimes.
-          const rue = resoudreStreet(op.nom, op.ville);
+          const info = {};
+          const rue = resoudreStreet(op.nom, op.ville, info);
           if (!rue) throw new Error('rue « ' + op.nom + ' » introuvable');
+          // Une rue creee est un objet de plus : elle compte, et se retrouve par l'alternatif.
+          if (info.cree) autres.push({ o: 'r', id: rue.id, x: { seg: ids[0], alts: [{ nom: op.nom, ville: op.ville || '' }] } });
           sdk.DataModel.Segments.addAlternateStreet({ segmentIds: ids, streetId: rue.id });
           ecrits++;
+          ids.forEach(id => editionSeg(id).alts.push({ nom: op.nom, ville: op.ville || '' }));
           // Le cartouche ne suit pas tout seul : voir `cartoucheAReprendre`.
           // On ne touche a rien si la rue en porte deja un — elle est PARTAGEE,
           // et l'ecraser deborderait sur tous les segments qui l'utilisent.
@@ -13089,8 +13561,15 @@
           //    nom de rue une op plus tot — et le numero arrivait en alternatif tout nu.
           if (!cartoucheDeStreet(rue.id)) {
             const src = cartoucheAReprendre(op.nom, nomsAvant);
-            if (src && !ecrireCartouche(rue.id, src.signText, src.signType)) {
+            // ⚠️ 2.52.00 (audit doctrine, axe 4) : la rue de l'alternatif est PARTAGEE elle aussi ;
+            //    un segment qui la porte hors des droits de l'editeur ⇒ l'ecusson n'est pas reporte.
+            const horsDroits = src ? rueHorsDroits(rue.id) : null;
+            if (src && horsDroits) {
+              avertissements.push(trf('cartouche de « {nom} » non reporté ({motif}) : pose-le à la main', { nom: op.nom, motif: horsDroits }));
+            } else if (src && !ecrireCartouche(rue.id, src.signText, src.signType)) {
               avertissements.push('cartouche de « ' + op.nom + ' » non reporté : pose-le à la main');
+            } else if (src) {
+              autres.push({ o: 'c', id: rue.id, x: { rue: rue.id, sign: src.signText } });
             }
           }
         }
@@ -13102,7 +13581,38 @@
       return { ok: false, motif: (e.message || String(e)) + (ecrits
         ? ' — ⚠️ ' + ecrits + ' écriture(s) déjà posée(s) : Ctrl+Z pour les annuler avant d\'enregistrer'
         : '') };
+    } finally {
+      // Ce qui est ecrit est en attente dans WME : reserve, meme si la suite a echoue.
+      reserverEditions([...parSeg.values()].concat(autres));
     }
+  }
+
+  /**
+   * Combien d'editions une correction peut poser AU PLUS (2.52.00) : on la refuse si elle ne
+   * tient pas entiere dans le quota. Segments du report, plus, par alternatif, la rue qui peut
+   * etre creee et l'ecusson qui peut etre reporte ; un cartouche principal = sa rue ; l'adresse
+   * d'un POI = le POI ; une conversion = le RPP cree et le numero retire. PURE.
+   */
+  function editionsPrevues(f, plan) {
+    if (!plan || !plan.length) return 0;
+    if (f.poi) return 1;
+    if (f.adresse) return 2;
+    let n = 0;
+    if (plan.some(o => o.type === 'principal' || o.type === 'alt')) {
+      n += Math.max(1, (f.segIds || [f.segId]).length - (f.verrouilles || 0));
+    }
+    n += plan.filter(o => o.type === 'cartouchePrincipal').length;
+    n += 2 * plan.filter(o => o.type === 'alt').length;
+    return n;
+  }
+
+  /** Le refus d'une correction faute de quota : rien n'a ete ecrit, et on dit quand reprendre. */
+  function refusQuota(q, besoin) {
+    return { ok: false, quota: true,
+             motif: q.bloque ? texteQuota(q)
+               : q.reste
+                 ? trf('quota insuffisant : cette correction peut poser jusqu\'à {b} édition(s), il en reste {n} dans l\'heure — rien n\'a été écrit', { b: besoin, n: q.reste })
+                 : texteQuota(q) + ' ' + tr('Rien n\'a été écrit.') };
   }
 
   /**
@@ -13123,6 +13633,13 @@
       }
       adresses.set(id, { stateId: a.state.id, countryId: a.country && a.country.id,
                          ville: (a.city && !a.city.isEmpty && a.city.name) ? a.city.name : '' });
+    }
+    // ⚠️⚠️ 2.52.00 (audit doctrine, axe 4) : l'ecusson du principal se pose sur la Street, donc sur
+    // TOUS ses segments charges — un seul hors des droits de l'editeur arrete TOUT le plan.
+    for (const op of plan) {
+      if (op.type !== 'cartouchePrincipal') continue;
+      const refus = rueHorsDroits(op.streetId);
+      if (refus) return { motif: refus };
     }
     // ⚠️⚠️ ON NE CREE JAMAIS DE COMMUNE (doctrine de l'auteur, 25/07) — ni en alternatif, ni en
     // principal. Une ville absente de Waze arrete TOUT le plan, avant la moindre ecriture.
@@ -13392,6 +13909,9 @@
   .agn-fix-grp{border:1px solid #ffe082;background:#fffde7;color:var(--agn-orange, #e65100);border-radius:3px;cursor:pointer;
     font-size:10px;padding:1px 6px;flex:0 0 auto;margin-right:2px}
   .agn-fix-grp:hover{background:#fff8e1;border-color:var(--agn-ambre, #ffb300)}
+  .agn-fix-btn:disabled,.agn-fix-grp:disabled{opacity:.45;cursor:not-allowed}
+  .agn-quota{font-size:10px;color:var(--agn-gris, #546e7a);white-space:nowrap;margin-right:4px}
+  .agn-quota.agn-quota-plein{color:var(--agn-brun, #a34a00);font-weight:600}
   .agn-ok-btn{border:1px solid #c8e6c9;background:#fff;color:var(--agn-vert, #2e7d32);border-radius:3px;cursor:pointer;
     font-size:11px;padding:0;line-height:15px;flex:0 0 auto;width:20px;text-align:center}
   .agn-ok-btn:hover{background:#e8f5e9}
@@ -15272,7 +15792,8 @@
             <div class="agn-note" id="agn-r-dico"></div>
             <div class="agn-sb-n" id="agn-r-relance"></div>`)}
           ${sect('correction', 'Correction', `
-            <div class="agn-sb-n" id="agn-r-droits"></div>`)}
+            <div class="agn-sb-n" id="agn-r-droits"></div>
+            <div class="agn-sb-n" id="agn-r-quota" style="display:none"></div>`)}
         </div>
 
         <div class="agn-sb-vue" data-vue="affichage">
@@ -15536,6 +16057,9 @@
           : tr('Lecture du profil en cours…');
       // ⭐ La mention du pied SUIT LE PROFIL (arbitrage de l'auteur, 25/09/2026) : « ne modifie
       //    jamais la carte » n'est vrai que pour qui n'a pas le ⚡.
+      // Quota (2.52.00) : affiche des que le ⚡ est ouvert.
+      const zq = q('#agn-r-quota');
+      if (zq) { zq.style.display = d.autorise ? '' : 'none'; if (d.autorise) zq.textContent = texteQuota(); }
       const mention = q('#agn-r-mention');
       if (mention) {
         mention.textContent = d.autorise
@@ -16507,6 +17031,13 @@
    * c'est l'editeur qui relit et enregistre.
    */
   async function corriger(liste, noeuds) {
+    // ⚠️⚠️ 2.52.00 (arbitrage de l'auteur du 11/10/2026) : une adresse (conversion numero → RPP,
+    // adresse d'un POI) se corrige UNE PAR UNE. Une serie qui en contiendrait est refusee entiere,
+    // quel que soit le chemin qui l'a composee.
+    if (liste.length > 1 && liste.some(f => f.adresse || f.poi)) {
+      log('série refusée : elle contient des adresses, qui se corrigent une par une');
+      return;
+    }
     let ok = 0, segments = 0, bloques = 0, reprises = 0;
     crees = [];                 // on ne selectionne que les POI de CETTE serie
     // Une conversion d'adresses compte des NUMEROS, pas des segments.
@@ -16547,6 +17078,14 @@
         } else echecs.push(f.libelle + ' — ' + res.motif);
         traites++;
         prog.fixer(i + 1);
+        // Quota epuise (2.52.00) : la serie s'arrete la, le reste attend l'heure de reprise.
+        if (res.quota) {
+          if (i + 1 < liste.length) {
+            interrompu = true;
+            echecs.unshift(trf('série arrêtée par le quota : {n} report(s) non traité(s)', { n: liste.length - traites }));
+          }
+          break;
+        }
       }
     } catch (e) {
       // ⚠️ Ce qui a deja ete applique RESTE applique : on s'arrete entre deux
@@ -16592,6 +17131,7 @@
         ${reprises ? trf('<b>{n}</b> point(s) d\'entrée repris du numéro sur le POI.', { n: reprises }) + ' ' : ''}
         ${enAttente != null ? trf('<b>{n}</b> modification(s) en attente dans WME —', { n: enAttente }) + ' ' : ''}
         ${tr('<b>rien n\'est enregistré</b> : relis, puis clique sur Enregistrer dans WME.')}
+        <br>${esc(texteQuota())}
         ${echecs.length
           // ⚠️ Audit du 25/09/2026 : trois echecs affiches, sans le total — on ne savait pas combien chercher.
           ? '<br>' + trf('Échecs ({n}) :', { n: echecs.length }) + ' ' + echecs.slice(0, 3).map(esc).join(' ; ') +
@@ -16713,7 +17253,9 @@
                                   : 'sans ville en principal';
     let t;
     if (!vus) t = '⚠ aucun segment chargé : déplace ou dézoome la carte.';
-    else if (!n) t = 'Aucun segment ' + quoi + ' dans ' + communeActive.nom +
+    // ⚠️ 2.52.00 (audit doctrine, axe 7) : le nom vient de geo.api.gouv.fr ou d'un GeoJSON choisi
+    // par l'editeur, et part dans `innerHTML` : il s'echappe.
+    else if (!n) t = 'Aucun segment ' + quoi + ' dans ' + esc(communeActive.nom) +
                      ', sur les ' + vus + ' de la vue.';
     else t = '<b>' + n + '</b> segment(s) ' + quoi + ', sur les ' + vus + ' de la vue' +
              (horsCommune ? ' · ' + horsCommune + ' écarté(s), hors de la commune' : '') + '.';
@@ -17547,7 +18089,8 @@
             <b>${esc(fam.libelle)}</b>
             ${_ft() && _fv() && cle !== 'adresse' && cle !== 'rpp' && cle !== 'poiAdresse' &&
               membres.some(corrigeableEnGroupe)
-              ? '<button class="agn-fix-grp" title="Appliquer les corrections automatisables de ce groupe (celles qui portent un doute se font une par une)">⚡ corriger</button>' : ''}
+              ? '<button class="agn-fix-grp" title="Appliquer les corrections automatisables de ce groupe (celles qui portent un doute se font une par une)" data-agn-titre="Appliquer les corrections automatisables de ce groupe (celles qui portent un doute se font une par une)">⚡ corriger</button>' +
+                ' <span class="agn-quota"></span>' : ''}
             <button class="agn-ok-grp" title="Marquer tout le groupe comme traité (un second clic décoche tout)">✓ tout</button>
             <span class="agn-grp-n">${membres.length}</span>
           </div>
@@ -17562,8 +18105,14 @@
         const nbSeg = aFaire.reduce((n, x) => n + Math.max(0, (x.nb || 1) - (x.verrouilles || 0)), 0);
         const douteux = membres.filter(x => planDeCorrection(x) && !corrigeableEnGroupe(x) &&
                                             !(x.verrouilles && x.verrouilles >= (x.nb || 1))).length;
+        // Quota (2.52.00) : le dire AVANT, et ce qu'il advient s'il ne couvre pas tout le lot.
+        const q = quotaCourant();
+        if (!q.reste) { majQuotaAffiche(); return; }
+        const prevu = aFaire.reduce((n, x) => n + editionsPrevues(x, planDeCorrection(x)), 0);
         if (!confirm(trf('Appliquer {n} correction(s) sur {s} segment(s) ?', { n: aFaire.length, s: nbSeg }) + '\n\n' +
           (douteux ? trf('{k} autre(s) avec un doute ne sont pas incluses : à faire une par une.', { k: douteux }) + '\n\n' : '') +
+          texteQuota(q) + '\n' +
+          (prevu > q.reste ? tr('Le quota ne couvre pas tout le groupe : la série s\'arrêtera quand il sera épuisé.') + '\n' : '') + '\n' +
           tr('Rien ne sera enregistré : tu reliras dans WME avant de cliquer sur Enregistrer.'))) return;
         corriger(aFaire, aFaire.map(x => corps.querySelector('.agn-item[data-idx="' + findings.indexOf(x) + '"]')));
       };
@@ -17576,8 +18125,8 @@
         const node = el(`
           <div class="agn-item agn-${cle}${f.traite ? ' agn-traite' : ''}" data-seg="${f.segId}" data-idx="${findings.indexOf(f)}">
             <div class="agn-h"><span>${esc(f.libelle)}</span>
-              ${planDeCorrection(f) && _ft() && f.verrouilles !== f.nb
-                ? '<button class="agn-fix-btn" title="Appliquer la correction (sans enregistrer)">⚡</button>' : ''}
+              ${planDeCorrection(f) && _ft() && _fv() && f.verrouilles !== f.nb
+                ? '<button class="agn-fix-btn" title="Appliquer la correction (sans enregistrer)" data-agn-titre="Appliquer la correction (sans enregistrer)">⚡</button>' : ''}
               <button class="agn-ok-btn" title="Marquer comme traité">✓</button>
               <span class="agn-cas">${f.cas}</span></div>
             <div class="agn-note">${f.poi
@@ -17595,7 +18144,8 @@
               f.verrouilles ? ' · <b class="agn-lock" title="Verrouillés au-dessus de ton niveau : non modifiables">🔒 ' +
                 f.verrouilles + '</b>' : ''}${
               f.disperse ? ' · <span class="agn-note" title="Tronçons éloignés : la carte se pose sur le plus long">éparpillés</span>' : ''}</div>
-            ${f.ecarts.map(e => `<div class="agn-d"><b>${e.champ}</b> : ${esc(e.avant)} → ${esc(e.apres)}</div>`).join('')}
+            ${f.ecarts.map(e => `<div class="agn-d"><b>${e.champ}</b> : ${esc(e.avant)} → ${esc(e.apres)}${
+              e.publique ? ' <span class="agn-note">' + tr('(règle du dictionnaire public : à recopier à la main, le ⚡ ne l\'écrit pas)') + '</span>' : ''}</div>`).join('')}
             ${f.aide && f.aide.length ? `<div class="agn-aide">${
               f.aideTitre ? '<b>🛠 ' + esc(f.aideTitre) + '</b>' : ''}${
               f.aide.map(t => '<div class="agn-aide-l">' + esc(t) + '</div>').join('')}</div>` : ''}
@@ -17616,7 +18166,9 @@
         if (fix) fix.onclick = async e => {
           e.stopPropagation();
           fix.disabled = true;
-          try { await corriger([f], [node]); } finally { fix.disabled = false; }
+          fix.dataset.agnOccupe = '1';
+          try { await corriger([f], [node]); }
+          finally { delete fix.dataset.agnOccupe; fix.disabled = false; majQuotaAffiche(); }
         };
         corps.appendChild(node);
       });
@@ -17629,6 +18181,8 @@
     // Les coches restaurees d'une session precedente comptent : une thematique
     // deja finie doit s'afficher comme telle des le rendu.
     replierThematiquesFinies();
+    // Quota (2.52.00) : ⚡ grises s'il est epuise, compteurs des en-tetes de groupe.
+    majQuotaAffiche();
     // Une analyse a tourne : plus rien a guider (ou l'etape suivante s'affiche).
     majGuidage();
   }
@@ -17811,6 +18365,12 @@
       try { sdk.Events.on({ eventName: ev, eventHandler: () => dessinerPoignees() }); }
       catch (e) { log('abonnement ' + ev + ' impossible', e); }
     });
+
+    // Quota (2.52.00) : ce qui compte, c'est ce qui PART A L'ENREGISTREMENT. Apres un enregistrement
+    // reussi, les editions reservees de cette page sont relues : retrouvees ⇒ comptees, annulees
+    // avant d'enregistrer ⇒ rendues. Meme abonnement que WME BAN Coverage.
+    try { sdk.Events.on({ eventName: 'wme-save-finished', eventHandler: r => { if (r && r.success) lancerRapprochementQ(); } }); }
+    catch (e) { log('abonnement à l\'enregistrement impossible', e); }
 
     // Au demarrage aussi : l'editeur arrive souvent deja pose sur sa zone.
     autoChargerDepartement().then(rafraichirCommunesDeLaVue);

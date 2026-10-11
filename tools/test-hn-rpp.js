@@ -85,11 +85,14 @@ function jouer(pannes, options) {
     crees: []
   };
   const code = extraire('convertirHnEnPoi');
+  // 2.52.00 : le controle des doublons (`rppExistant`) a son propre banc (test-rpp-doublon.js) ;
+  // ici il ne trouve rien, pour eprouver le protocole seul.
+  const tr = x => x, trf = (x, v) => x.replace(/\{(\w+)\}/g, (m, k) => v && v[k] != null ? String(v[k]) : m);
   const fn = new Function('sdk', 'REF', 'contexteAdresse', 'communeDuPoint',
-                          'hnsManipulables', 'crees',
+                          'hnsManipulables', 'crees', 'rppExistant', 'tr', 'trf',
                           code + '\nreturn convertirHnEnPoi;')(
     ctx.sdk, ctx.REF, ctx.contexteAdresse, ctx.communeDuPoint,
-    ctx.hnsManipulables, ctx.crees);
+    ctx.hnsManipulables, ctx.crees, () => null, tr, trf);
 
   const f = {
     segId: 1,
