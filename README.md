@@ -36,7 +36,7 @@ Le script ne **crée** jamais un nom ni un numéro : il réorganise ce qui est d
 
 1. Installer `WME-Naming-Auditor.user.js` dans Tampermonkey (accepter l'autorisation d'accès à `geo.api.gouv.fr`).
 2. Dans WME, ouvrir l'onglet du script (son icône, dans le panneau latéral **Scripts**), puis **Afficher la fenêtre** — ou cliquer sur la même icône dans la colonne de boutons de la carte.
-3. Cocher un ou plusieurs départements (en Italie : des provinces) et cliquer sur **Télécharger et charger** : les contours arrivent directement, sans passer par un fichier. L'option « Charger tout seul le département visible » s'en charge aussi.
+3. Cocher un ou plusieurs départements (en Italie : des provinces) et cliquer sur **Télécharger et charger** : les contours arrivent directement, sans passer par un fichier. L'option « Charger tout seul le département visible » s'en charge aussi ; elle est **décochée par défaut**.
 4. Choisir une commune, tracer son agglomération, analyser.
 
 Les contours peuvent aussi venir d'un **fichier GeoJSON** que vous fournissez — utile hors ligne, ou pour employer une autre source que celle proposée. L'outil `Recuperer-Communes.html` fabrique ce fichier depuis un navigateur, indépendamment du script.
@@ -66,7 +66,7 @@ Les segments dans une situation strictement identique sont regroupés en un seul
 
 ## À quoi ça ressemble
 
-Chaque report montre l'état actuel et l'état proposé, champ par champ. Le ⚡ applique la correction dans WME — sans l'enregistrer.
+Chaque report montre l'état actuel et l'état proposé, champ par champ. Le ⚡ applique la correction dans WME — sans l'enregistrer (voir **La correction** plus bas).
 
 ![Un groupe d'écarts déplié : pour chaque voie, le nommage actuel et celui que la règle demande.](captures/02-detail-report.jpg)
 
@@ -78,9 +78,32 @@ Tout part de deux géométries, à préparer une fois par commune : le contour o
 
 ![Le volet des données de référence à Ploemeur : les 26 panneaux d'entrée et de sortie d'agglomération relevés, avant le tracé.](captures/04-donnees-reference.jpg)
 
+## La correction (⚡)
+
+L'audit est ouvert à tous. Le bouton ⚡, qui écrit la correction dans WME, est réservé aux **L6**, aux **Local Champs**, **Global Champs** et **Country Coordinators**, aux **Global Editors** et au **staff** — il ne l'est plus aux L5. Le rôle de Champ est lu dans les groupes du forum Waze, avec la session de l'éditeur. Sans ces droits, l'onglet le dit et donne le rang lu ; l'audit reste entier.
+
+- **⚡ de groupe** : avant d'écrire quoi que ce soit, une fenêtre **liste ce qui va être écrit**, correction par correction — les segments touchés, chaque champ **avant → après** — et signale les segments **verrouillés au-dessus du niveau** de l'éditeur, qui ne seront pas touchés. Le ⚡ de groupe ne porte que sur le nommage et les cartouches ; les adresses, les POI et les corrections qui portent un doute se font une par une. Rien n'est écrit sans « Appliquer ces corrections ».
+- **Numéro → POI résidentiel** : la conversion se fait **une adresse à la fois**, jamais en lot. Si un POI résidentiel portant déjà ce numéro et cette rue existe **à moins de 50 m**, rien n'est créé ni retiré : le numéro reste, l'éditeur tranche.
+- **Cartouche** : refusé si un segment de la rue est **verrouillé au-dessus du niveau** de l'éditeur, ou si aucun segment de la rue n'est chargé ou lisible.
+- **Dictionnaire public** : une règle venue de la partie publique du dictionnaire de rédaction est **proposée**, jamais écrite par le ⚡ — elle se recopie à la main.
+
+## Limites
+
+**Au plus 150 éditions scriptées par heure glissante et par éditeur.** Chaque objet modifié ou créé par le ⚡ compte (segment renommé, nom alternatif, cartouche, adresse d'un POI, POI créé, numéro retiré), **à l'enregistrement** : une écriture annulée avant d'enregistrer est rendue. Le quota restant est affiché ; une fois atteint, le ⚡ est **grisé** et l'heure de reprise est indiquée. Une correction qui ne tient pas entière dans le reste est refusée avant d'écrire ; une série de groupe s'arrête quand le quota est épuisé, et la fenêtre de confirmation le dit avant. Le plafond n'est pas un réglage.
+
 ## Mise à jour
 
 Une pastille rouge apparaît dans l'en-tête de la fenêtre, et un bandeau dans l'onglet Scripts, quand une version plus récente est publiée sur GreasyFork ; le clic ouvre le fichier, et le gestionnaire de scripts propose la mise à jour. La vérification a lieu **au plus une fois par 24 h**. La pastille reste éteinte si la version installée est à jour, **et aussi hors ligne** : elle ne s'allume que sur une réponse claire, jamais par précaution.
+
+### Version minimale et intégrité
+
+Au démarrage, le script lit [`version-min.json`](version-min.json) dans ce dépôt. Il **ne démarre pas**, et affiche un bandeau qui dit pourquoi, si :
+
+- sa version a été **retirée** par l'auteur (plus ancienne que le minimum indiqué) — il faut le mettre à jour ;
+- son code ne correspond pas au code publié pour sa version (**copie modifiée ou abîmée**) — il faut le réinstaller depuis sa page officielle ;
+- sa version **n'a jamais été publiée**.
+
+Si le fichier est injoignable ou illisible, le script démarre normalement : une panne de GitHub ne bloque personne. Ce contrôle tourne dans le navigateur : il arrête une copie périmée ou retouchée, ce n'est pas un verrou.
 
 ## Les pays
 
@@ -94,9 +117,9 @@ Le fichier reste sur le poste de l'éditeur.
 
 En Italie, les contours viennent de **geojson-italy** (openpolis, désormais `guglielmo/geojson-italy`), d'après les limites de l'**ISTAT**, sous **CC BY 4.0** ; le script les lit sur une version figée (commit daté), jamais sur une branche qui bouge.
 
-Le script joint six hôtes, et seulement ceux-là (déclarés en `@connect`) : `geo.api.gouv.fr` pour les contours français et le département sous la vue, `api.wazefrance.com` pour les **panneaux d'entrée d'agglomération** (EB10 / EB20), interrogés automatiquement pour la commune choisie, `docs.google.com` et `googleusercontent.com` pour le dictionnaire de rédaction, `raw.githubusercontent.com` pour les **contours italiens** et pour charger un fichier de partage par son adresse, et `update.greasyfork.org` pour savoir si une version plus récente est publiée. Ces requêtes partent **sans vos cookies**.
+Le script joint six hôtes, et seulement ceux-là (déclarés en `@connect`) : `geo.api.gouv.fr` pour les contours français et le département sous la vue, `api.wazefrance.com` pour les **panneaux d'entrée d'agglomération** (EB10 / EB20), interrogés pour la commune choisie **au clic** sur « 🪧 Panneaux d'agglomération » seulement, `docs.google.com` et `googleusercontent.com` pour le dictionnaire de rédaction, `raw.githubusercontent.com` pour les **contours italiens**, pour charger un fichier de partage par son adresse et, au démarrage, pour lire `version-min.json`, et `update.greasyfork.org` pour savoir si une version plus récente est publiée. Ces requêtes partent **sans vos cookies**.
 
-Ce sont toutes des **lectures** : le script n'envoie aucun contenu. Les seuls paramètres transmis sont un **numéro de département** et, pour savoir lequel est sous les yeux, les **coordonnées de la vue** (latitude, longitude). **Rien de ce que vous éditez ne quitte le navigateur.**
+Ce sont toutes des **lectures** : le script n'envoie aucun contenu. Les seuls paramètres transmis sont un **numéro de département**, les **coordonnées de la vue** (latitude, longitude) quand « Charger tout seul le département visible » est coché, et celles de la **commune choisie** au clic sur « 🪧 Panneaux d'agglomération ». Les autres appels visent `www.waze.com` même, avec la session de l'éditeur : lecture d'une commune, et des groupes du forum pour connaître son rôle de Champ. **Rien de ce que vous éditez ne quitte le navigateur.**
 
 ## Licence
 
