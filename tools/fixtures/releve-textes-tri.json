@@ -32,7 +32,13 @@
     "inchangé": "journal de cadrage (console)",
     "relevé : WME ne charge rien en dessous)": "journal de cadrage (console)",
     "clic sur un report": "motif de cadrage, journal console seulement",
-    "font:600 12px Rubik,\"Open Sans\",sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.2);cursor:pointer": "CSS"
+    "font:600 12px Rubik,\"Open Sans\",sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.2);cursor:pointer": "CSS",
+    "est retirée : une version corrigée est publiée (v": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script",
+    "ou plus récente). Le script ne démarre pas tant qu’il n’est pas mis à jour (Tampermonkey ▸ Rechercher des mises à jour).": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script",
+    "Mettre à jour": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script",
+    "è stata ritirata: è pubblicata una versione corretta (v": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script",
+    "o posterior). El script no se inicia hasta que se actualice (Tampermonkey ▸ Buscar actualizaciones).": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script",
+    "ou mais recente). O script não arranca enquanto não for atualizado (Tampermonkey ▸ Procurar atualizações).": "bandeau de version minimale : traduit par sa propre table (fr, en, it, de, es, pt, he), affiché avant le démarrage du script"
   },
   "couvertAuNoeud": {
     "Voie privée": "Voie privée · #123456789",
