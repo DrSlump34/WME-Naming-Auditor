@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.53.01
+// @version      2.53.02
 // @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies. Pour L6, Champs, GE et staff, le bouton ⚡ écrit sans enregistrer : nom, ville, nom alternatif, cartouche, adresse d'un POI, et numéro hors agglomération converti en POI résidentiel (le numéro est supprimé) ; plafond de 150 éditions par heure. Serveurs contactés : geo.api.gouv.fr, api.wazefrance.com (au clic), Google Sheets, raw.githubusercontent.com, GreasyFork — coordonnées de zone, jamais d'identité.
 // @author       DrSlump34
 // @license      MIT
@@ -14160,6 +14160,18 @@
   /* ⭐ Charte commune (25/09/2026) : les valeurs de WRP et WDA, MESUREES dans WME — conteneur
      10px 12px, Rubik 12 px #2d3748 ; titre h2 13 px 700 #2196f3 (police des h2 de WME) avec l'icone ;
      version 11 px #9e9e9e ; sections en capitales #2196f3. */
+/* WME Studio, thème sombre : ses variables, toujours avec un repli. Sans Studio, ou en thème clair, ces règles ne s'appliquent pas. */
+html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb { color: var(--wme-studio-text, #e8eaed); }
+html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb :is(p,td,th,li,label,b,strong,bdi,dd,dt):not([class]) { color: inherit; }
+html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb :is([class*="hint"],[class*="note"],[class*="-ver"],[class*="foot"],[class*="links"],[class*="meta"],[class*="-lbl"]) { color: var(--wme-studio-text-secondary, #b6c0ca); }
+html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb :is(h2,[class*="-sec"]:not(button),[class*="sb-on"]) { color: #64b5f6; }
+html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb :is([class*="btn-neutral"],[class*="btn-sec"],[class*="chip"],[class*="help-hdr"],[class*="aide-h"],[class*="hist-row"],kbd,select,input:not([type=checkbox]):not([type=radio])) { background: var(--wme-studio-input, #3a3f44); color: var(--wme-studio-text, #e8eaed); border-color: var(--wme-studio-border, #4a5056); }
+html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb :is([class*="help-hdr"],[class*="aide-h"]).on { background: var(--wme-studio-hover, #454b52); color: var(--wme-studio-text, #e8eaed); }
+html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb :is([class*="help-body"],[class*="aide-c"]) { color: var(--wme-studio-text, #e8eaed); }
+html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb .agn-sb-b:not(.agn-sb-p) { background: var(--wme-studio-input, #3a3f44); color: var(--wme-studio-text, #e8eaed); }
+html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb button:not([class]) { color: var(--wme-studio-text-secondary, #b6c0ca); }
+html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb .agn-sb-n { color: #ffb74d; }
+html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb .agn-sb-n:is([style*="46, 125, 50"],[style*="#2e7d32"]) { color: #81c784 !important; }
   .agn-sb{font:12px/1.5 'Rubik','Open Sans',sans-serif;color:#2d3748;padding:10px 12px;
     max-width:100%;overflow-x:hidden}
   .agn-sb :focus-visible{outline:2px solid #2196f3;outline-offset:1px}
@@ -14287,6 +14299,18 @@
    *  - en BAS, le pied de page de WME (« Conditions | Mentions legales… »,
    *    20 px) : la fenetre ne doit pas passer dessus (remarque de l'auteur).
    */
+  // WME Studio, mode flottant : l'en-tete n'est plus une barre au-dessus de la carte, c'est un ilot pose
+  // dessus, que l'editeur peut deplacer. On le mesure pour que la fenetre ne le recouvre pas (bouton
+  // « Enregistrer » compris). Sans Studio, ou en mode Standard, les bornes ne changent pas.
+  function sousEnteteStudio(z) {
+    if (document.documentElement.dataset.wmeStudioCompact !== 'on') return z;
+    const t = document.getElementById('app-head');
+    const r = t && t.getBoundingClientRect();
+    if (!r || !r.width || !r.height || r.right <= z.gauche || r.left >= z.droite) return z;
+    if (r.top + r.height / 2 < window.innerHeight / 2) z.haut = Math.max(z.haut, Math.round(r.bottom) + 6);
+    else z.bas = Math.min(z.bas, Math.round(r.top) - 6);
+    return z;
+  }
   function bornesCarte() {
     const carte = document.querySelector('#WazeMap') || document.querySelector('.olMapViewport');
     const b = carte ? carte.getBoundingClientRect()
@@ -14296,12 +14320,12 @@
     const col = document.querySelector('.overlay-buttons-container.top') ||
                 document.querySelector('.overlay-buttons-container');
     const droite = col ? col.getBoundingClientRect().left - 12 : b.right - 64;
-    return {
+    return sousEnteteStudio({
       gauche: Math.round(b.left) + 8,
       droite: Math.round(droite),
       haut: Math.round(b.top) + 8,
       bas: Math.round(b.bottom - hPied - 6)
-    };
+    });
   }
 
   /**
