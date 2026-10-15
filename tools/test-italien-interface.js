@@ -53,8 +53,9 @@ console.log('\n=== Branchements ===');
 const horsDico = src.replace(objet('const TEXTES = {'), '{}');
 const b = (titre, re) => verifier(titre, re.test(src), true);
 b('l\'onglet Scripts est traduit et observe', /traduireDOM\(pane\);\s*\n\s*observerTraduction\(pane\);/);
-b('le volet est observe une fois dans le body', /document\.body\.appendChild\(ui\.volet\);[\s\S]{0,400}observerTraduction\(ui\.volet\);/);
-b('la bulle est observee', /document\.body\.appendChild\(bulle\); observerTraduction\(bulle\);/);
+// Depuis 2.53.03 le volet et la bulle vivent dans la couche de WNA (coucheWna), sous le panneau « Calques » de WME.
+b('le volet est observe une fois a sa place definitive', /(?:document\.body|coucheWna\(\))\.appendChild\(ui\.volet\);[\s\S]{0,400}observerTraduction\(ui\.volet\);/);
+b('la bulle est observee', /(?:document\.body|coucheWna\(\))\.appendChild\(bulle\); observerTraduction\(bulle\);/);
 verifier('les trois boites sont traduites', (src.match(/traduireDOM\(boite\)/g) || []).length, 3);
 verifier('plus aucun confirm en dur', /confirm\('/.test(src), false);
 verifier('plus aucun « INSEE » en dur dans un texte affiche par le code', [

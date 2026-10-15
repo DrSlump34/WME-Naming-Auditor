@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.53.02
+// @version      2.53.03
 // @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies. Pour L6, Champs, GE et staff, le bouton ⚡ écrit sans enregistrer : nom, ville, nom alternatif, cartouche, adresse d'un POI, et numéro hors agglomération converti en POI résidentiel (le numéro est supprimé) ; plafond de 150 éditions par heure. Serveurs contactés : geo.api.gouv.fr, api.wazefrance.com (au clic), Google Sheets, raw.githubusercontent.com, GreasyFork — coordonnées de zone, jamais d'identité.
 // @author       DrSlump34
 // @license      MIT
@@ -3625,7 +3625,7 @@
 
   function montrerBulle(f) {
     // ⚠️ Audit du 25/09/2026 : la bulle vit dans le `body` — hors de toute traduction jusque-la.
-    if (!bulle) { bulle = el('<div id="agn-bulle"></div>'); document.body.appendChild(bulle); observerTraduction(bulle); }
+    if (!bulle) { bulle = el('<div id="agn-bulle"></div>'); coucheWna().appendChild(bulle); observerTraduction(bulle); }
     bulle.innerHTML =
       `<div class="agn-b-t"><span class="agn-pastille" style="background:${
         options.couleurs[familleDe(f)] || '#888'}"></span>${esc(f.libelle)}
@@ -4825,12 +4825,30 @@
   // poignee creuse = milieu d'un cote (cliquer pour inserer un sommet).
   // ---------------------------------------------------------------------------
 
+  // Les éléments flottants de WNA vivent dans une COUCHE posée dans la zone de carte de WME
+  // (.edit-area-main, niveau 1), pas sur <body> : sur la page, ils recouvraient le panneau « Calques » de WME,
+  // empilé au niveau 2 de cette zone (mesuré le 15/10/2026 ; aucun z-index posé sur <body> ne passe dessous
+  // sans passer sous la carte). La couche est de taille nulle : elle ne prend aucun clic, et ses enfants gardent
+  // leurs z-index entre eux. Les boîtes modales et les messages restent sur <body>, au-dessus de tout.
+  // Sans cette zone (WME changé), repli sur <body>. Même règle que WBC 0.16.08.
+  function coucheWna() {
+      const zone = document.querySelector('div.edit-area-main');
+      if (!zone) return document.body;
+      let c = document.getElementById('agn-couche');
+      if (!c) {
+          c = document.createElement('div');
+          c.id = 'agn-couche';
+          c.style.cssText = 'position:absolute;top:0;left:0;width:0;height:0;z-index:1';
+      }
+      if (c.parentElement !== zone) zone.appendChild(c);
+      return c;
+  }
   let edition = null;
 
   function entrerEdition(a) {
     if (edition) sortirEdition(false);
     const zone = el('<div id="agn-poignees"></div>');
-    document.body.appendChild(zone);
+    coucheWna().appendChild(zone);
     // ⚠️ Échap annule l'edition et rend le trace d'avant. Le raccourci est
     // ANNONCE dans l'infobulle du bouton d'enregistrement : une sortie de
     // secours qu'on ne connait pas n'en est pas une.
@@ -14673,7 +14691,7 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
           </div>
           <button class="agn-btn" id="agn-volet-ok" title="Referme ce volet et rend la place à la fenêtre de travail">Terminer et replier</button>
       </div></div>`);
-    document.body.appendChild(o);
+    coucheWna().appendChild(o);
     // ⚠️ L'ossature d'abord — elle existe DEJA quand l'observateur demarre, et
     //    aucune mutation ne la signalera jamais.
     traduireDOM(o);
@@ -14878,10 +14896,10 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
       clearTimeout(ui.tResize); ui.tResize = setTimeout(saveUI, 400);
     }).observe(o);
 
-    // ⚠️ EN DERNIER : le volet quitte la fenetre pour vivre dans le body. Tous
+    // ⚠️ EN DERNIER : le volet quitte la fenetre pour vivre dans la couche de WNA (coucheWna). Tous
     // les querySelector ci-dessus le parcourent encore ; deplacer plus tot
     // casserait le branchement des contours, de la commune et de l'agglo.
-    document.body.appendChild(ui.volet);
+    coucheWna().appendChild(ui.volet);
     // ⚠️⚠️ Audit du 25/09/2026 : sorti de la fenetre, le volet n'etait PLUS observe — tout ce que
     //    `renderAgglos` y reecrit (liste des agglomerations, panneaux, guidage) repassait en francais.
     observerTraduction(ui.volet);
