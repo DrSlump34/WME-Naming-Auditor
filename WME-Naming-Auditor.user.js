@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.54.02
-// @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies. Pour L6, Champs, GE et staff, le bouton ⚡ écrit sans enregistrer : nom, ville, nom alternatif, cartouche, adresse d'un POI, et numéro hors agglomération converti en POI résidentiel (le numéro est supprimé) ; plafond de 150 éditions par heure. Serveurs contactés : geo.api.gouv.fr, api.wazefrance.com (au clic), Google Sheets, raw.githubusercontent.com, GreasyFork — coordonnées de zone, jamais d'identité.
+// @version      2.55.00
+// @description  FRANCE et ITALIE : audit du nommage et de l'adressage des voies. Pour L6, Champs, GE et staff, le bouton ⚡ écrit sans enregistrer : nom, ville, nom alternatif, cartouche, adresse d'un POI, et numéro hors agglomération converti en POI résidentiel (le numéro est supprimé) ; plafond de 500 éditions par heure. Sources : contours IGN/INSEE (geo.api.gouv.fr, Licence Ouverte), panneaux VMA du Ministère de l'Intérieur (api.wazefrance.com, au clic), dictionnaire WME Check Road Name (Google Sheets), ISTAT/openpolis (CC BY 4.0, raw.githubusercontent.com) ; GreasyFork et version-min.json (GitHub) — coordonnées de zone, jamais d'identité.
 // @author       DrSlump34
 // @license      MIT
 // @icon         data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPScyNCcgaGVpZ2h0PScyNCcgdmlld0JveD0nMCAwIDI0IDI0Jz48cmVjdCB4PScxLjUnIHk9JzMnIHdpZHRoPScxNycgaGVpZ2h0PSc5JyByeD0nMS41JyBmaWxsPScjZmZmJyBzdHJva2U9JyM2MDdkOGInIHN0cm9rZS13aWR0aD0nMicvPjxwYXRoIGQ9J001IDcuNSBIMTUnIHN0cm9rZT0nIzkwYTRhZScgc3Ryb2tlLXdpZHRoPScxLjgnIHN0cm9rZS1saW5lY2FwPSdyb3VuZCcvPjxjaXJjbGUgY3g9JzE1JyBjeT0nMTUnIHI9JzQuNicgZmlsbD0nI2ZmZicgc3Ryb2tlPScjZWY2YzAwJyBzdHJva2Utd2lkdGg9JzIuNCcvPjxwYXRoIGQ9J00xOC40IDE4LjQgTDIyIDIyJyBzdHJva2U9JyNlZjZjMDAnIHN0cm9rZS13aWR0aD0nMycgc3Ryb2tlLWxpbmVjYXA9J3JvdW5kJy8+PC9zdmc+
@@ -27,7 +27,8 @@
 // ==/UserScript==
 
 /*
- * WME Naming Auditor — ce que le script fait, et à qui il parle (2.52.00, doctrine France des scripts).
+ * WME Naming Auditor — ce que le script fait, et à qui il parle (2.52.00, doctrine France des scripts ;
+ * revu en 2.55.00 après l'audit du 01/11/2026).
  *
  * AUDIT (tout le monde) : lit le nommage et l'adressage d'une commune et signale les écarts aux
  * règles du pays. Rien n'est écrit sur la carte.
@@ -44,8 +45,26 @@
  *     déjà ce numéro et cette rue à moins de 50 m.
  * Le ⚡ de groupe n'applique que les noms et cartouches (ni adresse, ni POI, ni report douteux),
  * et jamais une proposition du dictionnaire PUBLIC, qui reste en lecture seule.
- * PLAFOND : 150 éditions scriptées par heure glissante et par éditeur (objet modifié ou créé),
- * comptées à l'enregistrement, affichées, non réglables.
+ * Conversion refusée aussi si ce contrôle des doublons ne peut pas se faire (2.55.00).
+ * PLAFOND : 500 éditions scriptées par heure glissante et par éditeur (objet modifié ou créé),
+ * comptées à l'enregistrement, affichées, non réglables (150 jusqu'à la 2.54.02 ; décision de
+ * l'auteur du 01/11/2026).
+ *
+ * SDK : créé en mode asynchrone (seul mode au 01/01/2027), chaque appel attendu. `W` (retiré de
+ * WME le 24/11/2026) n'est plus lu qu'en complément, avec un repli par le SDK ; là où le SDK ne
+ * sait pas faire (écriture d'un cartouche), la fonction se refuse avec un message, sans rien écrire.
+ *
+ * SOURCES DE DONNÉES (citées aussi dans l'aide ❓ › 📚 et sur GreasyFork) :
+ *   - contours France : Admin Express (IGN) + COG (INSEE), par geo.api.gouv.fr — Licence Ouverte
+ *     Etalab 2.0, millésime servi par l'API ;
+ *   - contours Italie : limites ISTAT, openpolis/geojson-italy — CC BY 4.0, commit ba3347d figé ;
+ *   - panneaux EB10/EB20 : jeu « signalisation déterminant la VMA », Ministère de l'Intérieur —
+ *     Licence Ouverte 2.0, republié par api.wazefrance.com (communauté Waze France) ;
+ *   - dictionnaire de rédaction : WME Check Road Name (buchet37), Google Sheets, avec son accord ;
+ *     licence non déclarée par la source ;
+ *   - WME : SDK, et `app/Features` (adresse interne de WME, même site) pour la lecture rapide.
+ *   Contours et panneaux ne sont pas des sources accréditées par le staff (liste 402288) : la
+ *   question lui est posée, et le ⚡ n'écrit jamais rien sans le clic de l'éditeur.
  *
  * SERVEURS CONTACTÉS (sans cookie, sauf WME lui-même) — ce qu'ils reçoivent :
  *   - geo.api.gouv.fr : un numéro de département, ou le point de la vue quand « charger le
@@ -82,7 +101,7 @@
   // ===========================================================================
   // WMEPrefs -- persistance partagee (COPIE CONFORME de la bibliotheque autonome)
   //
-  // Copie a l'identique de C:\Users\drslu\Projets\WME-Prefs\WMEPrefs.js.
+  // Copie a l'identique de la bibliotheque WMEPrefs de l'auteur (depot WME-Prefs).
   // Ne PAS la diverger ici : corriger la lib d'origine, puis recopier. Meme
   // demarche que WCT.
   // ===========================================================================
@@ -1075,6 +1094,65 @@
   // ---------------------------------------------------------------------------
 
   let sdk = null;
+
+  // ─── SDK EN MODE ASYNCHRONE (2.55.00) ──────────────────────────────────────────────────────────
+  // Le 01/01/2027, `getWmeSdk({ mode: 'async' })` devient le SEUL mode du SDK (annonce du staff,
+  // Discuss 412920, 24/09/2026) : chaque méthode rend une PROMESSE, sauf les abonnements
+  // `Events.on/once/off`. Le script est passé en asynchrone dès la 2.55.00. Deux règles, partout :
+  //  ① tout appel `sdk.<Module>.<méthode>(` est ATTENDU (`await`, `return` ou `.then`) — contrôle :
+  //    `tools/check-await.js`, qui se vérifie lui-même sur un témoin (un `await` retiré doit être vu).
+  //    Un refus du SDK est alors une promesse REJETÉE : sans `await`, le `try/catch` ne le voit plus
+  //    et l'écriture échoue en silence (leçon de WME POI Event Updater, 28/09/2026) ;
+  //  ② ce que des fonctions SYNCHRONES lisaient directement (rendu des listes, survol de la carte,
+  //    habilitation, moteur d'analyse) se lit dans un MIROIR relu en asynchrone au moment où il
+  //    change : `VUE` (centre, zoom, emprise — relue à chaque mouvement de carte et après chaque
+  //    cadrage du script), `USAGER` (profil de l'éditeur), `NOMMAGE` et `EDITABLE` (adresse et droits
+  //    des segments, relus juste avant chaque analyse). Relire une fois, puis calculer sur la copie :
+  //    c'est la méthode retenue pour la migration de tous les scripts de l'auteur.
+  let VUE = { centre: null, zoom: null, ext: null };
+  /** Relit la vue de la carte dans le miroir `VUE`, et la rend. */
+  async function lireVue() {
+    if (!sdk) return VUE;
+    try {
+      const centre = await sdk.Map.getMapCenter();
+      const zoom = await sdk.Map.getZoomLevel();
+      const ext = await sdk.Map.getMapExtent();
+      VUE = { centre: centre || null, zoom: typeof zoom === 'number' ? zoom : null,
+              ext: (ext && ext.length === 4) ? ext : null };
+    } catch (e) { /* carte pas encore prête : on garde la dernière vue lue */ }
+    return VUE;
+  }
+  /** Cadre la carte, PUIS relit la vue : ce qui suit voit la carte là où elle est. */
+  async function centrer(o) {
+    await sdk.Map.setMapCenter(o);
+    await lireVue();
+  }
+  /** Profil de l'éditeur (`getUserInfo`), relu au démarrage, jusqu'à être lisible, et avant d'écrire. */
+  let USAGER = null;
+  async function lireUsager() {
+    try { const u = await sdk.State.getUserInfo(); if (u && (u.userName || typeof u.rank === 'number')) USAGER = u; }
+    catch (e) { /* profil pas encore chargé */ }
+    return USAGER;
+  }
+  /** Nommage et droits des segments du modèle, relus par `garnirSegments` avant chaque analyse. */
+  const NOMMAGE = new Map(), EDITABLE = new Map();
+  /**
+   * Calques : vider puis remplir se font dans une FILE par calque. Sans elle, deux dessins lancés
+   * coup sur coup s'entrelacent (vider A, vider B, remplir A, remplir B) et l'objet apparaît deux fois.
+   */
+  const fileCalques = new Map();
+  function surCalque(nom, travail) {
+    const p = (fileCalques.get(nom) || Promise.resolve()).then(travail, travail)
+      .catch(e => log('calque ' + nom + ' : ' + ((e && e.message) || e)));
+    fileCalques.set(nom, p);
+    return p;
+  }
+  /** Sélection dans WME, attendue ; un refus est écrit dans la console, jamais levé. */
+  async function poserSelection(selection, quoi) {
+    try { await sdk.Editing.setSelection({ selection }); return true; }
+    catch (e) { log((quoi || 'sélection') + ' impossible', e); return false; }
+  }
+
   let communes = [];
   let metaContours = null;
   let agglos = {};
@@ -2807,7 +2885,7 @@
   }
 
   async function depsDeLaVue() {
-    let ext; try { ext = sdk.Map.getMapExtent(); } catch (e) { return []; }
+    let ext; try { ext = await sdk.Map.getMapExtent(); } catch (e) { return []; }
     if (!ext || ext.length !== 4) return [];
     const [x1, y1, x2, y2] = ext;
     const points = [[(x1 + x2) / 2, (y1 + y2) / 2], [x1, y1], [x2, y1], [x1, y2], [x2, y2]];
@@ -2860,7 +2938,7 @@
     // ca, cinq appels seraient lances a chaque deplacement de carte, y compris
     // en plein travail dans un departement deja charge.
     try {
-      const ext = sdk.Map.getMapExtent();
+      const ext = await sdk.Map.getMapExtent();
       if (ext && ext.length === 4 && communeDuPoint((ext[0] + ext[2]) / 2, (ext[1] + ext[3]) / 2)) return;
     } catch (e) { /* pas d'extent : on tente la detection */ }
     autoEnCours = true;
@@ -3140,7 +3218,7 @@
    */
   function communeSousLeCentre() {
     if (!communes.length) return null;
-    let ctr; try { ctr = sdk.Map.getMapCenter(); } catch (e) { return null; }
+    const ctr = VUE.centre;      // miroir de la vue (2.55.00) : fonction synchrone, appelée au rendu
     if (!ctr || ctr.lon == null || ctr.lat == null) return null;
     return communeDuPoint(ctr.lon, ctr.lat) || null;
   }
@@ -3168,7 +3246,7 @@
 
   function communesDeLaVue() {
     if (!communes.length) return [];
-    let ext; try { ext = sdk.Map.getMapExtent(); } catch (e) { return []; }
+    const ext = VUE.ext;         // miroir de la vue (2.55.00)
     if (!ext || ext.length !== 4) return [];
     return communes.filter(c => bboxIntersecte(c.bbox, ext)).sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
   }
@@ -3197,7 +3275,7 @@
    */
   function communesEnTete(liste) {
     if (liste.length < 4) return [];
-    let ctr; try { ctr = sdk.Map.getMapCenter(); } catch (e) { return []; }
+    const ctr = VUE.centre;      // miroir de la vue (2.55.00)
     if (!ctr || ctr.lon == null || ctr.lat == null) return [];
     const sousLeCentre = communeDuPoint(ctr.lon, ctr.lat);
     // Distance au centre de la BBOX : approximation suffisante pour ordonner,
@@ -3281,7 +3359,7 @@
   // Calques
   // ---------------------------------------------------------------------------
 
-  let calquesPrets = false;
+  let calquesPrets = null;      // promesse de création (2.55.00), remise à null si elle échoue
   /**
    * ⚠️⚠️ `pointerEvents:'none'` EST OBLIGATOIRE SUR TOUS NOS CALQUES.
    *
@@ -3303,10 +3381,13 @@
    */
   const INERTE = { pointerEvents: 'none' };
   function ensureLayers() {
-    if (calquesPrets) return;
+    if (!calquesPrets) calquesPrets = creerCalques().then(ok => { if (!ok) calquesPrets = null; return ok; });
+    return calquesPrets;
+  }
+  async function creerCalques() {
     const etiquette = { etiquette: ctx => (ctx.feature.properties || {}).label || '' };
     try {
-      sdk.Map.addLayer({
+      await sdk.Map.addLayer({
         layerName: LAYER_COMMUNE, styleContext: etiquette,
         styleRules: [{ style: Object.assign({
           strokeColor: '#1e88e5', strokeWidth: 3, strokeOpacity: 0.95, strokeDashstyle: 'dash',
@@ -3314,7 +3395,7 @@
           fontColor: '#1565c0', fontSize: '15px', fontWeight: 'bold',
           labelOutlineColor: '#fff', labelOutlineWidth: 3 }, INERTE) }]
       });
-      sdk.Map.addLayer({
+      await sdk.Map.addLayer({
         layerName: LAYER_AGGLO, styleContext: etiquette,
         styleRules: [{ style: Object.assign({
           strokeColor: '#e91e63', strokeWidth: 3, strokeOpacity: 0.9,
@@ -3324,7 +3405,7 @@
       });
       // Surlignage des segments en ecart : la couleur et l'epaisseur sont
       // portees par la feature et resolues via le styleContext.
-      sdk.Map.addLayer({
+      await sdk.Map.addLayer({
         layerName: LAYER_ECARTS,
         styleContext: {
           couleur: ctx => (ctx.feature.properties || {}).couleur || '#888888',
@@ -3337,7 +3418,7 @@
       // Les ecarts d'ADRESSE sont des points (un numero, un POI), pas des
       // lignes : le calque des segments a `fill:false` et ne les montrerait
       // pas. D'ou un calque a part, avec un rayon plutot qu'une epaisseur.
-      sdk.Map.addLayer({
+      await sdk.Map.addLayer({
         layerName: LAYER_ADRESSES,
         styleContext: {
           couleur: ctx => (ctx.feature.properties || {}).couleur || '#00e5ff',
@@ -3367,7 +3448,7 @@
       // Panneaux EB10 / EB20. Ils ne sont pas des ecarts mais une DONNEE DE
       // TERRAIN : calque a part, carre (aucune autre de nos features n'en a),
       // pour qu'on ne les confonde jamais avec un report a traiter.
-      sdk.Map.addLayer({
+      await sdk.Map.addLayer({
         layerName: LAYER_PANNEAUX,
         styleContext: {
           couleur: ctx => (ctx.feature.properties || {}).couleur || '#ff1744',
@@ -3381,8 +3462,8 @@
           label: '${etiquette}', fontColor: '#b71c1c', fontSize: '10px', fontWeight: 'bold',
           labelOutlineColor: '#fff', labelOutlineWidth: 3, labelYOffset: -13 }, INERTE) }]
       });
-      calquesPrets = true;
-    } catch (e) { log('creation des calques impossible', e); }
+      return true;
+    } catch (e) { log('creation des calques impossible', e); return false; }
   }
 
   // ---------------------------------------------------------------------------
@@ -3425,23 +3506,23 @@
     return best;
   }
 
-  function chercherSousLeCurseur() {
+  async function chercherSousLeCurseur() {
     // ⚠️⚠️ On coupe A LA SOURCE, pas a l'affichage : sans ce test, le script
     // continuerait a convertir la position de la souris et a mesurer la distance
     // a chaque report, plusieurs fois par seconde, pour finalement ne rien
     // montrer. Une option qui masque sans arreter le calcul n'est pas une option.
     if (!options.bulleSurvol) return null;
     if (!options.surligner || !findings.length) return null;
+    const sx = souris.x, sy = souris.y;
     let ll;
-    try { ll = sdk.Map.getLonLatFromPixel({ x: souris.x, y: souris.y }); } catch (e) { return null; }
+    try { ll = await sdk.Map.getLonLatFromPixel({ x: sx, y: sy }); } catch (e) { return null; }
     if (!ll) return null;
     const p = [ll.lon, ll.lat];
     // Tolerance = l'epaisseur du trait, convertie en degres a ce zoom.
     let tol = 0.00012;
     try {
-      const a = sdk.Map.getLonLatFromPixel({ x: souris.x, y: souris.y });
-      const b = sdk.Map.getLonLatFromPixel({ x: souris.x + 9, y: souris.y });
-      if (a && b) tol = Math.abs(b.lon - a.lon) || tol;
+      const b = await sdk.Map.getLonLatFromPixel({ x: sx + 9, y: sy });
+      if (b) tol = Math.abs(b.lon - ll.lon) || tol;
     } catch (e) { /* on garde la valeur par defaut */ }
     let meilleur = null, dMin = tol;
     // ⚠️ L'infobulle ne parle que de ce qui est PEINT : sans ce filtre elle
@@ -3607,6 +3688,7 @@
     if (b) b.remove();
   }
 
+  let genSurvol = 0;
   function installerInfobulle() {
     document.addEventListener('mousemove', e => {
       souris = { x: e.clientX, y: e.clientY };
@@ -3621,10 +3703,14 @@
         if (survole) { survole = null; cacherBulle(); }
         return;
       }
-      const f = chercherSousLeCurseur();
-      if (f === survole) return;
-      survole = f;
-      if (f) montrerBulle(f); else cacherBulle();
+      // 2.55.00 : la recherche est asynchrone ; seule la DERNIÈRE réponse compte (une réponse
+      // en retard ne doit pas rouvrir la bulle d'un report que la souris a déjà quitté).
+      const gen = ++genSurvol;
+      chercherSousLeCurseur().then(f => {
+        if (gen !== genSurvol || f === survole) return;
+        survole = f;
+        if (f) montrerBulle(f); else cacherBulle();
+      }).catch(() => { /* survol : rien à dire */ });
     }, { passive: true });
   }
 
@@ -3661,11 +3747,24 @@
   /** Repeint les ecarts, en mettant en avant celui qui est courant. Les ecarts
    *  de nommage sont des lignes, ceux d'adressage des points : deux calques. */
   function redrawEcarts(idActif) {
-    ensureLayers();
-    [LAYER_ECARTS, LAYER_ADRESSES].forEach(n => {
-      try { sdk.Map.removeAllFeaturesFromLayer({ layerName: n }); } catch (e) { /* */ }
+    // 2.55.00 : les objets se calculent ICI (instantané de l'état), puis vider et remplir passent
+    // dans la file du calque.
+    let lignes = [], points = [];
+    if (options.surligner && findings.length) {
+      try { [lignes, points] = featuresEcarts(idActif); } catch (e) { log('surlignage impossible', e); }
+    }
+    return surCalque(LAYER_ECARTS, async () => {
+      await ensureLayers();
+      for (const n of [LAYER_ECARTS, LAYER_ADRESSES]) {
+        try { await sdk.Map.removeAllFeaturesFromLayer({ layerName: n }); } catch (e) { /* */ }
+      }
+      try { if (lignes.length) await sdk.Map.addFeaturesToLayer({ layerName: LAYER_ECARTS, features: lignes }); }
+      catch (e) { log('surlignage impossible', e); }
+      try { if (points.length) await sdk.Map.addFeaturesToLayer({ layerName: LAYER_ADRESSES, features: points }); }
+      catch (e) { log('surlignage des adresses impossible', e); }
     });
-    if (!options.surligner || !findings.length) return;
+  }
+  function featuresEcarts(idActif) {
     // ⚠️ La carte ne suit PLUS l'onglet actif (v1.93) : elle obeit a ses deux
     // cases propres. Ouvrir « Segments » n'efface plus les adresses — on peut
     // lister les numeros tout en gardant les segments surlignes sous les yeux.
@@ -3675,22 +3774,22 @@
     // l'element courant n'etait jamais mis en avant. Meme faute que l'ancienne
     // infobulle. On resout l'objet une fois, et on compare par reference.
     const actif = (typeof idActif === 'number' && idActif >= 0) ? findings[idActif] : null;
-    try {
+    let lignes = [];
+    const points = [];
+    {
       // ⚠️ `featuresDeGeom` et pas un objet direct : les POI surfaciques passent
       // ici, et certains sont des MultiPolygon que le SDK refuse. Comme il
       // valide le tableau ENTIER, un seul suffisait a faire disparaitre TOUT le
       // surlignage de la commune (defaut trouve le 27/07 avec le contour).
-      const lignes = vivants.filter(f => !f.adresse).flatMap(f =>
+      lignes = vivants.filter(f => !f.adresse).flatMap(f =>
         featuresDeGeom('ec-' + f.segId, f.geom, {
           couleur: options.couleurs[familleDe(f)] || '#888888',
           epaisseur: f === actif ? 22 : 14
         }));
-      if (lignes.length) sdk.Map.addFeaturesToLayer({ layerName: LAYER_ECARTS, features: lignes });
-    } catch (e) { log('surlignage impossible', e); }
-    try {
+    }
+    {
       // ⚠️ Cle = hnId (ou l'id du POI) : plusieurs numeros partagent un meme
       // segId, un id de feature base sur le segment les ferait se recouvrir.
-      const points = [];
       vivants.filter(f => f.adresse).forEach(f => {
         const cle = cleAdresse(f), estActif = f === actif;
         if (f.sousType === 'poi') {
@@ -3721,8 +3820,8 @@
                           label: (f.hns && f.hns.length === 1) ? String(f.hns[0].number) : '' } });
         }
       });
-      if (points.length) sdk.Map.addFeaturesToLayer({ layerName: LAYER_ADRESSES, features: points });
-    } catch (e) { log('surlignage des adresses impossible', e); }
+    }
+    return [lignes, points];
   }
 
   /**
@@ -3767,26 +3866,28 @@
   }
 
   function redrawCommune() {
-    ensureLayers();
-    try { sdk.Map.removeAllFeaturesFromLayer({ layerName: LAYER_COMMUNE }); } catch (e) { /* */ }
-    if (!communeActive) return;
-    try {
-      const features = featuresDeGeom('commune-' + communeActive.code,
-        communeActive.geom, { label: communeActive.nom });
-      if (features.length) sdk.Map.addFeaturesToLayer({ layerName: LAYER_COMMUNE, features });
-    } catch (e) { log('affichage du contour communal impossible', e); }
+    const features = communeActive ? featuresDeGeom('commune-' + communeActive.code,
+      communeActive.geom, { label: communeActive.nom }) : [];
+    return surCalque(LAYER_COMMUNE, async () => {
+      await ensureLayers();
+      try { await sdk.Map.removeAllFeaturesFromLayer({ layerName: LAYER_COMMUNE }); } catch (e) { /* */ }
+      try { if (features.length) await sdk.Map.addFeaturesToLayer({ layerName: LAYER_COMMUNE, features }); }
+      catch (e) { log('affichage du contour communal impossible', e); }
+    });
   }
 
   function redrawAgglos() {
-    ensureLayers();
-    try { sdk.Map.removeAllFeaturesFromLayer({ layerName: LAYER_AGGLO }); } catch (e) { /* */ }
     const liste = communeActive ? (agglos[communeActive.code] || []) : [];
-    if (!liste.length) return;
-    try {
-      sdk.Map.addFeaturesToLayer({ layerName: LAYER_AGGLO, features: liste.map(a => ({
-        id: a.id, type: 'Feature', geometry: { type: 'Polygon', coordinates: [a.ring] },
-        properties: { label: a.label || '' } })) });
-    } catch (e) { log('affichage des agglos impossible', e); }
+    // Instantané : le polygone en cours d'édition change à chaque mouvement de souris.
+    const features = liste.map(a => ({
+      id: a.id, type: 'Feature', geometry: { type: 'Polygon', coordinates: [a.ring.map(p => p.slice())] },
+      properties: { label: a.label || '' } }));
+    return surCalque(LAYER_AGGLO, async () => {
+      await ensureLayers();
+      try { await sdk.Map.removeAllFeaturesFromLayer({ layerName: LAYER_AGGLO }); } catch (e) { /* */ }
+      try { if (features.length) await sdk.Map.addFeaturesToLayer({ layerName: LAYER_AGGLO, features }); }
+      catch (e) { log('affichage des agglos impossible', e); }
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -3856,11 +3957,17 @@
 
   /** Repeint le calque des panneaux d'apres le classement courant. */
   function redrawPanneaux() {
-    ensureLayers();
-    try { sdk.Map.removeAllFeaturesFromLayer({ layerName: LAYER_PANNEAUX }); } catch (e) { /* */ }
-    if (!options.vue.panCarte || !panneaux.length) return;
+    const features = (options.vue.panCarte && panneaux.length) ? featuresPanneaux() : [];
+    return surCalque(LAYER_PANNEAUX, async () => {
+      await ensureLayers();
+      try { await sdk.Map.removeAllFeaturesFromLayer({ layerName: LAYER_PANNEAUX }); } catch (e) { /* */ }
+      try { if (features.length) await sdk.Map.addFeaturesToLayer({ layerName: LAYER_PANNEAUX, features }); }
+      catch (e) { log('affichage des panneaux impossible', e); }
+    });
+  }
+  function featuresPanneaux() {
     const cl = classerPanneaux();
-    if (!cl) return;
+    if (!cl) return [];
     const feat = (f, couleur) => ({
       id: 'pn-' + f.p.latitude + '-' + f.p.longitude + '-' + f.p.panneau_code,
       type: 'Feature',
@@ -3879,10 +3986,7 @@
       ? [...cl.dedans.map(f => feat(f, options.couleurs.panneauOk || '#00e676')),
          ...cl.dehors.map(f => feat(f, options.couleurs.panneauHors || '#ff1744'))]
       : [...cl.dedans, ...cl.dehors].map(f => feat(f, options.couleurs.panneauNeutre || '#546e7a'));
-    if (features.length) {
-      try { sdk.Map.addFeaturesToLayer({ layerName: LAYER_PANNEAUX, features }); }
-      catch (e) { log('affichage des panneaux impossible', e); }
-    }
+    return features;
   }
 
   // ---------------------------------------------------------------------------
@@ -4121,8 +4225,7 @@
       b.onclick = () => {
         if (!x.g.centre) return;
         // Zoom 15 : on voit le bourg entier et ses entrees, de quoi tracer.
-        try { centrerSurZoneVisible(x.g.centre, 15, 'clic sur un secteur d\'entrées'); }
-        catch (e) { try { sdk.Map.setMapCenter({ lonLat: x.g.centre, zoomLevel: 15 }); } catch (e2) { /* */ } }
+        centrerSurZoneVisible(x.g.centre, 15, 'clic sur un secteur d\'entrées');
       };
       bloc.appendChild(b);
     });
@@ -4443,9 +4546,9 @@
    * l'invente pas davantage. Verifie en live sur Gruissan : la liste rend
    * « Gruissan », « Gruissan-Plage (Gruissan) » et la ville vide.
    */
-  function villesDeWME() {
+  async function villesDeWME() {
     try {
-      return (sdk.DataModel.Cities.getAll() || [])
+      return ((await sdk.DataModel.Cities.getAll()) || [])
         .map(c => c && c.name).filter(n => n)     // la ville VIDE n'est pas un nom
         .filter((n, i, t) => t.indexOf(n) === i)
         .sort((a, b) => a.localeCompare(b, 'fr'));
@@ -4460,7 +4563,7 @@
    * ⚠️ Elle vit dans le `body` : la boite de dialogue et le volet sont dans
    * deux arbres differents, un `datalist` local ne servirait qu'a l'un des deux.
    */
-  function majDatalistVilles() {
+  async function majDatalistVilles() {
     let dl = document.getElementById('agn-villes-wme');
     if (!dl) {
       dl = document.createElement('datalist');
@@ -4468,7 +4571,7 @@
       document.body.appendChild(dl);
     }
     const commune = communeActive ? communeActive.nom : null;
-    const villes = villesDeWME();
+    const villes = await villesDeWME();
     // La commune elle-meme en tete : c'est le cas du bourg principal.
     const choix = commune ? [commune, ...villes.filter(v => v !== commune)] : villes;
     dl.innerHTML = choix.map(v => '<option value="' + esc(v) + '"></option>').join('');
@@ -4612,14 +4715,14 @@
       return;
     }
 
-    const vueAvant = { centre: sdk.Map.getMapCenter(), zoom: sdk.Map.getZoomLevel() };
+    const vueAvant = { centre: await sdk.Map.getMapCenter(), zoom: await sdk.Map.getZoomLevel() };
     let crees = 0;
     try {
       for (let i = 0; i < props.length; i++) {
         const p = props[i];
         // On MONTRE avant de demander : nommer un polygone qu'on ne voit pas
         // n'a aucun sens.
-        try { sdk.Map.setMapCenter({ lonLat: p.centre, zoomLevel: 14 }); } catch (e) { /* */ }
+        try { await centrer({ lonLat: p.centre, zoomLevel: 14 }); } catch (e) { /* */ }
         agglos[communeActive.code] = agglos[communeActive.code] || [];
         const apercu = { id: 'apercu', label: '(proposition)', rattache: false, ring: p.ring };
         agglos[communeActive.code].push(apercu);
@@ -4642,7 +4745,7 @@
       }
     } finally {
       redrawAgglos(); renderAgglos();
-      try { sdk.Map.setMapCenter({ lonLat: vueAvant.centre, zoomLevel: vueAvant.zoom }); } catch (e) { /* */ }
+      try { await centrer({ lonLat: vueAvant.centre, zoomLevel: vueAvant.zoom }); } catch (e) { /* */ }
       // Meme regle qu'au-dessus : une phrase. Ce qui reste a faire d'abord,
       // le reliquat ensuite, et rien de plus.
       const reste = nManuels
@@ -4725,8 +4828,9 @@
   function pointDejaEnVue(lonLat) {
     if (!lonLat) return false;
     try {
-      if (sdk.Map.getZoomLevel() < ZOOM_CHARGEMENT) return false;
-      const e = sdk.Map.getMapExtent();
+      // Miroir de la vue (2.55.00) : l'appelant le relit d'abord (`lireVue`).
+      if (VUE.zoom == null || VUE.zoom < ZOOM_CHARGEMENT) return false;
+      const e = VUE.ext;
       if (!e || e.length !== 4) return false;
       // Une cible au ras du bord n'est pas « sous les yeux » : on garde un
       // cinquieme de vue de marge de chaque cote avant de renoncer a cadrer.
@@ -4779,10 +4883,10 @@
     // ⚠️ CADRER AVANT DE REPLIER : une fois l'interface fermee, l'editeur n'a
     // plus aucun repere pour se placer lui-meme.
     const depart = departDuTrace();
+    await lireVue();
     if (depart && !departDejaSousLesYeux(depart)) {
-      try { centrerSurZoneVisible(depart.centre, depart.zoom, 'départ du tracé — ' + (depart.large ? 'commune entière' : depart.quoi)); }
-      catch (e) { try { sdk.Map.setMapCenter({ lonLat: depart.centre, zoomLevel: depart.zoom }); }
-                  catch (e2) { /* on trace quand meme */ } }
+      // `centrerSurZoneVisible` a son propre repli (centrage brut) : on trace quand meme s'il echoue.
+      await centrerSurZoneVisible(depart.centre, depart.zoom, 'départ du tracé — ' + (depart.large ? 'commune entière' : depart.quoi));
     }
     // ⚠️⚠️ NE JAMAIS NOMMER ICI « le contour de ‹commune› » NI « l'agglomération de
     // ‹commune› » : le contour communal est affiché juste à côté, et l'éditeur en
@@ -4885,16 +4989,24 @@
     saveAgglos(); redrawAgglos(); renderAgglos();
   }
 
-  function dessinerPoignees() {
+  // 2.55.00 : les positions à l'écran se demandent au SDK (promesses) ; un compteur de génération
+  // garantit que seul le DERNIER dessin demandé peint (la carte bouge pendant qu'on calcule).
+  let genPoignees = 0;
+  async function dessinerPoignees() {
     if (!edition) return;
+    const gen = ++genPoignees;
+    const pts = edition.points;
+    const px = async p => { try { return await sdk.Map.getPixelFromLonLat({ lonLat: { lon: p[0], lat: p[1] } }); }
+                            catch (e) { return null; } };
+    const milieu = i => { const p = pts[i], s = pts[(i + 1) % pts.length]; return [(p[0] + s[0]) / 2, (p[1] + s[1]) / 2]; };
+    const qs = await Promise.all(pts.map(p => px(p)));
+    const ms = await Promise.all(pts.map((p, i) => px(milieu(i))));
+    if (gen !== genPoignees || !edition || edition.points !== pts) return;
     const z = edition.zone;
     z.innerHTML = '';
-    const pts = edition.points;
-    const px = p => { try { return sdk.Map.getPixelFromLonLat({ lonLat: { lon: p[0], lat: p[1] } }); }
-                      catch (e) { return null; } };
 
     pts.forEach((p, i) => {
-      const q = px(p); if (!q) return;
+      const q = qs[i]; if (!q) return;
       const h = el('<div class="agn-poi agn-poi-s" title="Glisser pour déplacer, clic droit pour supprimer"></div>');
       h.style.left = q.x + 'px'; h.style.top = q.y + 'px';
       h.onmousedown = e => { if (e.button === 0) demarrerDrag(e, i); };
@@ -4907,7 +5019,7 @@
 
       // milieu du cote [i, i+1] : cliquer y insere un sommet
       const suivant = pts[(i + 1) % pts.length];
-      const m = px([(p[0] + suivant[0]) / 2, (p[1] + suivant[1]) / 2]);
+      const m = ms[i];
       if (!m) return;
       const a = el('<div class="agn-poi agn-poi-m" title="Cliquer pour ajouter un sommet"></div>');
       a.style.left = m.x + 'px'; a.style.top = m.y + 'px';
@@ -4928,13 +5040,16 @@
 
   function demarrerDrag(e, index) {
     e.preventDefault(); e.stopPropagation();
-    const bouger = ev => {
+    // 2.55.00 : conversion attendue ; une réponse arrivée après un mouvement plus récent est jetée.
+    let seq = 0;
+    const bouger = async ev => {
+      ev.preventDefault();
+      const n = ++seq;
       let ll;
-      try { ll = sdk.Map.getLonLatFromPixel({ x: ev.clientX, y: ev.clientY }); } catch (err) { return; }
-      if (!ll) return;
+      try { ll = await sdk.Map.getLonLatFromPixel({ x: ev.clientX, y: ev.clientY }); } catch (err) { return; }
+      if (n !== seq || !ll || !edition) return;
       edition.points[index] = [ll.lon, ll.lat];
       majPolygoneEnEdition();
-      ev.preventDefault();
     };
     const finir = () => {
       document.removeEventListener('mousemove', bouger, true);
@@ -4957,10 +5072,44 @@
   // Lecture de l'adressage + moteur
   // ---------------------------------------------------------------------------
 
+  /**
+   * Nommage d'un segment, SYNCHRONE (moteur d'analyse) : celui livré par l'API (`_nam`), sinon le
+   * miroir `NOMMAGE` garni par `garnirSegments` juste avant l'analyse (2.55.00). Un segment jamais
+   * relu rend null — l'appelant le compte comme « hors modèle », il ne l'invente pas.
+   */
   function readNaming(seg) {
     // Donnees venues de l'API : le nommage est deja resolu, pas d'aller-retour.
     if (seg && seg._nam) return seg._nam;
-    const addr = sdk.DataModel.Segments.getAddress({ segmentId: seg.id });
+    return (seg && seg.id != null && NOMMAGE.get(String(seg.id))) || null;
+  }
+
+  /** Lecture FRAÎCHE du nommage d'un segment dans le modèle de WME (et mise à jour du miroir). */
+  async function lireNommage(segmentId) {
+    const nam = nommageDeAdresse(await sdk.DataModel.Segments.getAddress({ segmentId }));
+    if (nam) NOMMAGE.set(String(segmentId), nam); else NOMMAGE.delete(String(segmentId));
+    return nam;
+  }
+
+  /**
+   * Relit, pour des segments du modèle, le nommage et les droits dont le moteur synchrone a besoin.
+   * Les objets de l'API portent déjà les leurs (`_nam`, `editable`) : rien n'est relu pour eux.
+   */
+  async function garnirSegments(segs, prog) {
+    for (const s of segs || []) {
+      if (!s || s.id == null) continue;
+      const k = String(s.id);
+      if (!s._nam) {
+        try { await lireNommage(s.id); } catch (e) { NOMMAGE.delete(k); }
+      }
+      if (s.editable === undefined) {
+        try { EDITABLE.set(k, !!(await sdk.DataModel.Segments.hasPermissions({ segmentId: s.id }))); }
+        catch (e) { EDITABLE.set(k, false); }
+      }
+      if (prog) await prog.respirer();
+    }
+  }
+
+  function nommageDeAdresse(addr) {
     if (!addr) return null;
     const one = (street, city) => ({
       name: (street && !street.isEmpty && street.name) ? street.name : '',
@@ -5691,6 +5840,37 @@
         '💾 Salvataggio e condivisione',
       '⚠️ Limites et messages fréquents':
         '⚠️ Limiti e messaggi frequenti',
+      // 2.55.00 — aide « Sources et données échangées ».
+      '📚 Sources et données échangées':
+        '📚 Fonti e dati scambiati',
+      '<b>Contours communaux</b>':
+        '<b>Confini comunali</b>',
+      '<b>Panneaux EB10 / EB20</b>':
+        '<b>Cartelli EB10 / EB20</b>',
+      '<b>Dictionnaire de rédaction</b>':
+        '<b>Dizionario di redazione</b>',
+      '<b>Ce qui part du navigateur</b>':
+        '<b>Cosa esce dal browser</b>',
+      '<b>WME lui-même</b>':
+        '<b>WME stesso</b>',
+      '<b>Version minimale</b>':
+        '<b>Versione minima</b>',
+      'Admin Express (IGN) et Code officiel géographique (INSEE), servis par <b>geo.api.gouv.fr</b>, <b>Licence Ouverte Etalab 2.0</b>. Millésime : celui que l\'API sert le jour du chargement.':
+        'Admin Express (IGN) e Codice geografico ufficiale (INSEE), forniti da <b>geo.api.gouv.fr</b>, <b>Licence Ouverte Etalab 2.0</b>. Annata: quella che l\'API fornisce il giorno del caricamento.',
+      'Jeu « signalisation routière déterminant la VMA » du <b>Ministère de l\'Intérieur</b>, <b>Licence Ouverte 2.0</b>, republié par <b>api.wazefrance.com</b> (communauté Waze France). Date de mise à jour non transmise par l\'API.':
+        'Insieme « segnaletica stradale che determina la VMA » del <b>Ministero dell\'Interno francese</b>, <b>Licence Ouverte 2.0</b>, ripubblicato da <b>api.wazefrance.com</b> (comunità Waze Francia). Data di aggiornamento non trasmessa dall\'API.',
+      'Règles de <b>WME Check Road Name</b> (buchet37), lues dans deux feuilles <b>Google Sheets</b> à chaque démarrage, avec l\'accord de son auteur. Licence non déclarée. Le dictionnaire <b>public</b> reste en lecture seule.':
+        'Regole di <b>WME Check Road Name</b> (buchet37), lette in due fogli <b>Google Sheets</b> a ogni avvio, con l\'accordo del suo autore. Licenza non dichiarata. Il dizionario <b>pubblico</b> resta in sola lettura.',
+      '<b>geo.api.gouv.fr</b> : un numéro de département, ou cinq points de la vue si « charger le département survolé » est coché. <b>api.wazefrance.com</b> : les centres des zones de la commune, au clic sur 🪧 Panneaux. Google : la clé des deux feuilles. Jamais de pseudo ni d\'objet de la carte.':
+        '<b>geo.api.gouv.fr</b>: un numero di dipartimento, o cinque punti della vista se « caricare il dipartimento sorvolato » è selezionato. <b>api.wazefrance.com</b>: i centri delle zone del comune, al clic su 🪧 Cartelli. Google: la chiave dei due fogli. Mai un nome utente né un oggetto della mappa.',
+      'Limites <b>ISTAT</b> mises en forme par <b>openpolis/geojson-italy</b>, <b>CC BY 4.0</b>, version figée au commit <b>ba3347d</b> du 16/08/2026, lue sur raw.githubusercontent.com.':
+        'Confini <b>ISTAT</b> messi in forma da <b>openpolis/geojson-italy</b>, <b>CC BY 4.0</b>, versione fissata al commit <b>ba3347d</b> del 16/08/2026, letta su raw.githubusercontent.com.',
+      'Le nom du fichier de la province demandée, sur raw.githubusercontent.com. Jamais de pseudo ni d\'objet de la carte.':
+        'Il nome del file della provincia richiesta, su raw.githubusercontent.com. Mai un nome utente né un oggetto della mappa.',
+      'Lecture rapide d\'une commune par <b>app/Features</b>, l\'adresse interne que WME appelle pour remplir sa carte (même site, ta session) ; repli sur le balayage par le SDK si elle ne répond pas.':
+        'Lettura rapida di un comune tramite <b>app/Features</b>, l\'indirizzo interno che WME chiama per riempire la sua mappa (stesso sito, la tua sessione); ripiego sulla scansione tramite l\'SDK se non risponde.',
+      'Au démarrage, le fichier <b>version-min.json</b> du dépôt GitHub est lu : il peut empêcher une version retirée de démarrer ; injoignable, le script démarre. GreasyFork est interrogé une fois par jour au plus.':
+        'All\'avvio viene letto il file <b>version-min.json</b> del repository GitHub: può impedire l\'avvio di una versione ritirata; se irraggiungibile, lo script si avvia. GreasyFork è interrogato al massimo una volta al giorno.',
       '🌍 Les pays pris en charge':
         '🌍 I paesi supportati',
       '🎬 <b><a href="https://drive.google.com/file/d/1f1zLZQvBatKcZv9dQ6dCtRN-VDXAiq6_/view" target="_blank" rel="noopener">Voir en vidéo : la zone bâtie, et les villages rattachés</a></b> — 1 minute, sur l\'exemple de Gruissan. C\'est le point sur lequel on se trompe le plus souvent.':
@@ -6695,6 +6875,18 @@
         'scudetto rifiutato: nessun segmento della strada è caricato — ingrandisci sulla strada e riprova',
       'cartouche refusé : {n} segment(s) de la rue verrouillé(s) au-dessus de ton niveau':
         'scudetto rifiutato: {n} segmento/i della strada bloccato/i sopra il tuo livello',
+      'cartouche : la rue n\'est pas encore chargée — réessaie':
+        'scudetto: la strada non è ancora caricata — riprova',
+      'cartouche : écriture refusée par WME':
+        'scudetto: scrittura rifiutata da WME',
+      'cartouche non écrit : WME ne permet plus de l\'écrire par script (le SDK ne sait pas encore le faire) — pose-le à la main':
+        'scudetto non scritto: WME non permette più di scriverlo da script (l\'SDK non lo sa ancora fare) — applicalo a mano',
+      '{num} : position du numéro inconnue, le contrôle des doublons est impossible — rien n\'a été créé ni retiré':
+        '{num}: posizione del numero sconosciuta, il controllo dei doppioni è impossibile — nulla è stato creato né rimosso',
+      '{num} : les POI voisins ne peuvent pas être lus, le contrôle des doublons est impossible — rien n\'a été créé ni retiré ; réessaie':
+        '{num}: i POI vicini non possono essere letti, il controllo dei doppioni è impossibile — nulla è stato creato né rimosso; riprova',
+      'conversion indisponible : WME ne donne plus accès aux numéros chargés (W retiré) et le SDK ne sait pas encore les lire — rien n\'a été écrit, convertis à la main':
+        'conversione non disponibile: WME non dà più accesso ai numeri caricati (W ritirato) e l\'SDK non li sa ancora leggere — nulla è stato scritto, converti a mano',
       'conversion refusée : un seul numéro à la fois':
         'conversione rifiutata: un solo numero alla volta',
       '{num} : un RPP « {num} {rue} » existe déjà à {d} m — rien n\'a été créé ni retiré ; si c\'est un doublon, supprime le numéro à la main':
@@ -7141,8 +7333,8 @@
         '🛠 Due esiti possibili — decide il terreno',
       '⚠️ Vérifie quand même sur place : le script mesure des distances, il ne voit pas la boîte aux lettres.':
         '⚠️ Verifica comunque sul posto: lo script misura delle distanze, non vede la cassetta delle lettere.',
-      "Si l'entrée donne sur une AUTRE voie que l'adresse postale : laisse le POI en place. C'est précisément ce qu'il sert à dire, et un numéro porté par le segment ne saurait pas l'exprimer. Marque la ligne comme traitée (✓) pour ne pas la revoir.":
-        "Se l'ingresso dà su un'ALTRA strada rispetto all'indirizzo postale: lascia il POI al suo posto. È proprio ciò che serve a dire, e un numero civico posto sul segmento non saprebbe esprimerlo. Segna la riga come trattata (✓) per non rivederla.",
+      "Si l'entrée donne sur une AUTRE voie que l'adresse postale : laisse le POI en place. C'est justement son rôle : un numéro (HN) porté par un segment ne peut pas mettre l'adresse sur une voie et l'entrée sur une autre. Marque la ligne comme traitée (✓) pour ne pas la revoir.":
+        "Se l'ingresso dà su un'ALTRA strada rispetto all'indirizzo postale: lascia il POI al suo posto. È proprio il suo ruolo: un numero civico (HN) posto su un segmento non può dare l'indirizzo su una strada e l'ingresso su un'altra. Segna la riga come trattata (✓) per non rivederla.",
       'Analyse non lancée.':
         'Analisi non avviata.',
       'Audit des POI indisponible.':
@@ -9488,7 +9680,7 @@
    *      courante (le filtre par emprise est ce qui elimine la remanence), au
    *      MAJORITAIRE : en zone frontaliere, un segment isole ne fait pas foi.
    */
-  function detecterPays() {
+  async function detecterPays() {
     // 1. Preuve geometrique : nos propres contours, sous le centre.
     //
     // ⚠️⚠️ LE PAYS SE LIT SUR LE CONTOUR TROUVE, PAS SUR LE REFERENTIEL ACTIF.
@@ -9500,7 +9692,7 @@
     // ⚠️ Un contour d'avant la v2.40 n'a pas de `pays` : il est francais par
     //    construction (c'etait le seul referentiel), d'ou le repli sur 'FR'.
     try {
-      const ctr = sdk.Map.getMapCenter();
+      const ctr = await sdk.Map.getMapCenter();
       if (ctr && communes.length) {
         const com = communeDuPoint(ctr.lon, ctr.lat);
         if (com) {
@@ -9543,9 +9735,9 @@
     }
     // 2. Pays majoritaire des segments REELLEMENT dans la vue.
     try {
-      let ext; try { ext = sdk.Map.getMapExtent(); } catch (e) { ext = null; }
+      let ext; try { ext = await sdk.Map.getMapExtent(); } catch (e) { ext = null; }
       const comptes = new Map();
-      for (const s of sdk.DataModel.Segments.getAll()) {
+      for (const s of (await sdk.DataModel.Segments.getAll()) || []) {
         // ⚠️ Le filtre par emprise n'est pas cosmetique : juste apres un saut
         // de carte, `getAll()` rend encore des segments de l'ancienne vue.
         if (ext) {
@@ -9554,7 +9746,7 @@
           const p = co[Math.floor(co.length / 2)];
           if (!p || p[0] < ext[0] || p[0] > ext[2] || p[1] < ext[1] || p[1] > ext[3]) continue;
         }
-        let a; try { a = sdk.DataModel.Segments.getAddress({ segmentId: s.id }); } catch (e) { continue; }
+        let a; try { a = await sdk.DataModel.Segments.getAddress({ segmentId: s.id }); } catch (e) { continue; }
         const c = a && a.country;
         const cle = c && (c.name || c.abbr);
         if (!cle) continue;
@@ -9579,8 +9771,8 @@
    */
   let pays = { etat: 'inconnu', nom: null, code: null, ref: null };
 
-  function evaluerPays() {
-    const p = detecterPays();
+  async function evaluerPays() {
+    const p = await detecterPays();
     const avant = pays.etat;
     if (!p) pays = { etat: 'inconnu', nom: null, code: null, ref: null };
     else {
@@ -10226,14 +10418,34 @@
    * liste — l'analyse tourne souvent au zoom 16/17, ou le depot est vide. On
    * verifie au moment d'AGIR, apres avoir au besoin provoque le chargement.
    */
-  function hnManipulable(id) {
+  // ⚠️ 2.55.00 — `W` est retiré de WME le 24/11/2026 (annonce du staff, Discuss 413664). Tant
+  // qu'il existe, on lit son dépôt de numéros (mesuré, voir ci-dessus) ; ensuite, le SDK
+  // (`HouseNumbers.getById`), qui rend l'objet s'il est dans le modèle. Si aucune des deux lectures
+  // ne répond, le numéro n'est PAS manipulable : la conversion se refuse, elle n'écrit rien.
+  async function hnManipulable(id) {
+    if (hote.W && hote.W.model && hote.W.model.segmentHouseNumbers) {
+      try {
+        return hote.W.model.segmentHouseNumbers.getObjectArray()
+          .some(o => String(o.getID ? o.getID() : o.id) === String(id));
+      } catch (e) { /* on essaie le SDK */ }
+    }
+    if (!(sdk.DataModel.HouseNumbers && typeof sdk.DataModel.HouseNumbers.getById === 'function')) {
+      hnLectureIndisponible = true;          // ni W ni SDK : la conversion le dira telle quelle
+      return false;
+    }
     try {
-      return hote.W.model.segmentHouseNumbers.getObjectArray()
-        .some(o => String(o.getID ? o.getID() : o.id) === String(id));
+      const h = await sdk.DataModel.HouseNumbers.getById({ houseNumberId: String(id) });
+      return !!(h && (h.id != null || h.number != null));
     } catch (e) { return false; }
   }
-  /** Combien de numeros d'un report sont reellement manipulables. */
-  const hnsManipulables = f => (f.hns || []).filter(h => hnManipulable(h.id));
+  /** Vrai si aucun moyen de lire les numeros charges n'a ete trouve (ni `W`, ni le SDK). */
+  let hnLectureIndisponible = false;
+  /** Les numeros d'un report reellement manipulables. */
+  async function hnsManipulables(f) {
+    const r = [];
+    for (const h of f.hns || []) if (await hnManipulable(h.id)) r.push(h);
+    return r;
+  }
 
   /** Zoom a partir duquel WME charge les numeros dans le modele (mesure). */
   const ZOOM_NUMEROS = 18;
@@ -10256,18 +10468,18 @@
     // mais le zoom est IMPOSE ici : sous le 18, WME ne charge pas les numeros,
     // donc le reglage « zoomer au clic » ne peut pas s'y opposer.
     if (p) p.sous('cadrage sur l\'écart…');
-    cadrerSur(f, true);
+    await cadrerSur(f, true);
     await new Promise(r => setTimeout(r, 700));      // la carte doit avoir bouge
     if (p) p.verifier();
-    if (hnsManipulables(f).length === (f.hns || []).length) return f.hns.length;
+    if ((await hnsManipulables(f)).length === (f.hns || []).length) return f.hns.length;
     if (p) p.sous('chargement des numéros de rue…');
     for (let essai = 0; essai < 8; essai++) {
       await new Promise(r => setTimeout(r, 500));
       if (p) p.verifier();          // 4 s d'attente : « Annuler » doit la rompre
-      if (hnsManipulables(f).length) break;
+      if ((await hnsManipulables(f)).length) break;
     }
     if (p) p.sous(f.libelle || '');
-    return hnsManipulables(f).length;
+    return (await hnsManipulables(f)).length;
   }
 
   // ===========================================================================
@@ -10888,8 +11100,9 @@
     // fourni (`_nam`, resolu par `adapterReponseApi`) : on s'en sert d'abord,
     // et le modele ne sert plus que de repli (mode balayage).
     const parId = new Map((segs || []).map(s => [String(s.id), s]));
-    const segmentDe = id => parId.get(String(id)) ||
-      (() => { try { return sdk.DataModel.Segments.getById({ segmentId: id }); } catch (e) { return null; } })();
+    // 2.55.00 : `segmentDe` est appelé dans des boucles synchrones. Les segments porteurs absents de
+    // la liste reçue sont donc lus AVANT (voir plus bas, après la lecture des numéros).
+    const segmentDe = id => parId.get(String(id)) || null;
 
     // --- 0. Lecture des numeros de rue — PARTAGEE par les deux controles -----
     //
@@ -10946,6 +11159,19 @@
     // adresse aux VRAIS POI qui n'en ont pas (`proposerAdressePoi`). Elle est
     // remplie meme quand le controle des RPP est decoche, parce que l'audit des
     // POI est un onglet a part, avec ses propres cases.
+    // Segments porteurs hors de la liste reçue (balayage des POI, segs = []) : lus dans le modèle,
+    // puis leur nommage, avant les boucles synchrones.
+    // (Les segments RECUS sont deja garnis par l'appelant, ou portent `_nam` s'ils viennent de l'API.)
+    const nouveaux = [];
+    for (const hn of tousHn) {
+      const k = String(hn.segmentId);
+      if (parId.has(k)) continue;
+      parId.set(k, null);
+      try { const s = await sdk.DataModel.Segments.getById({ segmentId: hn.segmentId }); if (s) { parId.set(k, s); nouveaux.push(s); } }
+      catch (e) { /* hors modele */ }
+    }
+    await garnirSegments(nouveaux, prog);
+
     if (!stats.numeros) stats.numeros = [];
     if (!stats.hnIndexVus) stats.hnIndexVus = new Set();
     if (fairePoi && !stats.hnIndex) stats.hnIndex = new Map();
@@ -11119,7 +11345,7 @@
       let venues = [];
       if (venuesFournis) venues = venuesFournis.filter(v => v.isResidential);
       else {
-        try { venues = sdk.DataModel.Venues.getAll().filter(v => v.isResidential); }
+        try { venues = ((await sdk.DataModel.Venues.getAll()) || []).filter(v => v.isResidential); }
         catch (e) { log('lecture des POI impossible', e); }
       }
       stats.poiLus += venues.length;
@@ -11137,7 +11363,7 @@
           num = v._adr.houseNumber || '';
           rueNom = (v._adr.street && v._adr.street.name) || '';
         } else {
-          try { const a = sdk.DataModel.Venues.getAddress({ venueId: String(v.id) });
+          try { const a = await sdk.DataModel.Venues.getAddress({ venueId: String(v.id) });
                 num = (a && a.houseNumber) || '';
                 rueNom = (a && a.street && a.street.name) || ''; } catch (e) { /* */ }
         }
@@ -11223,9 +11449,14 @@
                   ' : le numéro doit être porté par le segment. Sélectionne la voie, ouvre ' +
                   '« Ajouter des numéros de rue », pose' + (num ? ' le n° ' + num : ' le numéro') +
                   ' du bon côté, vérifie qu\'il tombe devant l\'entrée, puis supprime ce POI.',
+                // Reformule le 01/11/2026 (remarque d'un CM) : « il » ne renvoyait pas
+                // clairement au POI. ⚠️ Ne pas restreindre a « un segment SANS NOM » :
+                // l'autre voie est souvent nommee (maison d'angle) ; la raison est qu'un
+                // numero porte par un segment met l'adresse ET l'entree sur la meme voie.
                 'Si l\'entrée donne sur une AUTRE voie que l\'adresse postale : laisse le POI en place. ' +
-                  'C\'est précisément ce qu\'il sert à dire, et un numéro porté par le segment ne saurait pas ' +
-                  'l\'exprimer. Marque la ligne comme traitée (✓) pour ne pas la revoir.' ],
+                  'C\'est justement son rôle : un numéro (HN) porté par un segment ne peut pas mettre ' +
+                  'l\'adresse sur une voie et l\'entrée sur une autre. Marque la ligne comme traitée (✓) ' +
+                  'pour ne pas la revoir.' ],
           // ⚠️ La photo ne disculpe pas, elle TEMPERE : quelqu'un est venu sur
           // place. On le dit, on ne le cache pas (arbitrage de l'auteur, 26/07).
           doute: verdict.photo
@@ -11272,8 +11503,28 @@
   /** Etat de la derniere collecte : sert au bandeau et aux statistiques. */
   let sourceDonnees = { mode: null, raison: null };
 
+  /**
+   * Chemin de `app/Features` (2.55.00). `W.Config.paths.features` tant que `W` existe ; après son
+   * retrait (24/11/2026), le chemin que WME lui-même vient d'appeler pour remplir la carte, relevé
+   * dans la liste des ressources de la page (même site, rien n'est envoyé). Aucun des deux ⇒ la
+   * lecture directe se déclare indisponible et l'analyse passe au balayage par le SDK.
+   */
+  function cheminFeatures() {
+    try {
+      const c = hote.W && hote.W.Config && hote.W.Config.paths && hote.W.Config.paths.features;
+      if (c) return c;
+    } catch (e) { /* W retiré */ }
+    try {
+      const vus = performance.getEntriesByType('resource')
+        .map(r => { try { return new URL(r.name, location.href); } catch (e) { return null; } })
+        .filter(u => u && u.origin === location.origin && /\/app\/Features$/.test(u.pathname));
+      if (vus.length) return vus[vus.length - 1].pathname;
+    } catch (e) { /* liste des ressources illisible */ }
+    return null;
+  }
+
   async function chargerParApi(bbox) {
-    const chemin = hote.W && hote.W.Config && hote.W.Config.paths && hote.W.Config.paths.features;
+    const chemin = cheminFeatures();
     if (!chemin) throw new Error('chemin de l\'API introuvable (W.Config.paths.features)');
     const p = new URLSearchParams({
       bbox: bbox.join(','), language: 'fr', v: '2', apiV2: 'true',
@@ -11354,11 +11605,11 @@
   const RECOUVREMENT = 0.85;     // les cellules se chevauchent : pas de couture manquee
 
   /** Cellules couvrant les polygones d'agglomeration, pour la passe POI. */
-  function cellulesPourAgglos(listeAgglos) {
-    const v = sdk.Map.getMapExtent();
+  async function cellulesPourAgglos(listeAgglos) {
+    const v = await sdk.Map.getMapExtent();
     // A zoom egal la vue depend de la fenetre : on deduit la taille d'une
     // cellule de zoom 17 à partir de la vue courante, puis on l'ajuste.
-    const facteur = Math.pow(2, sdk.Map.getZoomLevel() - ZOOM_POI);
+    const facteur = Math.pow(2, (await sdk.Map.getZoomLevel()) - ZOOM_POI);
     const largeur = (v[2] - v[0]) * facteur * RECOUVREMENT;
     const hauteur = (v[3] - v[1]) * facteur * RECOUVREMENT;
     const cellules = [];
@@ -11383,9 +11634,9 @@
     // La taille d'une cellule depend de la fenetre : on la MESURE au lieu de la
     // supposer (un ecran large couvre plus de terrain a zoom egal).
     const centreCommune = centreDe(bboxCentreCoords(communeActive.bbox));
-    sdk.Map.setMapCenter({ lonLat: centreCommune, zoomLevel: ZOOM_BALAYAGE });
+    await centrer({ lonLat: centreCommune, zoomLevel: ZOOM_BALAYAGE });
     await new Promise(r => setTimeout(r, 1500));
-    const v = sdk.Map.getMapExtent();
+    const v = await sdk.Map.getMapExtent();
     const largeur = (v[2] - v[0]) * RECOUVREMENT;
     const hauteur = (v[3] - v[1]) * RECOUVREMENT;
     const [x1, y1, x2, y2] = communeActive.bbox;
@@ -11445,7 +11696,7 @@
       // et reclique. Une attente longue doit se rompre, pas seulement se
       // signaler.
       if (prog) prog.verifier();
-      const n = sdk.DataModel.Segments.getAll().length;
+      const n = ((await sdk.DataModel.Segments.getAll()) || []).length;
       if (n === precedent) { stable++; if (stable >= 3 && n > 0) return n; }
       else { stable = 0; precedent = n; }
     }
@@ -11456,7 +11707,7 @@
     // ⚠️⚠️ Garde-fou territorial AVANT tout le reste (v2.03) : les regles sont
     // francaises. On reevalue ici plutot que de se fier a l'etat memorise — la
     // carte a pu bouger depuis le dernier controle.
-    if (evaluerPays().etat !== 'servi') {
+    if ((await evaluerPays()).etat !== 'servi') {
       ui.stats.innerHTML = '<div class="agn-stat agn-alerte">' + messagePays() + '</div>';
       ui.results.innerHTML = ''; return;
     }
@@ -11548,10 +11799,11 @@
       segId: seg.id, roadType: seg.roadType, libelle: fmt(nam.primary),
       villeActuelle: (nam.primary && nam.primary.cityName) || '',
       centre: centreDe(coords), geom: seg.geometry,
-      editable: seg.editable !== undefined ? seg.editable : (() => { try {
-        return sdk.DataModel.Segments.hasPermissions({ segmentId: seg.id });
-      } catch (e) { return false; } })()
+      // 2.55.00 : droits relus par `garnirSegments` en tête de cette fonction, pendant que le
+      // segment est charge (hasPermissions est une promesse en mode asynchrone).
+      editable: seg.editable !== undefined ? seg.editable : EDITABLE.get(String(seg.id)) === true
     });
+    await garnirSegments(segs, prog);
     for (const seg of segs) {
       // ⚠️ Point de controle OBLIGATOIRE : sans lui cette boucle tient la main
       // ~25 s d'affilee (1607 segments), la barre reste figee et le bouton
@@ -11988,14 +12240,14 @@
      * cartouche, pose sur la Street partagee, deborderait sur les segments qui
      * ne sont pas la route). Rend des reports deja groupes (un par voie).
      */
-    function cartouchesPrincipal() {
+    async function cartouchesPrincipal() {
       const out = [];
       for (const g of cartInfo.values()) {
         if (g.dejaCartouche || !g.segs.length) continue;
         // Regle de l'auteur : au moins un segment sans Dxx-cartouche ⇒ rien.
         if (g.segs.some(s => !s.shields.length)) continue;
         // A7 : l'ecusson se pose sur la RUE, partagee — on ne propose que si elle ne deborde pas.
-        if (rueHorsDuJugement(g, segmentsDeLaRue(g.streetId))) continue;
+        if (rueHorsDuJugement(g, await segmentsDeLaRue(g.streetId))) continue;
         // Cartouche commun a TOUS les segments (intersection), et unique.
         let inter = g.segs[0].shields.map(x => x.key);
         for (const s of g.segs.slice(1)) inter = inter.filter(k => s.shields.some(x => x.key === k));
@@ -12126,7 +12378,7 @@
       statsAdr.segmentsLus = donneesApi.segments.length;
     } else {
     // --- REPLI : balayage de la commune, cellule par cellule ---------------
-    const vueInitiale = { centre: sdk.Map.getMapCenter(), zoom: sdk.Map.getZoomLevel() };
+    const vueInitiale = { centre: await sdk.Map.getMapCenter(), zoom: await sdk.Map.getZoomLevel() };
     // ⚠️ Le balayage DEPLACE la carte : quoi qu'il arrive — fin normale, echec
     // ou annulation — l'editeur doit retrouver sa vue. D'ou le `finally`.
     vueARendre = vueInitiale;
@@ -12139,11 +12391,11 @@
       n++;
       prog.fixer(n);
       await prog.respirer(true);
-      try { sdk.Map.setMapCenter({ lonLat: cel, zoomLevel: ZOOM_BALAYAGE }); }
+      try { await centrer({ lonLat: cel, zoomLevel: ZOOM_BALAYAGE }); }
       catch (e) { log('cadrage de cellule impossible', e); }
       await attendreChargement(prog);
       prog.verifier();
-      const segsCellule = sdk.DataModel.Segments.getAll();
+      const segsCellule = (await sdk.DataModel.Segments.getAll()) || [];
       await analyserSegments(segsCellule, null);   // une cellule est courte : pas de sous-barre
       // Phase 1 : segments et NUMEROS. Les numeros se lisent par appel serveur,
       // donc le zoom 16 suffit.
@@ -12163,14 +12415,14 @@
     // il suffit de couvrir les polygones, bien plus petits.
     // ------------------------------------------------------------------
     if (options.controles.poiAgglo && listeAgglos.length) {
-      const cellulesPoi = cellulesPourAgglos(listeAgglos);
+      const cellulesPoi = await cellulesPourAgglos(listeAgglos);
       prog.etape('POI résidentiels', cellulesPoi.length);
       let m = 0;
       for (const cel of cellulesPoi) {
         m++;
         prog.fixer(m);
         await prog.respirer(true);
-        try { sdk.Map.setMapCenter({ lonLat: cel, zoomLevel: ZOOM_POI }); } catch (e) { /* */ }
+        try { await centrer({ lonLat: cel, zoomLevel: ZOOM_POI }); } catch (e) { /* */ }
         await attendreChargement(prog);
         prog.verifier();
         try { await analyserAdresses([], listeAgglos, statsAdr, { hn: false, poi: true }, null, prog); }
@@ -12196,7 +12448,7 @@
     // Les reports cartouche-principal sont DEJA groupes par voie : on les ajoute
     // apres `regrouperFindings`, qui ne sait fusionner que des reports d'un
     // seul segment.
-    const cartFindings = CARTOUCHE_SUR_RUE_HORS_AGGLO ? cartouchesPrincipal() : [];
+    const cartFindings = CARTOUCHE_SUR_RUE_HORS_AGGLO ? await cartouchesPrincipal() : [];
     zones.cartouche += cartFindings.length;
     findings = findings.concat(cartFindings);
     // Les reports POI rejoignent la meme liste : tout le rendu, le marquage
@@ -12229,7 +12481,7 @@
       // Le balayage a pu deplacer la carte : elle revient chez l'editeur quoi
       // qu'il arrive — fin normale, echec ou annulation.
       if (vueARendre) {
-        try { sdk.Map.setMapCenter({ lonLat: vueARendre.centre, zoomLevel: vueARendre.zoom }); }
+        try { await centrer({ lonLat: vueARendre.centre, zoomLevel: vueARendre.zoom }); }
         catch (e) { /* */ }
       }
       prog.fin();
@@ -12281,12 +12533,16 @@
    * Profil courant, lu sur DEUX sources independantes ; on retient la valeur la
    * plus basse, de sorte qu'en alterer une seule ne change rien.
    */
+  // 2.55.00 : `getUserInfo` est une promesse ; on lit le miroir `USAGER` (relu au démarrage, jusqu'à
+  // être lisible, et avant chaque correction). Après le retrait de `W` (24/11/2026), il ne reste
+  // que cette source : Global Editor et staff ne se lisent plus (le SDK ne les expose pas) — le ⚡
+  // leur reste ouvert seulement par le rang ou un rôle de Champ.
   function _fp() {
     const v = [];
-    try { const u = sdk.State.getUserInfo() || {};
+    try { const u = USAGER || {};
           if (typeof u.rank === 'number') v.push(u.rank); } catch (e) { /* */ }
     let g = false, t = false;
-    try { const a = hote.W.loginManager.user.attributes;
+    try { const a = hote.W && hote.W.loginManager && hote.W.loginManager.user && hote.W.loginManager.user.attributes;
           if (typeof a.rank === 'number') v.push(a.rank);
           g = !!a.globalEditor; t = !!a.isStaff; } catch (e) { /* */ }
     return { n: v.length ? Math.min(...v) : -1, g, t, src: v.length, r: _fr || [] };
@@ -12308,11 +12564,11 @@
   const _fv = () => (_fz.reduce((a, b) => (a ^ b) >>> 0, 0) >>> 0) === _fq;
 
   // ---- Plafond des éditions scriptées (2.52.00, doctrine France § 3.3) ------------------------
-  // Au plus 150 éditions posées par le ⚡ (unitaire ou de groupe) par heure GLISSANTE et par
+  // Au plus 500 éditions posées par le ⚡ (unitaire ou de groupe) par heure GLISSANTE et par
   // éditeur, comptées à l'enregistrement : une entrée par objet modifié ou créé (segment renommé,
   // nom alternatif ajouté, rue créée, cartouche posé sur une rue, adresse d'un POI, RPP créé,
   // numéro retiré). Modèle repris de WME BAN Coverage (`quotaHn`) : l'entrée est RÉSERVÉE dès
-  // l'écriture (jamais plus de 150 en attente), puis COMPTÉE si elle se retrouve après un
+  // l'écriture (jamais plus de 500 en attente), puis COMPTÉE si elle se retrouve après un
   // enregistrement réussi, RENDUE si l'éditeur l'a annulée avant d'enregistrer, et gardée
   // jusqu'au bout de sa fenêtre quand on ne peut pas trancher (jamais rendue sur un doute).
   // Le plafond n'est pas un réglage. Ses deux valeurs ne sont pas écrites en clair : le cœur de
@@ -12321,13 +12577,13 @@
   // le plafond. Ne pas modifier sans l'accord de l'auteur du script.
   const _qh = x => typeof x === 'number' ? x : x && typeof x.t === 'number' ? x.t : NaN;
   function quotaEditions(entrees, maintenant) {
-    const m = 0x96, f = 0x36ee80;
+    const m = 0x1f4, f = 0x36ee80;
     const r = (entrees || []).filter(x => _qh(x) > maintenant - f).sort((a, b) => _qh(a) - _qh(b));
     const reste = Math.max(0, m - r.length);
     return { utilises: r.length, reste, max: m, libre: reste ? maintenant : _qh(r[r.length - m]) + f, garder: r };
   }
-  const _fk = [0x96, 0x36ee80];
-  const _fs = 0x357f5257;
+  const _fk = [0x1f4, 0x36ee80];
+  const _fs = 0x357f5335;
   function _fc() {
     const m = Date.now(), [a, f] = _fk, pl = n => Array.from({ length: n }, () => m);
     return quotaEditions(pl(a), m).reste === 0 && quotaEditions(pl(a - 1), m).reste === 1 &&
@@ -12366,8 +12622,8 @@
   }
 
   /** La « ville vide » de la zone : c'est un objet City reel, pas un null. */
-  function villeVide() {
-    try { return sdk.DataModel.Cities.getAll().find(c => c.isEmpty) || null; }
+  async function villeVide() {
+    try { return ((await sdk.DataModel.Cities.getAll()) || []).find(c => c.isEmpty) || null; }
     catch (e) { return null; }
   }
 
@@ -12385,9 +12641,9 @@
   /** Pseudo de l'éditeur : le quota est PAR ÉDITEUR. Vide ⇒ pas de ⚡ (on ne saurait où compter). */
   function quotaUtilisateur() {
     let nom = '';
-    try { const u = sdk.State.getUserInfo(); if (u && u.userName) nom = String(u.userName); } catch (e) { /* */ }
+    try { const u = USAGER; if (u && u.userName) nom = String(u.userName); } catch (e) { /* */ }
     if (!nom) {
-      try { const w = hote.W.loginManager.user;
+      try { const w = hote.W && hote.W.loginManager && hote.W.loginManager.user;
             nom = String(w.userName || (w.attributes && w.attributes.userName) || ''); } catch (e) { /* */ }
     }
     return nom;
@@ -12499,27 +12755,26 @@
    * 'ok' : ce qu'on avait écrit y est ; 'absent' : l'objet est chargé et ne le porte pas (écriture
    * annulée avant d'enregistrer) ; null : objet introuvable, on ne tranche pas.
    */
-  function etatEdition(x) {
+  async function etatEdition(x) {
     const d = x && x.x;
     if (!d) return null;
     try {
       if (x.o === 's' || x.o === 'r') {
         let nam = null;
-        try { nam = readNaming({ id: d.seg }); } catch (e) { return null; }
+        try { nam = await lireNommage(d.seg); } catch (e) { return null; }
         if (!nam) return null;
         const pr = (d.nom != null) && nam.primary.name === d.nom && nam.primary.cityName === (d.ville || '');
         const al = (d.alts || []).some(a => (nam.alts || []).some(b => b.name === a.nom && b.cityName === (a.ville || '')));
         return (pr || al) ? 'ok' : 'absent';
       }
       if (x.o === 'c') {
-        const st = hote.W.model.streets.getObjectById(d.rue);
-        if (!st) return null;
-        const t = st.signText || (st.attributes && st.attributes.signText) || '';
-        return String(t).trim() === String(d.sign || '').trim() ? 'ok' : 'absent';
+        const c = await cartoucheDeStreet(d.rue, true);
+        if (!c) return null;
+        return String(c.signText || '').trim() === String(d.sign || '').trim() ? 'ok' : 'absent';
       }
       if (x.o === 'p') {
         let a = null;
-        try { a = sdk.DataModel.Venues.getAddress({ venueId: String(d.venue) }); } catch (e) { return null; }
+        try { a = await sdk.DataModel.Venues.getAddress({ venueId: String(d.venue) }); } catch (e) { return null; }
         if (!a) return null;
         return (a.street && a.street.name) === d.rue && (a.city && a.city.name) === d.ville ? 'ok' : 'absent';
       }
@@ -12528,12 +12783,12 @@
         // un enregistrement WME recharge ses POI : introuvable n'est PAS disparu (leçon de WBC
         // 0.13.01) ⇒ jamais rendu. Un POI encore en attente a un identifiant NÉGATIF.
         const k = Math.cos(d.lat * Math.PI / 180) * 111320;
-        for (const v of sdk.DataModel.Venues.getAll() || []) {
+        for (const v of (await sdk.DataModel.Venues.getAll()) || []) {
           if (!v || !v.isResidential || !v.geometry || v.geometry.type !== 'Point') continue;
           const [lon, lat] = v.geometry.coordinates;
           if (Math.hypot((lon - d.lon) * k, (lat - d.lat) * 111320) > 15) continue;
           let num = null;
-          try { num = (sdk.DataModel.Venues.getAddress({ venueId: String(v.id) }) || {}).houseNumber; } catch (e) { /* */ }
+          try { num = ((await sdk.DataModel.Venues.getAddress({ venueId: String(v.id) })) || {}).houseNumber; } catch (e) { /* */ }
           if (normNumero(num) !== normNumero(d.num)) continue;
           if (!String(v.id).trim().startsWith('-')) return 'ok';
         }
@@ -12551,9 +12806,16 @@
     if (!attente.length) return;
     // Laisser WME recharger ses POI après l'enregistrement avant de les chercher.
     if (attente.some(x => x.o === 'v' || x.o === 'h')) await new Promise(r => setTimeout(r, 3000));
-    // Relu APRÈS l'attente : une écriture faite entre-temps n'est pas perdue. Seules les entrées
-    // de CETTE page se tranchent : celles d'une autre page parlent d'objets qu'on n'a peut-être pas.
-    const res = rapprocherEditions(lireEditions(u), x => x.p === SESSION_Q ? etatEdition(x) : null);
+    // Seules les entrées de CETTE page se tranchent : celles d'une autre page parlent d'objets qu'on
+    // n'a peut-être pas. 2.55.00 : les états se lisent d'abord (promesses), puis la liste est RELUE
+    // et réécrite d'un trait, sans attente entre les deux : une écriture faite entre-temps n'est
+    // pas perdue.
+    const cleQ = x => [x.t, x.o, x.id].join('|');
+    const etats = new Map();
+    for (const x of lireEditions(u)) {
+      if (x && typeof x === 'object' && x.e === 0 && x.p === SESSION_Q) etats.set(cleQ(x), await etatEdition(x));
+    }
+    const res = rapprocherEditions(lireEditions(u), x => (x.p === SESSION_Q && etats.has(cleQ(x))) ? etats.get(cleQ(x)) : null);
     ecrireEditions(u, res.entrees);
     log('quota : ' + res.comptes.length + ' édition(s) enregistrée(s) comptée(s), ' + res.rendus.length + ' rendue(s)');
     majQuotaAffiche();
@@ -12616,8 +12878,8 @@
    * live le 22/07). On prend aussi `countryId`, par prudence et parce qu'il est
    * gratuit — les deux se lisent sur l'adresse actuelle du segment.
    */
-  function contexteAdresse(segmentId) {
-    const a = sdk.DataModel.Segments.getAddress({ segmentId });
+  async function contexteAdresse(segmentId) {
+    const a = await sdk.DataModel.Segments.getAddress({ segmentId });
     return { stateId: a && a.state && a.state.id, countryId: a && a.country && a.country.id };
   }
 
@@ -12627,11 +12889,11 @@
    * rue. Le nom PRINCIPAL, lui, s'ecrit desormais en clair (voir
    * `contexteAdresse`), sans passer par la creation d'objets City/Street.
    */
-  function resoudreStreet(nom, nomVille, info) {
+  async function resoudreStreet(nom, nomVille, info) {
     const DM = sdk.DataModel;
     let city = null;
     if (nomVille) {
-      city = DM.Cities.getCity({ cityName: nomVille });
+      city = await DM.Cities.getCity({ cityName: nomVille });
       // ⚠️⚠️ ON NE CREE JAMAIS DE COMMUNE (doctrine de l'auteur, 25/07). Une
       // commune INSEE existe normalement deja dans Waze ; si elle est absente,
       // c'est une anomalie a regler a la main, pas a fabriquer d'office. On
@@ -12640,16 +12902,16 @@
       if (!city) throw new Error('commune « ' + nomVille + ' » absente de Waze : ' +
         'le script ne crée pas de commune. Vérifie ou crée-la à la main, puis relance.');
     } else {
-      city = villeVide();
+      city = await villeVide();
     }
     if (!city) throw new Error('ville « ' + (nomVille || 'sans ville') + ' » introuvable');
     // Le « sans nom » est un objet Street vide, pas un null : getStreet('')
     // le rend directement (verifie).
-    const deja = DM.Streets.getStreet({ streetName: nom || '', cityId: city.id });
+    const deja = await DM.Streets.getStreet({ streetName: nom || '', cityId: city.id });
     if (deja) return deja;
     // 2.52.00 : une rue CREEE est un objet de plus, elle compte au quota (voir `quotaEditions`).
     if (info) info.cree = true;
-    return DM.Streets.addStreet({ streetName: nom, cityId: city.id });
+    return await DM.Streets.addStreet({ streetName: nom, cityId: city.id });
   }
 
   /**
@@ -12697,25 +12959,52 @@
     return null;
   }
 
-  /** Le cartouche deja porte par une Street, lu dans la couche interne. */
-  function cartoucheDeStreet(streetId) {
+  /**
+   * Le cartouche deja porte par une Street. 2.55.00 : lu par le SDK (`Streets.getById`), et par la
+   * couche interne tant que `W` existe. `vide` : rendre aussi un cartouche vide ({ signText: '' })
+   * quand la rue est lue — sert au rapprochement du quota, qui doit distinguer « rue lue, sans
+   * cartouche » de « rue introuvable ».
+   */
+  async function cartoucheDeStreet(streetId, vide) {
+    let lu = false, t = '';
     try {
-      const st = hote.W.model.streets.getObjectById(streetId);
-      if (!st) return null;
-      const t = st.signText || (st.attributes && st.attributes.signText);
-      return (t && String(t).trim()) ? { signText: t } : null;
-    } catch (e) { return null; }
+      const st = await sdk.DataModel.Streets.getById({ streetId });
+      if (st) { lu = true; t = st.signText || ''; }
+    } catch (e) { /* on essaie la couche interne */ }
+    if (!lu) {
+      try {
+        const st = hote.W && hote.W.model && hote.W.model.streets.getObjectById(streetId);
+        if (st) { lu = true; t = st.signText || (st.attributes && st.attributes.signText) || ''; }
+      } catch (e) { /* W retiré */ }
+    }
+    if (!lu) return null;
+    if (t && String(t).trim()) return { signText: t };
+    return vide ? { signText: '' } : null;
   }
 
-  function ecrireCartouche(streetId, signText, signType) {
-    try {
-      const UpdateObject = hote.require && hote.require('Waze/Action/UpdateObject');
-      if (!UpdateObject) throw new Error('action UpdateObject indisponible');
-      const st = hote.W.model.streets.getObjectById(streetId);
-      if (!st) return false;                    // rue pas encore chargee
-      hote.W.model.actionManager.add(new UpdateObject(st, { signText: signText, signType: signType }));
-      return true;
-    } catch (e) { log('ecriture du cartouche impossible', e); return false; }
+  /**
+   * Écrit un cartouche. Rend { ok: true } ou { ok: false, motif }.
+   * ⚠️ 2.55.00 — `W` est retiré de WME le 24/11/2026 (Discuss 413664). Tant qu'il existe : l'action
+   * interne `UpdateObject` (vérifiée, annulable). Ensuite : `Streets.updateStreet` du SDK, qui au
+   * 23/07/2026 répondait OK SANS RIEN ÉCRIRE (demande au staff : ticket 568816250) — on RELIT donc
+   * la rue après coup, et si le cartouche n'y est pas, on le dit : rien d'écrit de travers, et
+   * l'éditeur pose l'écusson à la main.
+   */
+  async function ecrireCartouche(streetId, signText, signType) {
+    const UpdateObject = (() => { try { return hote.W && hote.require && hote.require('Waze/Action/UpdateObject'); } catch (e) { return null; } })();
+    if (UpdateObject) {
+      try {
+        const st = hote.W.model.streets.getObjectById(streetId);
+        if (!st) return { ok: false, motif: tr('cartouche : la rue n\'est pas encore chargée — réessaie') };
+        hote.W.model.actionManager.add(new UpdateObject(st, { signText: signText, signType: signType }));
+        return { ok: true };
+      } catch (e) { log('ecriture du cartouche impossible', e); return { ok: false, motif: tr('cartouche : écriture refusée par WME') }; }
+    }
+    try { await sdk.DataModel.Streets.updateStreet({ streetId, signText, signType }); }
+    catch (e) { log('ecriture du cartouche par le SDK impossible', e); }
+    const relu = await cartoucheDeStreet(streetId);
+    if (relu && String(relu.signText).trim() === String(signText).trim()) return { ok: true };
+    return { ok: false, motif: tr('cartouche non écrit : WME ne permet plus de l\'écrire par script (le SDK ne sait pas encore le faire) — pose-le à la main') };
   }
 
   /**
@@ -12888,11 +13177,13 @@
   }
 
   /** Les segments CHARGES dont cette rue est le principal (modele interne de WME). */
-  function segmentsDeLaRue(streetId) {
+  async function segmentsDeLaRue(streetId) {
+    // 2.55.00 : par le SDK (les objets du modele portent `primaryStreetId`) ; la couche interne
+    // n'est plus lue — elle disparait le 24/11/2026.
     try {
-      return hote.W.model.segments.getObjectArray()
-        .filter(x => x.attributes && x.attributes.primaryStreetID === streetId)
-        .map(x => x.attributes.id);
+      return ((await sdk.DataModel.Segments.getAll()) || [])
+        .filter(s => s && String(s.primaryStreetId) === String(streetId))
+        .map(s => s.id);
     } catch (e) { return []; }
   }
 
@@ -12901,17 +13192,18 @@
    * doctrine axe 4). Lus par le SDK et par le modele interne, reunis. Rend null si AUCUNE des deux
    * lectures n'a abouti : l'appelant refuse alors, il ne conclut jamais « aucun segment, tout passe ».
    */
-  function segmentsPortantLaRue(streetId) {
+  async function segmentsPortantLaRue(streetId) {
     const cle = String(streetId), ids = new Set();
     let lu = false;
     try {
-      for (const s of sdk.DataModel.Segments.getAll() || []) {
+      for (const s of (await sdk.DataModel.Segments.getAll()) || []) {
         if (!s) continue;
         if (String(s.primaryStreetId) === cle || (s.alternateStreetIds || []).some(a => String(a) === cle)) ids.add(s.id);
       }
       lu = true;
     } catch (e) { /* */ }
-    try {
+    // Couche interne en complement tant que `W` existe (retiree le 24/11/2026 : le SDK reste seul).
+    if (hote.W && hote.W.model && hote.W.model.segments) try {
       for (const x of hote.W.model.segments.getObjectArray()) {
         const a = x && x.attributes;
         if (!a) continue;
@@ -12927,14 +13219,15 @@
    * qui la portent. Un seul segment charge hors des droits de l'editeur ⇒ refus. Rend le motif du
    * refus, ou null. (2.52.00, audit doctrine axe 4.)
    */
-  function rueHorsDroits(streetId) {
-    const ids = segmentsPortantLaRue(streetId);
+  async function rueHorsDroits(streetId) {
+    const ids = await segmentsPortantLaRue(streetId);
     if (ids == null) return tr('cartouche refusé : les segments de la rue ne peuvent pas être lus');
     if (!ids.length) return tr('cartouche refusé : aucun segment de la rue n\'est chargé — zoome sur la voie puis réessaie');
-    const hors = ids.filter(id => {
-      try { return !sdk.DataModel.Segments.hasPermissions({ segmentId: id }); }
-      catch (e) { return true; }
-    });
+    const hors = [];
+    for (const id of ids) {
+      try { if (!(await sdk.DataModel.Segments.hasPermissions({ segmentId: id }))) hors.push(id); }
+      catch (e) { hors.push(id); }
+    }
     return hors.length
       ? trf('cartouche refusé : {n} segment(s) de la rue verrouillé(s) au-dessus de ton niveau', { n: hors.length })
       : null;
@@ -12956,14 +13249,15 @@
    * On distingue donc les deux : `abs` recueille les segments a charger, que
    * l'appelant fera venir en cadrant dessus.
    */
-  function segmentsEditables(ids, abs) {
-    return ids.filter(id => {
-      try { return sdk.DataModel.Segments.hasPermissions({ segmentId: id }); }
+  async function segmentsEditables(ids, abs) {
+    const ok = [];
+    for (const id of ids) {
+      try { if (await sdk.DataModel.Segments.hasPermissions({ segmentId: id })) ok.push(id); }
       catch (e) {
         if (e && e.name === 'DataModelNotFoundError' && abs) abs.push(id);
-        return false;
       }
-    });
+    }
+    return ok;
   }
 
   /**
@@ -12977,7 +13271,7 @@
   // l'editeur puisse enchainer a la main (typiquement poser le point d'entree).
   let crees = [];
 
-  function convertirHnEnPoi(f, choix) {
+  async function convertirHnEnPoi(f, choix) {
     const DM = sdk.DataModel;
     // ⚠️⚠️ 2.52.00 (arbitrage de l'auteur du 11/10/2026) : UN numero par geste. Chaque report n'en
     // porte qu'un depuis le 22/07 ; ce garde empeche qu'un report a plusieurs numeros, d'ou qu'il
@@ -12991,7 +13285,7 @@
     if (!nomRue) throw new Error('nom de rue indéterminé');
     // Contexte administratif du segment porteur : le POI est cree a cote, donc
     // il partage son Etat et son pays.
-    const ctx = contexteAdresse(f.segId);
+    const ctx = await contexteAdresse(f.segId);
     // Ville a retenir pour CE numero : soit celle imposee par l'editeur, soit
     // celle de la commune INSEE qui contient reellement le point.
     const villePour = hn => {
@@ -13011,17 +13305,18 @@
     // compteur ni tronques (defaut corrige en v2.09).
     const critiques = [];
     const villesUtilisees = new Set();
-    const laisses = f.hns.length - hnsManipulables(f).length;
+    const manipulables = await hnsManipulables(f);
+    const laisses = f.hns.length - manipulables.length;
     /**
      * Retire un POI qu'on vient de creer. Rend `true` si la carte est bien
      * revenue en arriere. ⚠️ Le resultat DOIT etre lu : c'est lui qui distingue
      * « rattrape » de « doublon en place ».
      */
-    const retirerPoi = venueId => {
-      try { DM.Venues.deleteVenue({ venueId }); return true; }
+    const retirerPoi = async venueId => {
+      try { await DM.Venues.deleteVenue({ venueId }); return true; }
       catch (e) { return false; }
     };
-    for (const hn of hnsManipulables(f)) {
+    for (const hn of manipulables) {
       let venueId = null;
       const ville = villePour(hn);
       // ⚠️⚠️ PAS DE COMMUNE ⇒ PAS DE CONVERSION (defaut corrige en v2.09, trouve
@@ -13040,8 +13335,18 @@
       // ── 0. Doublon : un RPP porte-t-il DEJA cette adresse ? (2.52.00, audit doctrine axe 3) ──
       // Meme numero, meme rue (normalisation de `cleNumeroRue`), a moins de RPP_EXISTANT_M : on
       // ne cree RIEN et on ne retire rien. Le numero reste, l'editeur tranche sur place.
+      // ⚠️ 2.55.00 (audit du 01/11/2026) : un contrôle qui n'a PAS PU se faire n'est pas « pas de
+      // doublon ». Numéro sans position, ou POI du modèle illisibles ⇒ on ne convertit pas.
       const pt = hn.geometry && hn.geometry.coordinates;
-      const dbl = pt ? rppExistant(hn.number, nomRue, pt) : null;
+      if (!pt) {
+        echecs.push(trf('{num} : position du numéro inconnue, le contrôle des doublons est impossible — rien n\'a été créé ni retiré', { num: hn.number }));
+        continue;
+      }
+      const dbl = await rppExistant(hn.number, nomRue, pt);
+      if (dbl && dbl.erreur) {
+        echecs.push(trf('{num} : les POI voisins ne peuvent pas être lus, le contrôle des doublons est impossible — rien n\'a été créé ni retiré ; réessaie', { num: hn.number }));
+        continue;
+      }
       if (dbl) {
         echecs.push(trf('{num} : un RPP « {num} {rue} » existe déjà à {d} m — rien n\'a été créé ni retiré ; si c\'est un doublon, supprime le numéro à la main',
           { num: hn.number, rue: nomRue, d: dbl.dist }));
@@ -13050,7 +13355,7 @@
       // ── 1. Creation du POI ─────────────────────────────────────────────────
       try {
         // /!\ addVenue rend un NOMBRE, les autres methodes veulent une CHAINE.
-        venueId = String(DM.Venues.addVenue({
+        venueId = String(await DM.Venues.addVenue({
           category: REF.adressage.categoriePoi, geometry: hn.geometry }));
       } catch (e) {
         echecs.push(hn.number + ' : POI non créé (' + (e.message || e) + ')');
@@ -13063,10 +13368,10 @@
       // SANS ADRESSE, en plus du numero conserve. Or l'erreur est reelle et
       // documentee — `stateId is required for raw address updates`.
       try {
-        DM.Venues.updateAddress({ venueId, addressData: Object.assign(
+        await DM.Venues.updateAddress({ venueId, addressData: Object.assign(
           { houseNumber: String(hn.number), streetName: nomRue, cityName: ville }, ctx) });
       } catch (e) {
-        const annule = retirerPoi(venueId);
+        const annule = await retirerPoi(venueId);
         const m = hn.number + ' : adresse du POI refusée (' + (e.message || e) + ')' +
           (annule ? ', POI retiré' :
             ' — ⚠️ LE POI EST RESTÉ SANS ADRESSE, à supprimer à la main');
@@ -13093,7 +13398,7 @@
       const fp = hn.fractionPoint && hn.fractionPoint.coordinates;
       if (fp) {
         try {
-          DM.Venues.replaceNavigationPoints({ venueId, navigationPoints: [
+          await DM.Venues.replaceNavigationPoints({ venueId, navigationPoints: [
             { point: { type: 'Point', coordinates: fp }, entry: true, exit: true }
           ] });
           reprises++;
@@ -13104,7 +13409,7 @@
       }
       // ── 3. Retrait du numero : c'est ici que se joue le « tout ou rien » ───
       try {
-        DM.HouseNumbers.deleteHouseNumber({ houseNumberId: hn.id });
+        await DM.HouseNumbers.deleteHouseNumber({ houseNumberId: hn.id });
         faits++; villesUtilisees.add(ville);
         crees.push(venueId);            // pour selectionner le POI ensuite
         // Quota (2.52.00) : deux objets, le RPP cree et le numero retire. Tous deux se retrouvent
@@ -13118,7 +13423,7 @@
         // annoncait « POI annule » sans verifier, donc il rassurait a tort et
         // l'editeur enregistrait un doublon sans le savoir (defaut corrige en
         // v2.09). Un message faux est pire que pas de message.
-        if (retirerPoi(venueId)) {
+        if (await retirerPoi(venueId)) {
           echecs.push(hn.number + ' : numéro non retirable, POI annulé (' + (e.message || e) + ')');
         } else {
           const m = hn.number + ' : ⚠️ ADRESSE EN DOUBLE — le POI a été créé mais ni ' +
@@ -13137,11 +13442,14 @@
   /**
    * Un POI residentiel porte-t-il DEJA cette adresse, tout pres ? (2.52.00, audit doctrine axe 3)
    * Lu dans le modele de WME : la conversion cadre la carte au zoom des numeros, les POI voisins
-   * y sont donc charges. Meme normalisation que `cleNumeroRue`. Rend { dist, id } ou null.
+   * y sont donc charges. Meme normalisation que `cleNumeroRue`. Rend { dist, id } ou null, et
+   * { erreur: true } si les POI du modele ne peuvent pas etre lus (2.55.00 : l'appelant refuse
+   * alors la conversion — un controle impossible n'est pas un controle passe).
    */
-  function rppExistant(numero, rue, point) {
+  async function rppExistant(numero, rue, point) {
     let liste = [];
-    try { liste = sdk.DataModel.Venues.getAll() || []; } catch (e) { return null; }
+    try { liste = (await sdk.DataModel.Venues.getAll()) || []; } catch (e) { return { erreur: true }; }
+    if (!Array.isArray(liste)) return { erreur: true };
     const cle = cleNumeroRue(rue, numero);
     let best = null;
     for (const v of liste) {
@@ -13151,7 +13459,8 @@
       const d = distanceM(point, p);
       if (d > RPP_EXISTANT_M) continue;
       let a = null;
-      try { a = sdk.DataModel.Venues.getAddress({ venueId: String(v.id) }); } catch (e) { continue; }
+      // Un POI residentiel tout pres dont l'adresse ne se lit pas : on ne sait pas si c'est un doublon.
+      try { a = await sdk.DataModel.Venues.getAddress({ venueId: String(v.id) }); } catch (e) { return { erreur: true }; }
       if (!a || cleNumeroRue(a.street && a.street.name, a.houseNumber) !== cle) continue;
       if (!best || d < best.dist) best = { dist: Math.round(d), id: v.id };
     }
@@ -13392,7 +13701,7 @@
     // la carte : les autres ne grisent que des boutons. Un report affiche en
     // France reste cliquable apres un saut a l'etranger — on revalide donc ici,
     // au moment d'ecrire, et pas seulement au moment d'afficher.
-    if (evaluerPays().etat !== 'servi') {
+    if ((await evaluerPays()).etat !== 'servi') {
       return { ok: false, motif: pays.etat === 'hors'
         ? 'territoire non pris en charge (' + (pays.nom || pays.code || 'inconnu') +
           ') : aucun référentiel de nommage ne le sert'
@@ -13400,6 +13709,8 @@
     }
     const plan = planDeCorrection(f);
     if (!plan) return { ok: false, motif: 'rien d\'automatisable' };
+    // 2.55.00 : profil relu juste avant d'écrire (pseudo du quota, rang).
+    await lireUsager();
     // ⚠️⚠️ QUOTA (2.52.00, doctrine France § 3.3) : avant toute question et toute ecriture. Une
     // correction qui ne tient pas ENTIERE dans ce qui reste de l'heure ne commence pas.
     const besoin = editionsPrevues(f, plan);
@@ -13420,7 +13731,7 @@
       // ⚠️ Le POI et son segment doivent etre dans le modele : les objets lus
       // par l'API n'y sont pas (cf. [[wme-sdk-pieges]]). On cadre donc d'abord,
       // exactement comme pour les numeros, puis on laisse WME charger.
-      cadrerSur(f, true);
+      await cadrerSur(f, true);
       await new Promise(r => setTimeout(r, 900));
       // ⚠️⚠️ ON DEMANDE DES QU'IL Y A UN CHOIX (l'auteur, 26/07). Le clic sur ⚡
       // n'applique tout seul QUE le cas ou un unique nom de rue se detache ;
@@ -13435,7 +13746,7 @@
         if (choix.segId != null) op.segId = choix.segId;
       }
       let ctx = {};
-      try { ctx = contexteAdresse(op.segId); }
+      try { ctx = await contexteAdresse(op.segId); }
       catch (e) {
         return { ok: false, motif: 'la voie « ' + op.rue + ' » n\'est pas chargée dans WME : ' +
           'l\'État et le pays de l\'adresse ne peuvent pas être lus — réessaie, la carte vient d\'être cadrée' };
@@ -13448,7 +13759,7 @@
           'zoome sur la zone puis réessaie' };
       }
       try {
-        sdk.DataModel.Venues.updateAddress({ venueId: String(op.venueId),
+        await sdk.DataModel.Venues.updateAddress({ venueId: String(op.venueId),
           addressData: Object.assign({ streetName: op.rue, cityName: op.ville }, ctx) });
       } catch (e) {
         return { ok: false, motif: 'adresse refusée par WME (' + (e.message || e) + ')' };
@@ -13467,6 +13778,9 @@
       // Les numeros n'entrent dans le modele qu'a partir du zoom 18 : on les
       // fait charger plutot que de renvoyer l'editeur a un reglage de carte.
       const dispo = await chargerNumeros(f);
+      if (!dispo && hnLectureIndisponible) {
+        return { ok: false, motif: tr('conversion indisponible : WME ne donne plus accès aux numéros chargés (W retiré) et le SDK ne sait pas encore les lire — rien n\'a été écrit, convertis à la main') };
+      }
       if (!dispo) {
         return { ok: false, motif: 'numéros non chargés par WME malgré le cadrage — ' +
           'réessaie après avoir zoomé sur la zone' };
@@ -13479,7 +13793,7 @@
         if (!choix) return { ok: false, motif: 'conversion annulée' };
       }
       try {
-        const r = convertirHnEnPoi(f, choix);
+        const r = await convertirHnEnPoi(f, choix);
         reserverEditions(r.editions);
         if (!r.faits) return { ok: false, motif: r.echecs[0] || 'aucun numéro converti',
                                critiques: r.critiques };
@@ -13504,7 +13818,7 @@
     }
     const tous = f.segIds || [f.segId];
     let absents = [];
-    let ids = segmentsEditables(tous, absents);
+    let ids = await segmentsEditables(tous, absents);
     // ⚠️ Meme regle que pour les numeros (v1.85) : l'eclair CADRE d'abord.
     // Sans ca, cliquer la correction sans avoir clique la ligne travaillait sur
     // des segments que WME n'avait pas charges — et le script les declarait
@@ -13512,12 +13826,12 @@
     if (absents.length) {
       const p = progEnCours;
       if (p) p.sous('chargement du segment…');
-      cadrerSur(f, true);
+      await cadrerSur(f, true);
       for (let essai = 0; essai < 8 && absents.length; essai++) {
         await new Promise(r => setTimeout(r, 500));
         if (p) p.verifier();
         absents = [];
-        ids = segmentsEditables(tous, absents);
+        ids = await segmentsEditables(tous, absents);
       }
       if (p) p.sous(f.libelle || '');
     }
@@ -13532,7 +13846,7 @@
     // ensuite (« commune absente »), le bilan disait « Échec » alors qu'une ecriture attendait
     // l'enregistrement. Et le principal, ecrit en clair, ne verifiait meme pas que sa ville
     // existe — la doctrine « on ne cree jamais de commune » ne tenait que pour l'alternatif.
-    const preparation = preparerEcriture(plan, ids);
+    const preparation = await preparerEcriture(plan, ids);
     if (preparation.motif) return { ok: false, motif: preparation.motif + ' — rien n\'a été écrit' };
     const { adresses, nomsAvant } = preparation;
     const avertissements = [];
@@ -13549,9 +13863,8 @@
         if (op.type === 'cartouchePrincipal') {
           // Cartouche pose sur la Street principale (voie entiere). Ecriture par
           // l'action interne : le SDK ne sait pas le faire.
-          if (!ecrireCartouche(op.streetId, op.signText, op.signType)) {
-            throw new Error('cartouche : la rue n\'est pas encore chargée — réessaie');
-          }
+          const ec = await ecrireCartouche(op.streetId, op.signText, op.signType);
+          if (!ec.ok) throw new Error(ec.motif);
           ecrits++;
           autres.push({ o: 'c', id: op.streetId, x: { rue: op.streetId, sign: op.signText } });
         } else if (op.type === 'principal') {
@@ -13560,10 +13873,10 @@
           // avec une chaine vide, au lieu de retrouver les objets vides.
           // ⚠️ A10 : une correction de REDACTION garde la ville RELUE a l'instant sur le segment,
           //    pas celle de l'analyse — perimee, ou vide si l'API n'avait pas livre les villes.
-          ids.forEach(id => {
+          for (const id of ids) {
             const a = adresses.get(id);
             const ville = op.garderVille ? a.ville : (op.ville || '');
-            sdk.DataModel.Segments.updateAddress({
+            await sdk.DataModel.Segments.updateAddress({
               segmentId: id,
               addressData: { streetName: op.nom || '',
                              cityName: ville,
@@ -13571,17 +13884,17 @@
             });
             ecrits++;
             Object.assign(editionSeg(id), { nom: op.nom || '', ville });
-          });
+          }
         } else {
           // Alternatif : `addAlternateStreet` veut un ID, donc on resout encore.
           // On n'utilise PAS `alternateStreetIds` de `addressData` : il REMPLACE
           // la liste, ce qui effacerait des alternatifs legitimes.
           const info = {};
-          const rue = resoudreStreet(op.nom, op.ville, info);
+          const rue = await resoudreStreet(op.nom, op.ville, info);
           if (!rue) throw new Error('rue « ' + op.nom + ' » introuvable');
           // Une rue creee est un objet de plus : elle compte, et se retrouve par l'alternatif.
           if (info.cree) autres.push({ o: 'r', id: rue.id, x: { seg: ids[0], alts: [{ nom: op.nom, ville: op.ville || '' }] } });
-          sdk.DataModel.Segments.addAlternateStreet({ segmentIds: ids, streetId: rue.id });
+          await sdk.DataModel.Segments.addAlternateStreet({ segmentIds: ids, streetId: rue.id });
           ecrits++;
           ids.forEach(id => editionSeg(id).alts.push({ nom: op.nom, ville: op.ville || '' }));
           // Le cartouche ne suit pas tout seul : voir `cartoucheAReprendre`.
@@ -13590,14 +13903,15 @@
           // ⚠️ A8 : la source se cherche dans les nommages lus AVANT toute ecriture. Relus ici,
           //    ils avaient deja perdu le principal « D26 » qui portait l'ecusson, remplace par le
           //    nom de rue une op plus tot — et le numero arrivait en alternatif tout nu.
-          if (!cartoucheDeStreet(rue.id)) {
+          if (!(await cartoucheDeStreet(rue.id))) {
             const src = cartoucheAReprendre(op.nom, nomsAvant);
             // ⚠️ 2.52.00 (audit doctrine, axe 4) : la rue de l'alternatif est PARTAGEE elle aussi ;
             //    un segment qui la porte hors des droits de l'editeur ⇒ l'ecusson n'est pas reporte.
-            const horsDroits = src ? rueHorsDroits(rue.id) : null;
+            const horsDroits = src ? await rueHorsDroits(rue.id) : null;
+            const ec = (src && !horsDroits) ? await ecrireCartouche(rue.id, src.signText, src.signType) : null;
             if (src && horsDroits) {
               avertissements.push(trf('cartouche de « {nom} » non reporté ({motif}) : pose-le à la main', { nom: op.nom, motif: horsDroits }));
-            } else if (src && !ecrireCartouche(rue.id, src.signText, src.signType)) {
+            } else if (src && !ec.ok) {
               avertissements.push('cartouche de « ' + op.nom + ' » non reporté : pose-le à la main');
             } else if (src) {
               autres.push({ o: 'c', id: rue.id, x: { rue: rue.id, sign: src.signText } });
@@ -13652,11 +13966,11 @@
    * le contexte administratif et la ville actuelle de chaque segment, et les nommages tels
    * qu'ils sont avant la premiere ecriture.
    */
-  function preparerEcriture(plan, ids) {
+  async function preparerEcriture(plan, ids) {
     const adresses = new Map();
     for (const id of ids) {
       let a = null;
-      try { a = sdk.DataModel.Segments.getAddress({ segmentId: id }); } catch (e) { a = null; }
+      try { a = await sdk.DataModel.Segments.getAddress({ segmentId: id }); } catch (e) { a = null; }
       // ⚠️ `updateAddress` REFUSE une adresse brute sans `stateId` (v2.09).
       if (!a || !a.state || a.state.id == null) {
         return { motif: 'contexte administratif introuvable (État/pays) sur le segment ' + id +
@@ -13669,7 +13983,7 @@
     // TOUS ses segments charges — un seul hors des droits de l'editeur arrete TOUT le plan.
     for (const op of plan) {
       if (op.type !== 'cartouchePrincipal') continue;
-      const refus = rueHorsDroits(op.streetId);
+      const refus = await rueHorsDroits(op.streetId);
       if (refus) return { motif: refus };
     }
     // ⚠️⚠️ ON NE CREE JAMAIS DE COMMUNE (doctrine de l'auteur, 25/07) — ni en alternatif, ni en
@@ -13678,19 +13992,22 @@
       if ((op.type !== 'principal' && op.type !== 'alt') || op.garderVille) continue;
       if (op.ville) {
         let c = null;
-        try { c = sdk.DataModel.Cities.getCity({ cityName: op.ville }); } catch (e) { c = null; }
+        try { c = await sdk.DataModel.Cities.getCity({ cityName: op.ville }); } catch (e) { c = null; }
         if (!c) return { motif: 'commune « ' + op.ville + ' » absente de Waze : le script ne crée ' +
                                 'pas de commune. Vérifie ou crée-la à la main, puis relance' };
-      } else if (op.type === 'alt' && !villeVide()) {
+      } else if (op.type === 'alt' && !(await villeVide())) {
         return { motif: 'ville vide introuvable dans la zone chargée : zoome puis réessaie' };
       }
     }
-    const nomsAvant = ids.map(id => { try { return readNaming({ id: id }); } catch (e) { return null; } });
+    const nomsAvant = [];
+    for (const id of ids) { try { nomsAvant.push(await lireNommage(id)); } catch (e) { nomsAvant.push(null); } }
     return { adresses, nomsAvant };
   }
 
-  function nbModifsEnAttente() {
-    try { return hote.W.model.actionManager.getActions().length; } catch (e) { return null; }
+  /** Modifications en attente dans WME (SDK `getUnsavedChangesCount`, 2.55.00 ; plus de `W`). */
+  async function nbModifsEnAttente() {
+    try { const n = await sdk.Editing.getUnsavedChangesCount(); return typeof n === 'number' ? n : null; }
+    catch (e) { return null; }
   }
 
   // ---------------------------------------------------------------------------
@@ -14717,11 +15034,11 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
     // touche NI au zoom NI au centre de la carte (arbitrage de l'auteur).
     const lancerSel = (btn, zone) => {
       if (!btn || btn.disabled) return;
-      try { selectionnerParZone(zone); }
-      catch (e) {
+      // 2.55.00 : asynchrone — l'echec arrive par la promesse, plus par une exception.
+      selectionnerParZone(zone).catch(e => {
         log('sélection par zone impossible', e);
         if (ui.zoneInfo) ui.zoneInfo.textContent = 'Sélection impossible : ' + (e.message || e);
-      }
+      });
     };
     if (ui.btnSelVille) ui.btnSelVille.onclick = () => lancerSel(ui.btnSelVille, 'ville');
     if (ui.btnSelHors) ui.btnSelHors.onclick = () => lancerSel(ui.btnSelHors, 'horsVille');
@@ -14826,10 +15143,12 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
       // — SAUF si la carte y est deja posee (Glenan56, 14/08 : voir
       // `carteDejaDans`). Choisir une commune ou l'on travaille deja ne doit
       // plus rien deplacer.
-      if (communeActive && !carteDejaDans(communeActive.geom)) {
-        const em = empriseDeGeom(communeActive.geom);
-        if (em) centrerSurZoneVisible(em.centre, zoomPour(2 * em.rx, 2 * em.ry, em.centre.lat), 'choix de la commune ' + communeActive.nom);
-      }
+      const choisie = communeActive;
+      if (choisie) lireVue().then(() => {
+        if (communeActive !== choisie || carteDejaDans(choisie.geom)) return;
+        const em = empriseDeGeom(choisie.geom);
+        if (em) centrerSurZoneVisible(em.centre, zoomPour(2 * em.rx, 2 * em.ry, em.centre.lat), 'choix de la commune ' + choisie.nom);
+      });
     };
 
     // Filtre des communes. `input` et non `change` : la liste doit se resserrer
@@ -15641,6 +15960,21 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
           <tr><td><b>La carte bouge quand je ne veux pas</b></td><td>Chaque déplacement de carte fait par le script écrit sa raison dans la <b>console du navigateur</b> (F12), sous la forme <span class="agn-aide-ex">cadrage [choix de la commune X] : zoom 17 → 15 ⚠️ ARRIÈRE</span>. Envoie cette ligne : elle nomme le geste responsable, ce qu'une capture ne peut pas faire.</td></tr>
         </table>` },
 
+      // 2.55.00 (audit du 01/11/2026, consigne de l'auteur « citer les sources ») : chaque source de
+      //    donnees nommee avec son producteur et sa licence, et tout ce qui part du navigateur. Elle
+      //    suit le REFERENTIEL, comme le reste de l'aide : un editeur en Italie ne lit pas les sources francaises.
+      { id: 'sources', titre: '📚 Sources et données échangées', corps: `
+        <table class="agn-aide-t">${siPasDePanneaux(`
+          <tr><td><b>Contours communaux</b></td><td>Limites <b>ISTAT</b> mises en forme par <b>openpolis/geojson-italy</b>, <b>CC BY 4.0</b>, version figée au commit <b>ba3347d</b> du 16/08/2026, lue sur raw.githubusercontent.com.</td></tr>
+          <tr><td><b>Ce qui part du navigateur</b></td><td>Le nom du fichier de la province demandée, sur raw.githubusercontent.com. Jamais de pseudo ni d'objet de la carte.</td></tr>`)}${siPanneaux(`
+          <tr><td><b>Contours communaux</b></td><td>Admin Express (IGN) et Code officiel géographique (INSEE), servis par <b>geo.api.gouv.fr</b>, <b>Licence Ouverte Etalab 2.0</b>. Millésime : celui que l'API sert le jour du chargement.</td></tr>
+          <tr><td><b>Panneaux EB10 / EB20</b></td><td>Jeu « signalisation routière déterminant la VMA » du <b>Ministère de l'Intérieur</b>, <b>Licence Ouverte 2.0</b>, republié par <b>api.wazefrance.com</b> (communauté Waze France). Date de mise à jour non transmise par l'API.</td></tr>
+          <tr><td><b>Dictionnaire de rédaction</b></td><td>Règles de <b>WME Check Road Name</b> (buchet37), lues dans deux feuilles <b>Google Sheets</b> à chaque démarrage, avec l'accord de son auteur. Licence non déclarée. Le dictionnaire <b>public</b> reste en lecture seule.</td></tr>
+          <tr><td><b>Ce qui part du navigateur</b></td><td><b>geo.api.gouv.fr</b> : un numéro de département, ou cinq points de la vue si « charger le département survolé » est coché. <b>api.wazefrance.com</b> : les centres des zones de la commune, au clic sur 🪧 Panneaux. Google : la clé des deux feuilles. Jamais de pseudo ni d'objet de la carte.</td></tr>`)}
+          <tr><td><b>WME lui-même</b></td><td>Lecture rapide d'une commune par <b>app/Features</b>, l'adresse interne que WME appelle pour remplir sa carte (même site, ta session) ; repli sur le balayage par le SDK si elle ne répond pas.</td></tr>
+          <tr><td><b>Version minimale</b></td><td>Au démarrage, le fichier <b>version-min.json</b> du dépôt GitHub est lu : il peut empêcher une version retirée de démarrer ; injoignable, le script démarre. GreasyFork est interrogé une fois par jour au plus.</td></tr>
+        </table>` },
+
       // 🔴 CETTE SECTION DISAIT ENCORE « Pourquoi la France uniquement » et
       //    « le script se ferme hors de France » — FAUX depuis la v2.40, et
       //    c'est la premiere chose qu'un testeur italien serait alle lire.
@@ -16280,8 +16614,11 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
   function nettoyerCarte() {
     if (edition) sortirEdition(false);
     cacherBulle();
-    [LAYER_COMMUNE, LAYER_AGGLO, LAYER_ECARTS, LAYER_ADRESSES, LAYER_PANNEAUX].forEach(n => {
-      try { sdk.Map.removeAllFeaturesFromLayer({ layerName: n }); } catch (e) { /* */ }
+    // Même file que les dessins (2.55.00) : un dessin encore en attente ne repeint pas après le vidage.
+    [[LAYER_COMMUNE], [LAYER_AGGLO], [LAYER_ECARTS, LAYER_ADRESSES], [LAYER_PANNEAUX]].forEach(ns => {
+      surCalque(ns[0], async () => {
+        for (const n of ns) { try { await sdk.Map.removeAllFeaturesFromLayer({ layerName: n }); } catch (e) { /* */ } }
+      });
     });
   }
 
@@ -16790,7 +17127,7 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
       let suggeres = [];
       if (typeof sc.unitesSousLaVue === 'function') {
         try {
-          const c = sdk.Map.getMapCenter();
+          const c = VUE.centre;       // miroir de la vue (2.55.00)
           if (c) suggeres = sc.unitesSousLaVue(c.lon, c.lat).map(u => u.code);
         } catch (e) { suggeres = []; }
       }
@@ -17548,20 +17885,19 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
     prog.fin();
     redrawEcarts(null);
     majBoutonsGroupes();      // une serie corrigee vide souvent tout un groupe
-    majBandeauCorrection(ok, segments, echecs, bloques, unite, interrompu, critiques, reprises);
+    await majBandeauCorrection(ok, segments, echecs, bloques, unite, interrompu, critiques, reprises);
     // Demande de l'auteur : apres une conversion, c'est le POI qui doit etre
     // selectionne, pas le segment d'origine — on enchaine en general sur son
     // point d'entree.
     if (crees.length) {
-      try { sdk.Editing.setSelection({ selection: { ids: crees.slice(), objectType: 'venue' } }); }
-      catch (e) { log('sélection des POI créées impossible', e); }
+      await poserSelection({ ids: crees.slice(), objectType: 'venue' }, 'sélection des POI créées');
       crees = [];
     }
   }
 
-  function majBandeauCorrection(ok, segments, echecs, bloques, unite, interrompu, critiques, reprises) {
+  async function majBandeauCorrection(ok, segments, echecs, bloques, unite, interrompu, critiques, reprises) {
     if (!ui.bandeauFix) return;
-    const enAttente = nbModifsEnAttente();
+    const enAttente = await nbModifsEnAttente();
     const crit = critiques || [];
     if (!ok && (!echecs || !echecs.length) && !crit.length) { ui.bandeauFix.innerHTML = ''; return; }
     // ⚠️⚠️ Les messages critiques passent AVANT le bilan, en entier, dans un bloc
@@ -17658,22 +17994,29 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
    * decide. C'est la meme regle que « on avertit la ou l'editeur DECIDE, pas en
    * le renvoyant en arriere » (v2.25.01).
    */
-  function selectionnerParZone(zone) {
+  async function selectionnerParZone(zone) {
     if (!communeActive) return;
-    let ext; try { ext = sdk.Map.getMapExtent(); } catch (e) { ext = null; }
+    let ext; try { ext = await sdk.Map.getMapExtent(); } catch (e) { ext = null; }
     // ⚠️ Liste d'agglos VIDE a dessein : ici on ne juge pas la zone reelle, on
     // ne fait que verifier l'appartenance a la COMMUNE. Passer les polygones
     // ferait calculer un `partAgglo` dont personne ne se sert, sur chaque
     // segment de la vue.
     const retenus = [], horsCommune = [];
     let vus = 0;
-    for (const s of sdk.DataModel.Segments.getAll()) {
+    // 2.55.00 : les segments de la vue d'abord, puis leur nommage relu, puis le tri (synchrone).
+    const dansLaVue = [];
+    for (const s of (await sdk.DataModel.Segments.getAll()) || []) {
       const co = s.geometry && s.geometry.coordinates;
       if (!co || !co.length) continue;
       if (ext && ext.length === 4) {
         const p = co[Math.floor(co.length / 2)];
         if (p[0] < ext[0] || p[0] > ext[2] || p[1] < ext[1] || p[1] > ext[3]) continue;
       }
+      dansLaVue.push(s);
+    }
+    await garnirSegments(dansLaVue);
+    for (const s of dansLaVue) {
+      const co = s.geometry.coordinates;
       vus++;
       let nam; try { nam = readNaming(s); } catch (e) { nam = null; }
       if (!nam) continue;
@@ -17684,10 +18027,7 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
       if (loc.partCommune < 1 - options.seuilCommune) { horsCommune.push(s.id); continue; }
       retenus.push(s.id);
     }
-    try {
-      if (retenus.length) sdk.Editing.setSelection({ selection: { ids: retenus, objectType: 'segment' } });
-      else sdk.Editing.setSelection({ selection: null });
-    } catch (e) { log('sélection par zone impossible', e); }
+    await poserSelection(retenus.length ? { ids: retenus, objectType: 'segment' } : null, 'sélection par zone');
     direSelectionZone(zone, retenus.length, vus, horsCommune.length);
   }
 
@@ -17745,7 +18085,7 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
       'dehors ne peuvent pas être sélectionnés. Dézoome d\'un cran, puis reclique sur cette ligne.';
   }
 
-  function allerA(i) {
+  async function allerA(i) {
     const items = [...ui.results.querySelectorAll('.agn-item')];
     if (!items.length) return;
     indexCourant = Math.min(Math.max(0, i), items.length - 1);
@@ -17766,7 +18106,10 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
     // On cadre AVANT de selectionner : deplacer la carte fait perdre la
     // selection (les objets sortis de la vue sont laches par WME), et on se
     // retrouvait avec un cadrage correct mais plus rien de selectionne.
-    cadrerSur(f);
+    // Le jeton AVANT d'attendre le cadrage : un clic plus recent annule celui-ci (voir plus bas).
+    const gen = ++selGen;
+    await cadrerSur(f);
+    if (gen !== selGen) return;
     // Un POI n'est pas un segment : on le selectionne comme venue, et on ne
     // retente pas — il est deja charge puisqu'on vient de le lire.
     // ⚠️ `f.poi` (les VRAIS POI, v2.15) autant que les RPP : sans ce test, un
@@ -17775,11 +18118,9 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
     // ⚠️ Tout changement de report annule les tentatives du precedent : sans ce
     // jeton, un `setInterval` encore en vol REPOSAIT la selection de l'ancien
     // report par-dessus le nouveau, plusieurs secondes apres le clic.
-    const gen = ++selGen;
     if (f.poi || (f.adresse && f.sousType === 'poi')) {
       direSelection(0, 0);
-      try { sdk.Editing.setSelection({ selection: { ids: [f.venueId], objectType: 'venue' } }); }
-      catch (e) { log('sélection du POI impossible', e); }
+      await poserSelection({ ids: [f.venueId], objectType: 'venue' }, 'sélection du POI');
       redrawEcarts(idx);
       return;
     }
@@ -17787,21 +18128,25 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
     // deplacement, les troncons eloignes n'arrivent qu'au chargement suivant.
     // D'ou plusieurs tentatives, sur les seuls segments reellement presents.
     const attendus = (f.segIds || []).length;
-    const selectionner = () => {
-      const dispo = (f.segIds || []).filter(id => {
-        try { return !!sdk.DataModel.Segments.getById({ segmentId: id }); } catch (e) { return false; }
-      });
+    const selectionner = async () => {
+      const dispo = [];
+      for (const id of f.segIds || []) {
+        try { if (await sdk.DataModel.Segments.getById({ segmentId: id })) dispo.push(id); } catch (e) { /* pas charge */ }
+      }
+      if (gen !== selGen) return true;          // un autre report a ete choisi entre-temps
       direSelection(dispo.length, attendus);
       if (!dispo.length) return false;
-      try { sdk.Editing.setSelection({ selection: { ids: dispo, objectType: 'segment' } }); }
-      catch (e) { log('sélection impossible', e); }
+      await poserSelection({ ids: dispo, objectType: 'segment' }, 'sélection');
       return dispo.length === attendus;
     };
-    if (!selectionner()) {
-      let n = 0;
-      const t = setInterval(() => {
+    if (!(await selectionner())) {
+      let n = 0, enCours = false;
+      const t = setInterval(async () => {
         if (gen !== selGen) { clearInterval(t); return; }
-        if (selectionner() || ++n > 9) clearInterval(t);
+        if (enCours) return;                    // une tentative encore en vol : on ne l'empile pas
+        enCours = true;
+        try { if ((await selectionner()) || ++n > 9) clearInterval(t); }
+        finally { enCours = false; }
       }, 600);
     }
 
@@ -17868,11 +18213,12 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
   function carteDejaDans(geom) {
     if (!geom) return false;
     try {
-      if (sdk.Map.getZoomLevel() < ZOOM_CHARGEMENT) return false;
-      const c = sdk.Map.getMapCenter();
+      // Miroir de la vue (2.55.00) : l'appelant le relit d'abord (`lireVue`).
+      if (VUE.zoom == null || VUE.zoom < ZOOM_CHARGEMENT) return false;
+      const c = VUE.centre;
       if (c && pointInGeom(c.lon, c.lat, geom)) return true;
       // Le centre est dehors : on regarde ce que la VUE contient vraiment.
-      const e = sdk.Map.getMapExtent();
+      const e = VUE.ext;
       if (!e || e.length !== 4) return false;
       let dedans = 0;
       for (let i = 0; i < VUE_GRILLE; i++) {
@@ -18007,8 +18353,10 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
    * accuser. C'est le seul verbe qui deplace la carte hors balayage, donc cette
    * trace est EXHAUSTIVE pour les cadrages subis.
    */
-  function centrerSurZoneVisible(lonLat, zoomCible, motif) {
+  async function centrerSurZoneVisible(lonLat, zoomCible, motif) {
     if (!lonLat) return;
+    // Le repli (centrage brut) vise la cible DEMANDEE, pas un centre deja decale a moitie.
+    const lonLatDemande = lonLat;
     /**
      * ⭐⭐⭐ AUCUN CADRAGE NE DESCEND SOUS LE ZOOM DE CHARGEMENT (v2.38).
      *
@@ -18039,7 +18387,7 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
       zoomCible = ZOOM_CHARGEMENT;
     }
     try {
-      const zAvant = sdk.Map.getZoomLevel();
+      const zAvant = await sdk.Map.getZoomLevel();
       log('cadrage' + (motif ? ' [' + motif + ']' : '') + ' : zoom ' + zAvant +
         (zoomCible == null ? ' inchangé' : ' → ' + zoomCible) +
         // ⚠️ La trace DIT le relevement. Taire l'ecart ferait mentir la ligne
@@ -18049,8 +18397,8 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
     } catch (e) { /* la trace ne doit jamais empecher le cadrage */ }
     try {
       const z = zoneVisible();
-      const ext = sdk.Map.getMapExtent();
-      const zoomActuel = sdk.Map.getZoomLevel();
+      const ext = await sdk.Map.getMapExtent();
+      const zoomActuel = await sdk.Map.getZoomLevel();
       if (!z.complet && ext && ext.length === 4 && z.rc.width > 0 && z.rc.height > 0) {
         // degres par pixel au zoom courant, puis mis a l'echelle du zoom cible
         const f = (zoomCible == null || zoomCible === zoomActuel)
@@ -18065,15 +18413,15 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
         // latitude monte : le signe s'inverse.
         lonLat = { lon: lonLat.lon - dx * dpxLon, lat: lonLat.lat + dy * dpxLat };
       }
-      if (zoomCible == null) sdk.Map.setMapCenter({ lonLat });
-      else sdk.Map.setMapCenter({ lonLat, zoomLevel: zoomCible });
+      if (zoomCible == null) await centrer({ lonLat });
+      else await centrer({ lonLat, zoomLevel: zoomCible });
     } catch (e) {
       // Jamais d'echec silencieux qui laisse la carte immobile : on retombe sur
       // le centrage brut, quitte a ce que la cible soit derriere une fenetre.
       log('centrage sur la zone visible impossible', e);
       try {
-        if (zoomCible == null) sdk.Map.setMapCenter({ lonLat });
-        else sdk.Map.setMapCenter({ lonLat, zoomLevel: zoomCible });
+        if (zoomCible == null) await centrer({ lonLat: lonLatDemande });
+        else await centrer({ lonLat: lonLatDemande, zoomLevel: zoomCible });
       } catch (e2) { /* */ }
     }
   }
@@ -18154,13 +18502,13 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
              zoomNiveau: options.zoomNiveau };
   }
 
-  function cadrerSur(f, forcerZoom) {
+  async function cadrerSur(f, forcerZoom) {
     const plan = cadrageDeReport(f, placeDisponible());
     if (!plan) return;
     // ⚠️ Le zoom est passe a `centrerSurZoneVisible` plutot qu'applique apres :
     // le decalage depend de l'echelle d'ARRIVEE, et zoomer ensuite le rendrait
     // faux (l'objet reviendrait sous une fenetre).
-    centrerSurZoneVisible(plan.centre, (options.zoomClic || forcerZoom) ? plan.zoom : null, 'clic sur un report');
+    await centrerSurZoneVisible(plan.centre, (options.zoomClic || forcerZoom) ? plan.zoom : null, 'clic sur un report');
   }
 
   /**
@@ -18662,7 +19010,8 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
   //  - si son code ne correspond pas à l'empreinte publiée pour sa version (`empreintes`) — copie
   //    modifiée ou abîmée. L'empreinte est un SHA-256 du code, sans les lignes @downloadURL et
   //    @updateURL que GreasyFork réécrit ;
-  //  - si le gestionnaire de scripts ne lui donne pas son code (Tampermonkey requis : choix de l'auteur) ;
+  //  (2.55.00 : la ligne « gestionnaire sans code source ⇒ refus » est retirée de ce commentaire — le
+  //  code ne l'a jamais appliquée : code illisible ⇒ empreinte vide ⇒ le script démarre, voir `_vmVerdict`.)
   //  - si sa version n'est pas publiée (absente de `empreintes`) — sauf pour l'auteur, qui essaie ses
   //    versions avant de les publier.
   // Fichier injoignable ou illisible : le script démarre (une panne de GitHub ne doit pas paralyser
@@ -18692,7 +19041,7 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
       const estAuteur = n => !!n && _vmHx(String(n).toLowerCase()) === 0xc0bef069;
       try {
           const w = (typeof unsafeWindow !== 'undefined' && unsafeWindow.getWmeSdk) ? unsafeWindow : window;
-          const sdk = w.getWmeSdk({ scriptId: 'wme-naming-auditor-vm', scriptName: String(SCRIPT_NAME) + ' (version)' });
+          const sdk = w.getWmeSdk({ scriptId: 'wme-naming-auditor-vm', scriptName: String(SCRIPT_NAME) + ' (version)', mode: 'async' });
           for (let i = 0; i < 20; i++) {
               let u = null;
               try { u = await sdk.State.getUserInfo(); } catch (e) { u = null; }
@@ -18712,7 +19061,7 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
       const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t));
       return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, '0')).join('');
   };
-  // Rend null (démarrer) ou le motif du refus : 'retiree', 'modifiee', 'source', 'inconnue'.
+  // Rend null (démarrer) ou le motif du refus : 'retiree', 'modifiee', 'inconnue'.
   // L'empreinte calculée est écrite dans la console : c'est le contrôle de l'auteur au moment de publier.
   const _vmVerdict = async () => {
       // Le texte de l'enveloppe du script, tel que le navigateur l'a chargé (indépendant du gestionnaire).
@@ -18798,7 +19147,21 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
       if (await _vmBloque()) return;   // version retirée : bandeau, rien d’autre
     await waitForSdk();
     await hote.SDK_INITIALIZED;
-    sdk = hote.getWmeSdk({ scriptId: SCRIPT_ID, scriptName: SCRIPT_NAME });
+    // 2.55.00 : mode asynchrone (seul mode du SDK au 01/01/2027) — voir « SDK EN MODE ASYNCHRONE ».
+    sdk = hote.getWmeSdk({ scriptId: SCRIPT_ID, scriptName: SCRIPT_NAME, mode: 'async' });
+    // Les miroirs d'abord : les premiers rendus les lisent.
+    await lireVue();
+    await lireUsager();
+    // Au demarrage, le profil est souvent encore vide (mesure le 11/10/2026) : on le relit jusqu'a
+    // ce qu'il reponde (une minute au plus), puis on rafraichit ce qui en depend.
+    (async () => {
+      for (let i = 0; i < 30 && !(USAGER && USAGER.userName && typeof USAGER.rank === 'number'); i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        await lireUsager();
+      }
+      _fcache = null;
+      try { majQuotaAffiche(); } catch (e) { /* interface pas encore construite */ }
+    })();
     // /!\ Ne PAS appeler sdk.Events.waitForWmeReady() : la methode existe mais
     // son appel leve une TypeError et fait echouer tout le demarrage.
 
@@ -18814,7 +19177,7 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
     // touche a l'interface, qui doit donc exister.
     ecouterAutresOnglets();
     installerFab();
-    ensureLayers();
+    await ensureLayers();
     installerInfobulle();
     surveillerErreursEnregistrement();
 
@@ -18836,7 +19199,7 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
     // decider quels boutons ouvrir. Au demarrage, WME n'a souvent encore rien
     // charge — l'etat reste « inconnu » et la surveillance de la carte le
     // corrigera d'elle-meme dans la seconde qui suit.
-    evaluerPays();
+    await evaluerPays();
     rafraichirCommunesDeLaVue();
     renderAgglos();
     if (ui.overlay.style.display === 'none') nettoyerCarte();
@@ -18851,10 +19214,12 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
     try {
       sdk.Events.on({ eventName: 'wme-map-move-end', eventHandler: () => {
         clearTimeout(debounce);
-        debounce = setTimeout(() => {
+        debounce = setTimeout(async () => {
           // Le garde-fou territorial se reevalue a chaque arret de la carte :
           // c'est ce qui rend le blocage reversible sans rechargement.
-          evaluerPays();
+          // 2.55.00 : la vue relue d'abord (les fonctions synchrones lisent le miroir `VUE`).
+          await lireVue();
+          await evaluerPays();
           rafraichirCommunesDeLaVue();
           // ⚠️ Apres le rafraichissement, pas avant : si les contours sont deja
           // la, il n'y a rien a telecharger et rien ne part sur le reseau.
@@ -18889,7 +19254,9 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
     // `dessinerPoignees` sort en un test quand aucune edition n'est en cours :
     // l'abonnement ne coute rien le reste du temps.
     ['wme-map-move', 'wme-map-move-end'].forEach(ev => {
-      try { sdk.Events.on({ eventName: ev, eventHandler: () => dessinerPoignees() }); }
+      // 2.55.00 : le miroir de la vue suit la carte A CHAQUE mouvement (pas seulement a l'arret) ;
+      // les poignees se replacent ensuite.
+      try { sdk.Events.on({ eventName: ev, eventHandler: () => { lireVue().then(() => dessinerPoignees()); } }); }
       catch (e) { log('abonnement ' + ev + ' impossible', e); }
     });
 
