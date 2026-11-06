@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.55.00
+// @version      2.55.01
 // @description  FRANCE et ITALIE : audit du nommage et de l'adressage. Le bouton ⚡ (L6, Champs, GE, staff) écrit sans enregistrer : nom, ville, alternatif, cartouche, adresse de POI, numéro hors agglo converti en POI résidentiel (numéro supprimé) ; 500 éditions/h au plus. Sources : IGN/INSEE (geo.api.gouv.fr, Licence Ouverte), panneaux VMA (api.wazefrance.com), WME Check Road Name, ISTAT/openpolis (CC BY 4.0). Échanges : GreasyFork, version-min.json (GitHub) ; coordonnées de zone, jamais d'identité.
 // @author       DrSlump34
 // @license      MIT
@@ -6710,6 +6710,10 @@
         "Porta la mappa sul comune da trattare: i confini si caricano da soli.",
       "Rien à faire d'autre — patiente quelques secondes.":
         "Nient'altro da fare — attendi qualche secondo.",
+      "Charge les contours de ton département : panneau Scripts de WME, onglet Données, section « Contours communaux ».":
+        "Carica i confini della tua provincia: pannello Script di WME, scheda Dati, sezione « Confini comunali ».",
+      "Coche ton département dans la liste, ou coche « Charger tout seul le département visible ».":
+        "Spunta la tua provincia nell'elenco, oppure spunta « Carica da solo il territorio visibile ».",
       "Choisis ta commune dans la liste.":
         "Scegli il tuo comune nell'elenco.",
       "Celle qui est sous le centre de la carte est remontée en tête.":
@@ -15421,7 +15425,10 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
     if (!options.guidage) return null;
     // Le garde-fou territorial parle deja, et plus fort : on ne le double pas.
     if (pays.etat !== 'servi') return null;
-    if (!communes.length) return 'contours';
+    // ⚠️ 2.55.01 (InstantT, 06/11) : depuis la 2.52.00, `autoDep` est DECOCHE par defaut. L'etape « contours »
+    // disait encore d'attendre un chargement automatique qui ne vient pas : impasse, sans aucun geste propose
+    // (le chargement manuel vit dans le panneau Scripts depuis le 27/07). On dit donc OU charger.
+    if (!communes.length) return options.autoDep ? 'contours' : 'contoursManuel';
     if (!communeActive) return 'commune';
     // ⚠️ Une edition ouverte passe AVANT tout : tant qu'elle n'est pas fermee,
     // le polygone n'est pas enregistre et rien d'autre n'a de sens.
@@ -15497,6 +15504,11 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
       texte: 'Amène la carte sur la commune à traiter : les contours du département ' +
              'se chargent tout seuls.',
       suite: 'Rien à faire d\'autre — patiente quelques secondes.' },
+    // 2.55.01 : chargement automatique eteint (reglage par defaut depuis la 2.52.00).
+    contoursManuel: { n: 1, cible: null,
+      texte: 'Charge les contours de ton département : panneau Scripts de WME, onglet Données, ' +
+             'section « Contours communaux ».',
+      suite: 'Coche ton département dans la liste, ou coche « Charger tout seul le département visible ».' },
     commune: { n: 1, cible: '#agn-commune', dansVolet: true,
       texte: 'Choisis ta commune dans la liste.',
       suite: 'Celle qui est sous le centre de la carte est remontée en tête.' },
