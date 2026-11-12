@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.55.01
-// @description  FRANCE et ITALIE : audit du nommage et de l'adressage. Le bouton ⚡ (L6, Champs, GE, staff) écrit sans enregistrer : nom, ville, alternatif, cartouche, adresse de POI, numéro hors agglo converti en POI résidentiel (numéro supprimé) ; 500 éditions/h au plus. Sources : IGN/INSEE (geo.api.gouv.fr, Licence Ouverte), panneaux VMA (api.wazefrance.com), WME Check Road Name, ISTAT/openpolis (CC BY 4.0). Échanges : GreasyFork, version-min.json (GitHub) ; coordonnées de zone, jamais d'identité.
+// @version      2.56.00
+// @description  FRANCE et ITALIE : audit du nommage et de l'adressage. Le bouton ⚡ (L6, Champs, GE, staff) écrit sans enregistrer : nom, ville, alternatif, cartouche, adresse de POI, numéro hors agglo converti en POI résidentiel (numéro supprimé) ; 500 éditions/h au plus. Sources : IGN/INSEE (geo.api.gouv.fr, Licence Ouverte), panneaux VMA (data.gouv.fr), WME Check Road Name, ISTAT/openpolis (CC BY 4.0). Échanges : GreasyFork, version-min.json (GitHub) ; coordonnées de zone, jamais d'identité.
 // @author       DrSlump34
 // @license      MIT
 // @icon         data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPScyNCcgaGVpZ2h0PScyNCcgdmlld0JveD0nMCAwIDI0IDI0Jz48cmVjdCB4PScxLjUnIHk9JzMnIHdpZHRoPScxNycgaGVpZ2h0PSc5JyByeD0nMS41JyBmaWxsPScjZmZmJyBzdHJva2U9JyM2MDdkOGInIHN0cm9rZS13aWR0aD0nMicvPjxwYXRoIGQ9J001IDcuNSBIMTUnIHN0cm9rZT0nIzkwYTRhZScgc3Ryb2tlLXdpZHRoPScxLjgnIHN0cm9rZS1saW5lY2FwPSdyb3VuZCcvPjxjaXJjbGUgY3g9JzE1JyBjeT0nMTUnIHI9JzQuNicgZmlsbD0nI2ZmZicgc3Ryb2tlPScjZWY2YzAwJyBzdHJva2Utd2lkdGg9JzIuNCcvPjxwYXRoIGQ9J00xOC40IDE4LjQgTDIyIDIyJyBzdHJva2U9JyNlZjZjMDAnIHN0cm9rZS13aWR0aD0nMycgc3Ryb2tlLWxpbmVjYXA9J3JvdW5kJy8+PC9zdmc+
@@ -19,7 +19,8 @@
 // @grant        GM_setValue
 // @connect      geo.api.gouv.fr
 // @connect      update.greasyfork.org
-// @connect      api.wazefrance.com
+// @connect      www.data.gouv.fr
+// @connect      static.data.gouv.fr
 // @connect      raw.githubusercontent.com
 // @connect      docs.google.com
 // @connect      googleusercontent.com
@@ -55,21 +56,23 @@
  * sait pas faire (écriture d'un cartouche), la fonction se refuse avec un message, sans rien écrire.
  *
  * SOURCES DE DONNÉES (citées aussi dans l'aide ❓ › 📚 et sur GreasyFork) :
- *   - contours France : Admin Express (IGN) + COG (INSEE), par geo.api.gouv.fr — Licence Ouverte
- *     Etalab 2.0, millésime servi par l'API ;
+ *   - contours France : ADMIN EXPRESS (IGN) + COG (INSEE), par geo.api.gouv.fr — Licence Ouverte
+ *     Etalab 2.0, millésime servi par l'API ; ADMIN EXPRESS est accréditée par Waze (affichage) ;
  *   - contours Italie : limites ISTAT, openpolis/geojson-italy — CC BY 4.0, commit ba3347d figé ;
- *   - panneaux EB10/EB20 : jeu « signalisation déterminant la VMA », Ministère de l'Intérieur —
- *     Licence Ouverte 2.0, republié par api.wazefrance.com (communauté Waze France) ;
+ *   - panneaux EB10/EB20 : « Données de signalisation routière déterminant la Vitesse Maximale
+ *     Autorisée », Ministère de l'Intérieur — Licence Ouverte 2.0, lu sur data.gouv.fr (jeu
+ *     6666a0fa46b0f0997ebcea3d, millésime cité au bilan). Information seulement : jeu non accrédité ;
  *   - dictionnaire de rédaction : WME Check Road Name (buchet37), Google Sheets, avec son accord ;
  *     licence non déclarée par la source ;
  *   - WME : SDK, et `app/Features` (adresse interne de WME, même site) pour la lecture rapide.
- *   Contours et panneaux ne sont pas des sources accréditées par le staff (liste 402288) : la
- *   question lui est posée, et le ⚡ n'écrit jamais rien sans le clic de l'éditeur.
+ *   Ni les contours ni les panneaux ne s'écrivent sur la carte : ce sont des repères pour l'audit,
+ *   et le ⚡ n'écrit jamais rien sans le clic de l'éditeur.
  *
  * SERVEURS CONTACTÉS (sans cookie, sauf WME lui-même) — ce qu'ils reçoivent :
  *   - geo.api.gouv.fr : un numéro de département, ou le point de la vue quand « charger le
  *     département survolé » est coché (décoché par défaut) ;
- *   - api.wazefrance.com : des coordonnées de la commune, au clic sur « 🪧 Panneaux » seulement ;
+ *   - www.data.gouv.fr / static.data.gouv.fr : la fiche puis l'archive du jeu des panneaux, sans
+ *     aucune coordonnée, au premier clic sur « 🪧 Panneaux » de la session ;
  *   - docs.google.com / googleusercontent.com : la clé des deux feuilles du dictionnaire de
  *     rédaction, au démarrage si le contrôle est coché ;
  *   - raw.githubusercontent.com : le fichier des contours italiens (Italie seulement), et au
@@ -2419,17 +2422,6 @@
       url: dep => 'https://geo.api.gouv.fr/departements/' + encodeURIComponent(dep) +
         '/communes?fields=nom,code,contour,mairie&format=geojson&geometry=contour',
       aide: 'Numéro de département (01 à 95, 2A, 2B, 971…). ~3 Mo et ~10 s par département.'
-    },
-    wazefrance: {
-      libelle: 'api.wazefrance.com — à ÉCARTER pour les contours',
-      // ⚠️ Tranche le 23/07 : son `/updates` nomme ses sources, et le decoupage
-      // communal y est le « decoupage administratif issu d'OpenStreetMap »,
-      // donc ODbL VIRAL. Admin Express (IGN) est en Licence Ouverte : on garde
-      // `gouv`. Seuls les PANNEAUX de cette API sont exploitables (voir plus
-      // bas), et pour une tout autre raison : ils viennent de l'Etat.
-      indisponible: 'Ses contours de communes sont dérivés d\'OpenStreetMap (ODbL, ' +
-        'licence virale). La source « geo.api.gouv.fr » ci-dessus livre les mêmes ' +
-        'communes en Licence Ouverte : c\'est elle qu\'il faut utiliser.'
     }
   };
 
@@ -2439,169 +2431,245 @@
   // Idee de l'auteur (23/07), venue de Draw Borders France (Sebiseba) : les
   // panneaux d'entree d'agglo disent OU commence l'agglomeration, ce qu'aucune
   // donnee Waze ne dit. Deux usages : confronter les panneaux au polygone deja
-  // trace, et proposer un pre-trace quand il n'y en a pas.
+  // trace, et proposer un pre-trace quand il n'y en a pas. C'est de
+  // l'INFORMATION pour l'editeur : rien n'est importe sur la carte.
   //
-  // ✅ SOURCE : `api.wazefrance.com/rs` republie le jeu data.gouv.fr
-  // « signalisation routiere determinant la VMA », produit par le Ministere de
-  // l'Interieur (DSR), en **Licence Ouverte 2.0** — permissive comme Admin
-  // Express, sans la viralite de l'ODbL. Verifie le 23/07 via `/updates`.
+  // ⚡ 2.56.00 (12/11/2026, decision de l'auteur) : LECTURE A LA SOURCE OFFICIELLE.
+  //    Jusqu'a la 2.55.01, les panneaux venaient de `api.wazefrance.com/rs`, une
+  //    COPIE tenue par un serveur tiers, plafonnee a 500 items par requete (d'ou
+  //    un decoupage adaptatif de 13 a 16 niveaux de zoom) et sans date de mise a
+  //    jour. La doctrine 1.5 (sujet 414279) demande de lire les donnees publiques
+  //    a leur source : on lit desormais le jeu PUBLIE PAR LE MINISTERE sur
+  //    data.gouv.fr, et l'on cite son millesime.
   //
-  // ⚠️ QUATRE LIMITES MESUREES EN LIVE le 23/07, toutes structurantes :
-  //  1. Couverture : 86 departements / 11 regions. Pas l'Ile-de-France —
-  //     Paris rend 0 panneau. Une commune sans panneau n'est donc PAS une
-  //     commune sans agglomeration : il faut le dire, pas le deduire.
-  //  2. `panneau_value` (le nom porte par le panneau) est presque toujours
-  //     `null` (100 % a Gruissan, Saint-Laurent-des-Arbres, Carcassonne).
-  //     On ne peut pas en tirer le nom d'une agglomeration.
-  //  3. La reponse est PLAFONNEE A 500 items, et les B14 (limitations de
-  //     vitesse) saturent le quota bien avant les EB10. D'ou le decoupage
-  //     adaptatif ci-dessous : sans lui, on perdrait des panneaux EN SILENCE.
-  //  4. EB10 et EB20 sont poses sur le MEME poteau, a ~15 m l'un de l'autre
-  //     (les deux faces). Une « porte » d'agglomeration, c'est donc un couple,
-  //     et le sens ne se lit pas dans la geometrie.
+  // ✅ SOURCE : « Donnees de signalisation routiere determinant la Vitesse
+  //    Maximale Autorisee », Ministere de l'Interieur, Licence Ouverte 2.0,
+  //    jeu data.gouv.fr 6666a0fa46b0f0997ebcea3d, mise a jour ANNUELLE.
+  //    ⚠️ Ce jeu N'EST PAS dans la liste des sources accreditees par Waze (BAN,
+  //    ADMIN EXPRESS, BD TOPO, 12/11/2026) : il ne sert qu'a AFFICHER des
+  //    reperes, jamais a ecrire quoi que ce soit.
+  //
+  // ⚠️ FORMAT MESURE le 12/11/2026 sur `signalisation-vma-112025.zip` (3,5 Mo) :
+  //  1. Un ZIP de 11 CSV, UN PAR REGION : `sign_extract_<REG>_<AAAA-MM>.csv`
+  //     (ARA BFC BZH CVL GE HDF NAQ NMD OCC PAC PDL). Ni Ile-de-France, ni
+  //     Corse, ni outre-mer : 86 departements. Une commune hors couverture
+  //     n'est PAS une commune sans agglomeration — il faut le dire.
+  //  2. Deux colonnes `code,coords`. `code` est un hstore PostgreSQL :
+  //     `"EB10"=>NULL`, `"B14"=>"70"`, et parfois DEUX paires dans la meme
+  //     cellule (`"B14"=>"70", "M9z"=>"rappel"` : 80 619 lignes sur 482 627).
+  //     `coords` vaut `"lat, lon"` — latitude D'ABORD.
+  //  3. 88 571 EB10 et 73 133 EB20 au total. La valeur d'un EB (le nom porte par
+  //     le panneau) est presque toujours NULL : on ne peut pas en tirer le nom
+  //     d'une agglomeration.
+  //  4. EB10 et EB20 sont poses sur le MEME poteau (les deux faces) : une
+  //     « porte » d'agglomeration est un couple, et le sens ne se lit pas dans
+  //     la geometrie.
+  // Le fichier est lu UNE FOIS par session, au premier clic sur « 🪧 Panneaux »,
+  // puis seule la region de la commune est decompressee (~1 a 4 Mo de texte).
   // ---------------------------------------------------------------------------
 
-  const URL_PANNEAUX = (lat, lon, zoom) =>
-    'https://api.wazefrance.com/rs?lat=' + lat + '&lon=' + lon + '&zoom=' + zoom;
-
-  /**
-   * ⚠️ L'emprise d'une requete N'EST PAS DOCUMENTEE : elle a ete MESUREE le
-   * 23/07 sur Carcassonne, a quatre zooms, et elle se divise exactement par
-   * deux a chaque niveau (les quatre mesures se deduisent l'une de l'autre a
-   * 1 % pres, donc ce sont bien les bords reels et pas l'etendue des donnees) :
-   *
-   *   zoom 13 → demi-emprise 0,1651° lat / 0,2240° lon   (384 items)
-   *   zoom 14 → 0,0778 / 0,1107      zoom 15 → 0,0411 / 0,0557
-   *   zoom 16 → 0,0208 / 0,0277      zoom 17 → vide, l'API ne sert plus
-   *
-   * Le rapport lon/lat vaut 1,36 ≈ 1/cos(43°) : c'est un rayon en metres
-   * (~18 km au zoom 13). ⚠️ **Ne pas remplacer ces constantes par une formule
-   * de tuile** (360/2^z) : ca n'en est pas une, je m'y suis trompe en premier
-   * jet. Le zoom 12 est refuse par l'API (HTTP 400).
-   */
-  const DEMI_LAT_Z13 = 0.1651, DEMI_LON_Z13 = 0.2240;
-  const ZOOM_PANNEAUX_DEPART = 13, ZOOM_PANNEAUX_MAX = 16, PLAFOND_API = 500;
-  /** Demi-emprise d'une requete, en degres, a ce zoom. */
-  const demiEmprise = z => {
-    const k = Math.pow(2, ZOOM_PANNEAUX_DEPART - z);
-    return { dLat: DEMI_LAT_Z13 * k, dLon: DEMI_LON_Z13 * k };
+  const JEU_PANNEAUX_FR = {
+    id: '6666a0fa46b0f0997ebcea3d',
+    api: 'https://www.data.gouv.fr/api/1/datasets/6666a0fa46b0f0997ebcea3d/',
+    page: 'https://www.data.gouv.fr/datasets/6666a0fa46b0f0997ebcea3d/',
+    titre: 'Données de signalisation routière déterminant la Vitesse Maximale Autorisée',
+    producteur: 'Ministère de l\'Intérieur'
   };
 
-  /** Clef de dedoublonnage : deux cellules qui se recouvrent rendent le meme
-   *  panneau. Le 1e-5 degre (~1 m) evite de fusionner deux panneaux voisins. */
+  /** Departement → code de region tel qu'il figure dans le NOM des fichiers du jeu.
+   *  ⚠️ Ile-de-France (75, 77, 78, 91-95), Corse (2A, 2B) et outre-mer sont absents
+   *  du jeu : `regionPanneaux` rend alors `null`, et le releve le DIT. */
+  const REGION_PANNEAUX = (() => {
+    const t = {
+      ARA: '01 03 07 15 26 38 42 43 63 69 73 74', BFC: '21 25 39 58 70 71 89 90',
+      BZH: '22 29 35 56', CVL: '18 28 36 37 41 45',
+      GE: '08 10 51 52 54 55 57 67 68 88', HDF: '02 59 60 62 80',
+      NAQ: '16 17 19 23 24 33 40 47 64 79 86 87', NMD: '14 27 50 61 76',
+      OCC: '09 11 12 30 31 32 34 46 48 65 66 81 82', PAC: '04 05 06 13 83 84',
+      PDL: '44 49 53 72 85'
+    };
+    const m = new Map();
+    Object.entries(t).forEach(([r, l]) => l.split(' ').forEach(d => m.set(d, r)));
+    return m;
+  })();
+  const regionPanneaux = codeCommune =>
+    REGION_PANNEAUX.get(String(codeCommune || '').slice(0, 2).toUpperCase()) || null;
+
+  /** Licences admises pour ce jeu (codes data.gouv.fr : Licence Ouverte 2.0, 1.0).
+   *  Une autre licence SUSPEND le releve : on n'affiche pas a l'aveugle une donnee
+   *  dont les conditions ont change. */
+  const LICENCES_PANNEAUX = new Set(['lov2', 'fr-lo']);
+
+  /** Telechargement BINAIRE (le ZIP). Meme garde-fous que `telecharger` :
+   *  sans cookie, interruptible par « Annuler ». */
+  function telechargerBinaire(url, prog) {
+    const gm = (typeof GM_xmlhttpRequest !== 'undefined') ? GM_xmlhttpRequest
+             : (typeof GM !== 'undefined' && GM.xmlHttpRequest) ? GM.xmlHttpRequest : null;
+    if (!gm) return Promise.reject(new Error('appel direct bloqué par WME ; ' +
+      'installe le script dans Tampermonkey pour utiliser cette source'));
+    return new Promise((resolve, reject) => {
+      const req = gm({ method: 'GET', url, timeout: 180000, anonymous: true, responseType: 'arraybuffer',
+        onload: r => (r.status >= 200 && r.status < 300 && r.response)
+          ? resolve(r.response) : reject(new Error('HTTP ' + r.status)),
+        onerror: () => reject(new Error('appel refusé')),
+        ontimeout: () => reject(new Error('délai dépassé')),
+        onabort: () => reject(new Error('appel interrompu')) });
+      if (prog && req && typeof req.abort === 'function') {
+        prog.surAnnulation(() => {
+          try { req.abort(); } catch (e) { /* */ }
+          reject(new AnnulationDemandee());
+        });
+      }
+    });
+  }
+
+  /**
+   * Lecteur ZIP minimal, SANS dependance : repertoire central, puis
+   * decompression `deflate-raw` par le `DecompressionStream` du navigateur.
+   * ⚠️ On n'accepte que les methodes 0 (stocke) et 8 (deflate) — celles du jeu
+   *    mesure le 12/11. Toute autre methode est une ERREUR, jamais un vide.
+   */
+  function repertoireZip(buf) {
+    const dv = new DataView(buf);
+    let e = -1;
+    for (let i = buf.byteLength - 22; i >= Math.max(0, buf.byteLength - 65557); i--) {
+      if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
+    }
+    if (e < 0) throw new Error('archive ZIP illisible');
+    const n = dv.getUint16(e + 10, true);
+    let p = dv.getUint32(e + 16, true);
+    const td = new TextDecoder();
+    const out = [];
+    for (let k = 0; k < n; k++) {
+      if (dv.getUint32(p, true) !== 0x02014b50) throw new Error('archive ZIP illisible');
+      const lnom = dv.getUint16(p + 28, true);
+      out.push({ nom: td.decode(new Uint8Array(buf, p + 46, lnom)),
+                 methode: dv.getUint16(p + 10, true), taille: dv.getUint32(p + 20, true),
+                 position: dv.getUint32(p + 42, true) });
+      p += 46 + lnom + dv.getUint16(p + 30, true) + dv.getUint16(p + 32, true);
+    }
+    return out;
+  }
+
+  async function extraireZip(buf, ent) {
+    const dv = new DataView(buf), o = ent.position;
+    if (dv.getUint32(o, true) !== 0x04034b50) throw new Error('archive ZIP illisible');
+    const debut = o + 30 + dv.getUint16(o + 26, true) + dv.getUint16(o + 28, true);
+    const brut = new Uint8Array(buf, debut, ent.taille);
+    if (ent.methode === 0) return new TextDecoder().decode(brut);
+    if (ent.methode !== 8) throw new Error('compression ZIP non prise en charge (' + ent.methode + ')');
+    if (typeof DecompressionStream === 'undefined') {
+      throw new Error('navigateur trop ancien pour décompresser le jeu (DecompressionStream absent)');
+    }
+    const flux = new Blob([brut]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    return new Response(flux).text();
+  }
+
+  /**
+   * Choisit la ressource la plus RECENTE du jeu (le nom porte le mois :
+   * `signalisation-vma-MMAAAA.zip`), verifie la licence, telecharge le ZIP.
+   * Rend `{ millesime: 'MM/AAAA', licence, url, entrees, buf }`, une fois par
+   * session ; un echec ou une annulation n'est PAS mis en cache.
+   */
+  let jeuPanneauxFr = null;
+  function chargerJeuPanneauxFr(prog) {
+    if (jeuPanneauxFr) return jeuPanneauxFr;
+    jeuPanneauxFr = (async () => {
+      if (prog) prog.info('Lecture de la fiche du jeu (data.gouv.fr)');
+      let fiche;
+      try { fiche = JSON.parse(await telecharger(JEU_PANNEAUX_FR.api, prog)); }
+      catch (e) {
+        if (e instanceof AnnulationDemandee) throw e;
+        throw new Error('data.gouv.fr : ' + e.message);
+      }
+      const licence = fiche && fiche.license;
+      if (!LICENCES_PANNEAUX.has(licence)) throw new Error('data.gouv.fr : licence du jeu changée (' +
+        String(fiche && fiche.license) + '), relevé suspendu');
+      const candidats = (Array.isArray(fiche.resources) ? fiche.resources : []).map(r => {
+        const m = /signalisation-vma-(\d{2})(\d{4})\.zip$/i.exec(String(r.url || ''));
+        return m ? { url: r.url, mois: m[1], an: m[2], cle: m[2] + m[1] } : null;
+      }).filter(Boolean).sort((a, b) => b.cle.localeCompare(a.cle));
+      if (!candidats.length) throw new Error('data.gouv.fr : aucune archive de panneaux dans le jeu');
+      const choix = candidats[0];
+      if (prog) prog.info('Téléchargement du jeu officiel (~4 Mo)');
+      let buf;
+      try { buf = await telechargerBinaire(choix.url, prog); }
+      catch (e) {
+        if (e instanceof AnnulationDemandee) throw e;
+        throw new Error('data.gouv.fr : ' + e.message);
+      }
+      return { millesime: choix.mois + '/' + choix.an, licence, url: choix.url,
+               entrees: repertoireZip(buf), buf, regions: new Map() };
+    })();
+    jeuPanneauxFr.catch(() => { jeuPanneauxFr = null; });
+    return jeuPanneauxFr;
+  }
+
+  /** Les EB10/EB20 d'une region, decompresses et lus une fois par session. */
+  async function panneauxDeLaRegion(jeu, region, prog) {
+    if (jeu.regions.has(region)) return jeu.regions.get(region);
+    const ent = jeu.entrees.find(x => new RegExp('^sign_extract_' + region + '_', 'i').test(x.nom));
+    if (!ent) return null;
+    if (prog) prog.info('Lecture des panneaux de la région ' + region);
+    const texte = await extraireZip(jeu.buf, ent);
+    const lignes = texte.split(/\r?\n/);
+    // ⚠️ Format CHANGE = ERREUR, jamais « aucun panneau » (meme regle que
+    //    l'audit du 25/09/2026 sur l'ancienne source).
+    if (lignes[0].trim() !== 'code,coords') throw new Error('data.gouv.fr : format du fichier changé');
+    const LIGNE = /^"(.*)","(-?\d+(?:\.\d+)?), (-?\d+(?:\.\d+)?)"$/;
+    const PAIRE = /"(EB10|EB20)"=>(NULL|"([^"]*)")/g;
+    const liste = [];
+    let lues = 0;
+    for (let i = 1; i < lignes.length; i++) {
+      const m = LIGNE.exec(lignes[i]);
+      if (!m) continue;
+      lues++;
+      const code = m[1].replace(/""/g, '"');
+      if (code.indexOf('"EB') < 0) continue;
+      const latitude = parseFloat(m[2]), longitude = parseFloat(m[3]);
+      let p;
+      PAIRE.lastIndex = 0;
+      while ((p = PAIRE.exec(code))) {
+        liste.push({ latitude, longitude, panneau_code: p[1], panneau_value: p[3] == null ? null : p[3] });
+      }
+    }
+    if (lignes.length > 2 && !lues) throw new Error('data.gouv.fr : format du fichier changé');
+    jeu.regions.set(region, liste);
+    return liste;
+  }
+
+  /** Clef de dedoublonnage : le jeu porte parfois deux fois le meme panneau.
+   *  Le 1e-5 degre (~1 m) evite de fusionner deux panneaux voisins. */
   const clePanneau = p => [p.latitude.toFixed(5), p.longitude.toFixed(5),
                            p.panneau_code, p.panneau_value].join('|');
 
   /**
-   * Recupere tous les panneaux d'agglomeration sur une emprise.
-   *
-   * ⚠️⚠️ Le plafond de 500 ne se signale pas : l'API rend 500 items et se tait.
-   * Une requete pleine est donc SUSPECTE, jamais complete — on la redecoupe en
-   * quatre et on recommence, jusqu'au zoom 16. Sans ce garde-fou on croirait
-   * avoir tout lu, et un polygone se fabriquerait sur des portes manquantes.
-   * A l'inverse, une commune rurale tient en UNE requete : on ne decoupe que
-   * lorsque c'est necessaire.
-   *
-   * Rend `{ panneaux: [...], cellules: n, tronque: bool }` — `tronque` reste
-   * vrai si une cellule etait encore pleine au zoom maximal, et ce doute doit
-   * remonter jusqu'a l'editeur.
+   * Les panneaux d'agglomeration dans l'emprise d'une commune.
+   * Rend `{ panneaux, cellules, tronque, horsCouverture, millesime }` —
+   * `cellules` et `tronque` restent pour les appelants (sondage), mais le jeu
+   * officiel n'a plus de plafond : un releve est complet ou c'est une erreur.
    */
-  /**
-   * ⚠️⚠️ LE SONDAGE DOIT POUVOIR DESCENDRE D'UN CRAN — MESURE DU 27/07.
-   *
-   * Signale par l'auteur sur **Saint-Geniès-de-Comolas** : « le bouton des
-   * panneaux est actif alors que la source n'en propose aucun ». Verifie sur la
-   * source, et il avait raison sur le fond : la commune n'a **AUCUN** panneau
-   * (releve complet : 148 EB dans la bbox, **0 dans le contour**). Mais le
-   * sondage tenait en UNE cellule, et cette cellule **sature a 500 items** — les
-   * B14 (limitations de vitesse) remplissent le quota bien avant les EB10 dans
-   * la vallee du Rhone. Il repondait donc « incertain » par prudence, et
-   * laissait le bouton actif. Ce n'etait pas une panne : c'etait un sondage qui
-   * n'avait pas les moyens de conclure.
-   *
-   * ⚡ MESURE SUR 8 COMMUNES — descendre d'UN SEUL niveau suffit :
-   *   Saint-Geniès · Saint-Laurent · Lirac : « incertain » (1 req) → **« aucun »**
-   *   (5 req), bouton enfin grise. Gruissan reste a 1 requete (cellule non
-   *   pleine). Les communes qui ONT des panneaux repondent « des » comme avant.
-   * ⚠️ Le zoom 15 ne change AUCUN verdict et coute plus cher (Lattes 13 requetes,
-   *   Ploemeur 9) : on s'arrete a 14, et un budget borne le pire cas.
-   */
-  const SONDAGE_ZOOM_MAX = 14, SONDAGE_BUDGET = 12;
-
-  /**
-   * @param {object|null} limites `{zoomMax, budget}` en mode SONDAGE : on
-   *   subdivise, mais pas jusqu'au bout et pas indefiniment. `null` = releve
-   *   complet, qui descend jusqu'a `ZOOM_PANNEAUX_MAX` sans plafond de cellules.
-   */
-  async function chargerPanneauxAgglo(bbox, prog, limites) {
-    const vus = new Map();
-    let cellules = 0, tronque = false;
-    const aFaire = [];
-
-    // Grille de depart couvrant la bbox. ⚠️ Une seule requete au centre ne
-    // suffit pas : une grande commune (Arles fait 75 km) deborde largement
-    // l'emprise du zoom 13, et ses bords seraient perdus en silence. On garde
-    // 10 % de recouvrement entre cellules — le dedoublonnage absorbe le reste.
-    {
-      const { dLat, dLon } = demiEmprise(ZOOM_PANNEAUX_DEPART);
-      const pasLat = dLat * 1.8, pasLon = dLon * 1.8;
-      const nLat = Math.max(1, Math.ceil((bbox[3] - bbox[1]) / pasLat));
-      const nLon = Math.max(1, Math.ceil((bbox[2] - bbox[0]) / pasLon));
-      for (let i = 0; i < nLat; i++) for (let j = 0; j < nLon; j++) {
-        aFaire.push({
-          lat: bbox[1] + (i + 0.5) * (bbox[3] - bbox[1]) / nLat,
-          lon: bbox[0] + (j + 0.5) * (bbox[2] - bbox[0]) / nLon,
-          zoom: ZOOM_PANNEAUX_DEPART
-        });
-      }
+  async function chargerPanneauxAgglo(commune, prog) {
+    if (!REF.sourcePanneaux) throw new Error('aucune source de panneaux dans ce pays');
+    const region = regionPanneaux(commune && commune.code);
+    if (!region) return { panneaux: [], cellules: 0, tronque: false, horsCouverture: true };
+    const jeu = await chargerJeuPanneauxFr(prog);
+    if (prog) prog.verifier();
+    let liste;
+    try { liste = await panneauxDeLaRegion(jeu, region, prog); }
+    catch (e) {
+      // Toute panne de lecture porte le nom de la source, comme celles du reseau.
+      if (e instanceof AnnulationDemandee || /^data\.gouv\.fr : /.test(e.message)) throw e;
+      throw new Error('data.gouv.fr : ' + e.message);
     }
-
-    while (aFaire.length) {
-      if (prog) prog.verifier();
-      // ⚠️ Budget du SONDAGE : il part tout seul a chaque changement de commune,
-      // il n'a pas le droit de partir en balayage. Budget epuise ⇒ on ne conclut
-      // PAS (« incertain »), on ne pretend pas avoir tout vu.
-      if (limites && cellules >= limites.budget) { tronque = true; break; }
-      const { lat, lon, zoom } = aFaire.shift();
-      cellules++;
-      if (prog) prog.info(cellules + ' zone(s) interrogée(s), ' + vus.size + ' panneau(x) d\'agglo');
-      let data;
-      if (!REF.sourcePanneaux) throw new Error('aucune source de panneaux dans ce pays');
-      try { data = JSON.parse(await telecharger(REF.sourcePanneaux.url(lat, lon, zoom), prog)); }
-      catch (e) {
-        if (e instanceof AnnulationDemandee) throw e;
-        throw new Error('api.wazefrance.com : ' + e.message);
-      }
-      // ⚠️ AUDIT DU 25/09/2026 : une reponse au format CHANGE se lisait « aucun panneau », mis en
-      //    memoire pour la session. On exige la forme mesuree le 25/09 (`{"rs":[…]}`, vide compris) ;
-      //    sinon c'est une ERREUR, que le sondage traduit en « incertain », jamais en « aucun ».
-      if (!data || !Array.isArray(data.rs)) throw new Error('api.wazefrance.com : format de réponse inattendu');
-      const liste = data.rs;
-      if (liste.length && !liste.some(p => p && 'panneau_code' in p && 'latitude' in p)) {
-        throw new Error('api.wazefrance.com : champs de réponse inattendus');
-      }
-      // On ne garde QUE les entrees/sorties d'agglo : les B14 (limitations de
-      // vitesse) ne nous apprennent rien et font l'essentiel du volume.
-      for (const p of liste) {
-        if (p.panneau_code !== 'EB10' && p.panneau_code !== 'EB20') continue;
-        if (typeof p.latitude !== 'number' || typeof p.longitude !== 'number') continue;
-        vus.set(clePanneau(p), p);
-      }
-      // Cellule pleine = SUSPECTE, jamais complete (voir le bloc d'en-tete).
-      if (liste.length < PLAFOND_API) continue;
-      // ⚠️ En mode SONDAGE, on descend — mais pas jusqu'au bout : au-dela de son
-      // zoom maximal, le doute est assume et l'appelant en tirera « incertain »
-      // plutot que « aucun panneau ». Ne PAS descendre du tout laissait le
-      // bouton actif sur des communes qui n'ont aucun panneau (cas
-      // Saint-Geniès-de-Comolas, mesure en tete de fonction).
-      const zMax = limites ? limites.zoomMax : ZOOM_PANNEAUX_MAX;
-      if (zoom >= zMax) { tronque = true; continue; }
-      const { dLat, dLon } = demiEmprise(zoom + 1);
-      for (const [dy, dx] of [[-dLat, -dLon], [-dLat, dLon], [dLat, -dLon], [dLat, dLon]]) {
-        aFaire.push({ lat: lat + dy / 2, lon: lon + dx / 2, zoom: zoom + 1 });
-      }
+    if (!liste) return { panneaux: [], cellules: 0, tronque: false, horsCouverture: true, millesime: jeu.millesime };
+    const b = commune.bbox, vus = new Map();
+    for (const p of liste) {
+      if (p.longitude < b[0] || p.longitude > b[2] || p.latitude < b[1] || p.latitude > b[3]) continue;
+      vus.set(clePanneau(p), p);
     }
-    return { panneaux: [...vus.values()], cellules, tronque };
+    return { panneaux: [...vus.values()], cellules: 1, tronque: false, horsCouverture: false,
+             millesime: jeu.millesime, licence: jeu.licence };
   }
 
   // Les 110 provinces italiennes, pour le meme selecteur.
@@ -3339,7 +3407,7 @@
     // décide si « 🪧 Panneaux » et « ✏️ Proposer un tracé » ont un sens. Il ne
     // part qu'UNE FOIS par commune (cache), et son retour rafraîchit les boutons.
     // ⚠️⚠️ 2.52.00 (audit doctrine, axe 5) : il ne part plus TOUT SEUL sur le réseau. Choisir une
-    // commune envoyait jusqu'à 12 requêtes à api.wazefrance.com sans geste de l'éditeur ; le
+    // commune envoyait jusqu'à 12 requêtes à la source des panneaux sans geste de l'éditeur ; le
     // relevé ne part désormais qu'au clic sur « 🪧 Panneaux ». Seul reste ici le cas SANS réseau :
     // un pays sans source de panneaux (Italie), que `sonderPanneaux` tranche sans rien appeler.
     if (communeActive && !REF.sourcePanneaux && !sondages.has(communeActive.code)) {
@@ -4439,8 +4507,7 @@
     sondages.set(commune.code, { etat: 'encours', nb: 0 });
     let res;
     try {
-      const r = await chargerPanneauxAgglo(commune.bbox, null,
-        { zoomMax: SONDAGE_ZOOM_MAX, budget: SONDAGE_BUDGET });
+      const r = await chargerPanneauxAgglo(commune, null);
       const dedans = r.panneaux.filter(p => pointInGeom(p.longitude, p.latitude, commune.geom));
       res = dedans.length ? { etat: 'des', nb: dedans.length }
         : r.tronque ? { etat: 'incertain', nb: 0 }
@@ -4462,12 +4529,12 @@
     if (!communeActive) return;
     const btn = ui.btnPanneaux, bilan = ui.bilanPanneaux;
     btn.disabled = true;
-    // Total 0 = barre indeterminee : on ne sait pas d'avance combien de zones
-    // il faudra interroger, le decoupage depend de ce que l'API repond.
+    // Total 0 = barre indeterminee : la duree depend du telechargement du jeu
+    // (une fois par session) puis de la region a decompresser.
     const prog = progression(ui.progPanneaux,
       { titre: 'Panneaux d\'agglomération', annulable: true }).etape('Interrogation de la source', 0);
     try {
-      const r = await chargerPanneauxAgglo(communeActive.bbox, prog);
+      const r = await chargerPanneauxAgglo(communeActive, prog);
       panneaux = r.panneaux;
       const cl = classerPanneaux();
       bilanPanneaux = { ...r, ...cl };
@@ -4508,6 +4575,12 @@
     if (!bilanPanneaux) { z.textContent = ''; return; }
     const b = bilanPanneaux;
     const total = b.dedans.length + b.dehors.length;
+    if (!total && b.horsCouverture) {
+      z.innerHTML = '<b>Commune hors du jeu national des panneaux.</b><br>' +
+        'Il ne couvre ni l\'Île-de-France, ni la Corse, ni l\'outre-mer : cela ne dit RIEN ' +
+        'sur son agglomération.';
+      return;
+    }
     if (!total) {
       // ⚠️ Ne JAMAIS traduire « aucun panneau » par « aucune agglomeration » :
       // 86 departements sur 101 sont couverts, et le releve peut etre muet.
@@ -4516,8 +4589,8 @@
         'peut n\'avoir aucun panneau saisi : cela ne dit RIEN sur son agglomération.';
       return;
     }
-    const lignes = ['<b>' + total + ' panneau(x) d\'agglomération</b> dans la commune (' +
-      b.cellules + ' requête(s)).'];
+    const lignes = ['<b>' + total + ' panneau(x) d\'agglomération</b> dans la commune (jeu officiel du ' +
+      b.millesime + ').'];
     if (!b.zones) {
       lignes.push('Aucun polygone tracé : rien à confronter pour l\'instant.');
     } else {
@@ -4529,10 +4602,6 @@
       // c'est de regarder si le trace englobe le bati.
       lignes.push('Vérifie que le tracé englobe bien les habitations de ' +
         'l\'agglomération, et ajuste-le aux poignées (✎) si besoin.');
-    }
-    if (b.tronque) {
-      lignes.push('⚠️ <b>Relevé peut-être incomplet</b> : une zone rendait le maximum ' +
-        'de résultats que l\'API accepte, même découpée au plus fin.');
     }
     z.innerHTML = lignes.join('<br>');
   }
@@ -5855,14 +5924,14 @@
         '<b>WME stesso</b>',
       '<b>Version minimale</b>':
         '<b>Versione minima</b>',
-      'Admin Express (IGN) et Code officiel géographique (INSEE), servis par <b>geo.api.gouv.fr</b>, <b>Licence Ouverte Etalab 2.0</b>. Millésime : celui que l\'API sert le jour du chargement.':
-        'Admin Express (IGN) e Codice geografico ufficiale (INSEE), forniti da <b>geo.api.gouv.fr</b>, <b>Licence Ouverte Etalab 2.0</b>. Annata: quella che l\'API fornisce il giorno del caricamento.',
-      'Jeu « signalisation routière déterminant la VMA » du <b>Ministère de l\'Intérieur</b>, <b>Licence Ouverte 2.0</b>, republié par <b>api.wazefrance.com</b> (communauté Waze France). Date de mise à jour non transmise par l\'API.':
-        'Insieme « segnaletica stradale che determina la VMA » del <b>Ministero dell\'Interno francese</b>, <b>Licence Ouverte 2.0</b>, ripubblicato da <b>api.wazefrance.com</b> (comunità Waze Francia). Data di aggiornamento non trasmessa dall\'API.',
+      'ADMIN EXPRESS (IGN) et Code officiel géographique (INSEE), servis par <b>geo.api.gouv.fr</b>, <b>Licence Ouverte Etalab 2.0</b>. Millésime : celui que l\'API sert le jour du chargement. ADMIN EXPRESS est une source accréditée par Waze pour l\'affichage.':
+        'ADMIN EXPRESS (IGN) e Codice geografico ufficiale (INSEE), forniti da <b>geo.api.gouv.fr</b>, <b>Licence Ouverte Etalab 2.0</b>. Annata: quella che l\'API fornisce il giorno del caricamento. ADMIN EXPRESS è una fonte accreditata da Waze per la visualizzazione.',
+      'Jeu « Données de signalisation routière déterminant la Vitesse Maximale Autorisée » du <b>Ministère de l\'Intérieur</b>, <b>Licence Ouverte 2.0</b>, lu directement sur <b>data.gouv.fr</b> ; le bilan cite son millésime. Repères d\'information seulement : ce jeu n\'est pas une source accréditée par Waze, et rien n\'est importé sur la carte.':
+        'Insieme « Dati della segnaletica stradale che determina la velocità massima autorizzata » del <b>Ministero dell\'Interno francese</b>, <b>Licence Ouverte 2.0</b>, letto direttamente su <b>data.gouv.fr</b>; il bilancio ne cita l\'annata. Solo riferimenti informativi: questo insieme non è una fonte accreditata da Waze, e nulla viene importato sulla mappa.',
       'Règles de <b>WME Check Road Name</b> (buchet37), lues dans deux feuilles <b>Google Sheets</b> à chaque démarrage, avec l\'accord de son auteur. Licence non déclarée. Le dictionnaire <b>public</b> reste en lecture seule.':
         'Regole di <b>WME Check Road Name</b> (buchet37), lette in due fogli <b>Google Sheets</b> a ogni avvio, con l\'accordo del suo autore. Licenza non dichiarata. Il dizionario <b>pubblico</b> resta in sola lettura.',
-      '<b>geo.api.gouv.fr</b> : un numéro de département, ou cinq points de la vue si « charger le département survolé » est coché. <b>api.wazefrance.com</b> : les centres des zones de la commune, au clic sur 🪧 Panneaux. Google : la clé des deux feuilles. Jamais de pseudo ni d\'objet de la carte.':
-        '<b>geo.api.gouv.fr</b>: un numero di dipartimento, o cinque punti della vista se « caricare il dipartimento sorvolato » è selezionato. <b>api.wazefrance.com</b>: i centri delle zone del comune, al clic su 🪧 Cartelli. Google: la chiave dei due fogli. Mai un nome utente né un oggetto della mappa.',
+      '<b>geo.api.gouv.fr</b> : un numéro de département, ou cinq points de la vue si « charger le département survolé » est coché. <b>data.gouv.fr</b> : la seule demande du jeu des panneaux (sa fiche, puis l\'archive), sans aucune coordonnée, au premier clic sur 🪧 Panneaux. Google : la clé des deux feuilles. Jamais de pseudo ni d\'objet de la carte.':
+        '<b>geo.api.gouv.fr</b>: un numero di dipartimento, o cinque punti della vista se « caricare il dipartimento sorvolato » è selezionato. <b>data.gouv.fr</b>: la sola richiesta dell\'insieme dei cartelli (la scheda, poi l\'archivio), senza alcuna coordinata, al primo clic su 🪧 Cartelli. Google: la chiave dei due fogli. Mai un nome utente né un oggetto della mappa.',
       'Limites <b>ISTAT</b> mises en forme par <b>openpolis/geojson-italy</b>, <b>CC BY 4.0</b>, version figée au commit <b>ba3347d</b> du 16/08/2026, lue sur raw.githubusercontent.com.':
         'Confini <b>ISTAT</b> messi in forma da <b>openpolis/geojson-italy</b>, <b>CC BY 4.0</b>, versione fissata al commit <b>ba3347d</b> del 16/08/2026, letta su raw.githubusercontent.com.',
       'Le nom du fichier de la province demandée, sur raw.githubusercontent.com. Jamais de pseudo ni d\'objet de la carte.':
@@ -6563,8 +6632,7 @@
       //    doit rester RELISIBLE par Silvio, et 1 100 chaines ne se relisent
       //    pas.
       // ⚠️ Deux textes ne sont PAS traduits, et c'est voulu :
-      //    « 🏷️ Naming Auditor » (le nom du script) et « api.wazefrance.com »
-      //    (un nom de domaine).
+      //    « 🏷️ Naming Auditor » (le nom du script) et les noms de domaine.
       // ⚠️ Les cles s'ecrivent sur UNE ligne meme quand le HTML les coupe :
       //    `traduireDOM` normalise les espaces avant de chercher, sinon la
       //    traduction dependrait de l'indentation du fichier.
@@ -6677,8 +6745,6 @@
       //    equivalente a l'agglomeration francaise (mesure du 08/09).
       'API Découpage administratif (geo.api.gouv.fr)':
         'API suddivisione amministrativa (geo.api.gouv.fr)',
-      'api.wazefrance.com — à ÉCARTER pour les contours':
-        'api.wazefrance.com — da ESCLUDERE per i confini',
       'Télécharger (geo.api.gouv.fr)': 'Scarica (geo.api.gouv.fr)',
       'Voies ferrées, pistes, ferries : jamais de ville (et règles de nom propres)':
         'Ferrovie, piste, traghetti: mai la città (e regole di nome specifiche)',
@@ -7144,10 +7210,6 @@
         "Nessun poligono tracciato: per ora niente da confrontare.",
       "Vérifie que le tracé englobe bien les habitations de l'agglomération, et ajuste-le aux poignées (✎) si besoin.":
         "Verifica che il tracciato includa bene le abitazioni del centro abitato, e regolalo con le maniglie (✎) se serve.",
-      "Relevé peut-être incomplet":
-        "Rilevamento forse incompleto",
-      ": une zone rendait le maximum de résultats que l'API accepte, même découpée au plus fin.":
-        ": una zona restituiva il massimo di risultati accettato dall'API, anche suddivisa al massimo.",
       "Aucun panneau relevé : rien à proposer. Lance d'abord « 🪧 Panneaux d'agglomération ».":
         "Nessun cartello rilevato: niente da proporre. Avvia prima « 🪧 Cartelli di centro abitato ».",
       "aucun tracé possible":
@@ -7462,12 +7524,18 @@
       // ── Sources de contours (l. 2278 = même texte que REF.sourceContours.aide, l. 8125) ──
       'Numéro de département (01 à 95, 2A, 2B, 971…). ~3 Mo et ~10 s par département.':
         'Numero di dipartimento (da 01 a 95, 2A, 2B, 971…). ~3 MB e ~10 s per dipartimento.',
-      'Ses contours de communes sont dérivés d\'OpenStreetMap (ODbL, licence virale). La source « geo.api.gouv.fr » ci-dessus livre les mêmes communes en Licence Ouverte : c\'est elle qu\'il faut utiliser.':
-        'I suoi confini comunali derivano da OpenStreetMap (ODbL, licenza virale). La fonte « geo.api.gouv.fr » qui sopra fornisce gli stessi comuni in Licence Ouverte: è quella da usare.',
       // ── Panneaux (l. 2426-2438) ──────────────────────────────────────────────
       'aucune source de panneaux dans ce pays': 'nessuna fonte di cartelli in questo paese',
-      'format de réponse inattendu': 'formato di risposta inatteso',
-      'champs de réponse inattendus': 'campi di risposta inattesi',
+      'format du fichier changé': 'formato del file cambiato',
+      'aucune archive de panneaux dans le jeu': 'nessun archivio di cartelli nell\'insieme',
+      'archive ZIP illisible': 'archivio ZIP illeggibile',
+      'navigateur trop ancien pour décompresser le jeu (DecompressionStream absent)':
+        'browser troppo vecchio per decomprimere l\'insieme (DecompressionStream assente)',
+      'Lecture de la fiche du jeu (data.gouv.fr)': 'Lettura della scheda dell\'insieme (data.gouv.fr)',
+      'Téléchargement du jeu officiel (~4 Mo)': 'Download dell\'insieme ufficiale (~4 MB)',
+      'Commune hors du jeu national des panneaux.': 'Comune fuori dall\'insieme nazionale dei cartelli.',
+      "Il ne couvre ni l'Île-de-France, ni la Corse, ni l'outre-mer : cela ne dit RIEN sur son agglomération.":
+        "Non copre né l'Île-de-France, né la Corsica, né l'oltremare: questo NON dice nulla sul suo centro abitato.",
       // ── Téléchargement des contours (l. 2685-2706) ──────────────────────────
       'aucun département sélectionné': 'nessun dipartimento selezionato',
       'Téléchargement des contours': 'Scaricamento dei confini',
@@ -8048,8 +8116,10 @@
       [/^([\s\S]+) — appel direct bloqué par WME ; installe le script dans Tampermonkey pour utiliser cette source$/,
         (t, a) => (TEXTES.it[a] || traduireMotif(a) || a) +
           ' — chiamata diretta bloccata da WME; installa lo script in Tampermonkey per usare questa fonte'],
-      [/^api\.wazefrance\.com : ([\s\S]+)$/,
-        (t, m) => 'api.wazefrance.com: ' + (TEXTES.it[m] || traduireMotif(m) || m)],
+      [/^compression ZIP non prise en charge \((\d+)\)$/, 'compressione ZIP non supportata ($1)'],
+      [/^licence du jeu changée \(([^)]*)\), relevé suspendu$/, 'licenza dell\'insieme cambiata ($1), rilevamento sospeso'],
+      [/^data\.gouv\.fr : ([\s\S]+)$/,
+        (t, m) => 'data.gouv.fr: ' + (TEXTES.it[m] || traduireMotif(m) || m)],
       [/^rien de récupéré(?: — (\S+) \(([\s\S]+)\))?$/,
         (t, c, m) => 'niente recuperato' + (c ? ' — ' + c + ' (' + (TEXTES.it[m] || traduireMotif(m) || m) + ')' : '')],
       // « principal : appel refusé · public : HTTP 503 » — le détail du dictionnaire de rédaction
@@ -8096,7 +8166,7 @@
         (t, m) => '<b>Caricamento automatico non disponibile.</b> ' + (TEXTES.it[m] || traduireMotif(m) || m) +
           '<br>Carica i confini a mano (con il selettore qui sopra), oppure deseleziona l\'opzione nelle impostazioni.'],
       // --- panneaux : « ⚠ <message> » (l. 4318) ---
-      [/^⚠ (aucune source de panneaux dans ce pays|api\.wazefrance\.com : [\s\S]+)$/,
+      [/^⚠ (aucune source de panneaux dans ce pays|data\.gouv\.fr : [\s\S]+)$/,
         (t, m) => '⚠ ' + (TEXTES.it[m] || traduireMotif(m) || m)],
       // --- dictionnaire de rédaction : blocs (l. 2241-2248) ---
       [/^⚠️ Dictionnaire de rédaction <b>non chargé<\/b> — le contrôle est coché mais ne peut rien signaler(?: \(([\s\S]+)\))?\.$/,
@@ -8219,7 +8289,8 @@
       // --- releve et bilan ------------------------------------------------------
       [/^(\d+) zone\(s\) interrogée\(s\), (\d+) panneau\(x\) d'agglo$/, '$1 zona/e interrogata/e, $2 cartello/i di centro abitato'],
       [/^(\d+) panneau\(x\) d'agglomération$/, '$1 cartello/i di centro abitato'],
-      [/^dans la commune \((\d+) requête\(s\)\)\.$/, 'nel comune ($1 richiesta/e).'],
+      [/^dans la commune \(jeu officiel du (\d{2}\/\d{4})\)\.$/, 'nel comune (dati ufficiali del $1).'],
+      [/^Lecture des panneaux de la région ([A-Z]+)$/, 'Lettura dei cartelli della regione $1'],
       [/^(\d+) panneau\(x\)$/, '$1 cartello/i'],
       [/^(?:sur (\d+) ha)?(?:, (alignés le long d'une route|trop isolés))? :$/,
         (t, ha, r) => (ha ? 'su ' + ha + ' ha' : '') + (r ? ', ' + RAISONS_IT[r] : '') + ':'],
@@ -8988,7 +9059,7 @@
       //    ce champ a `null` : tout le chemin « relever les panneaux / proposer
       //    un trace » disparait alors, au lieu de proposer un bouton qui ne
       //    peut rien rendre.
-      sourcePanneaux: { url: URL_PANNEAUX, libelle: 'panneaux EB10 / EB20' },
+      sourcePanneaux: { jeu: JEU_PANNEAUX_FR, libelle: 'panneaux EB10 / EB20' },
 
       // Decoupage administratif de reference et cles admises dans le GeoJSON.
       // Le departement : deux caracteres, trois en outre-mer (971...).
@@ -14963,7 +15034,6 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
               <select class="agn-sel" id="agn-source" title="D'où viennent les contours communaux à charger">
                 <option value="gouv">Télécharger (geo.api.gouv.fr)</option>
                 <option value="fichier">Charger un fichier GeoJSON</option>
-                <option value="wazefrance">api.wazefrance.com</option>
               </select>
               <div id="agn-src-gouv">
                 <div class="agn-row">
@@ -14976,7 +15046,6 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
               <div id="agn-src-fichier" style="display:none">
                 <button class="agn-btn" id="agn-contours" title="Charge un fichier GeoJSON de contours communaux. ⚠️ Remplace les contours en base ; les agglomérations tracées sont conservées">Choisir un fichier GeoJSON</button>
               </div>
-              <div id="agn-src-wazefrance" style="display:none"><div class="agn-empty"></div></div>
               <input type="file" id="agn-fichier" accept=".geojson,.json" style="display:none">
               <div id="agn-prog-contours"></div>
               <div id="agn-statut-contours"></div>
@@ -15979,10 +16048,10 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
         <table class="agn-aide-t">${siPasDePanneaux(`
           <tr><td><b>Contours communaux</b></td><td>Limites <b>ISTAT</b> mises en forme par <b>openpolis/geojson-italy</b>, <b>CC BY 4.0</b>, version figée au commit <b>ba3347d</b> du 16/08/2026, lue sur raw.githubusercontent.com.</td></tr>
           <tr><td><b>Ce qui part du navigateur</b></td><td>Le nom du fichier de la province demandée, sur raw.githubusercontent.com. Jamais de pseudo ni d'objet de la carte.</td></tr>`)}${siPanneaux(`
-          <tr><td><b>Contours communaux</b></td><td>Admin Express (IGN) et Code officiel géographique (INSEE), servis par <b>geo.api.gouv.fr</b>, <b>Licence Ouverte Etalab 2.0</b>. Millésime : celui que l'API sert le jour du chargement.</td></tr>
-          <tr><td><b>Panneaux EB10 / EB20</b></td><td>Jeu « signalisation routière déterminant la VMA » du <b>Ministère de l'Intérieur</b>, <b>Licence Ouverte 2.0</b>, republié par <b>api.wazefrance.com</b> (communauté Waze France). Date de mise à jour non transmise par l'API.</td></tr>
+          <tr><td><b>Contours communaux</b></td><td>ADMIN EXPRESS (IGN) et Code officiel géographique (INSEE), servis par <b>geo.api.gouv.fr</b>, <b>Licence Ouverte Etalab 2.0</b>. Millésime : celui que l'API sert le jour du chargement. ADMIN EXPRESS est une source accréditée par Waze pour l'affichage.</td></tr>
+          <tr><td><b>Panneaux EB10 / EB20</b></td><td>Jeu « Données de signalisation routière déterminant la Vitesse Maximale Autorisée » du <b>Ministère de l'Intérieur</b>, <b>Licence Ouverte 2.0</b>, lu directement sur <b>data.gouv.fr</b> ; le bilan cite son millésime. Repères d'information seulement : ce jeu n'est pas une source accréditée par Waze, et rien n'est importé sur la carte.</td></tr>
           <tr><td><b>Dictionnaire de rédaction</b></td><td>Règles de <b>WME Check Road Name</b> (buchet37), lues dans deux feuilles <b>Google Sheets</b> à chaque démarrage, avec l'accord de son auteur. Licence non déclarée. Le dictionnaire <b>public</b> reste en lecture seule.</td></tr>
-          <tr><td><b>Ce qui part du navigateur</b></td><td><b>geo.api.gouv.fr</b> : un numéro de département, ou cinq points de la vue si « charger le département survolé » est coché. <b>api.wazefrance.com</b> : les centres des zones de la commune, au clic sur 🪧 Panneaux. Google : la clé des deux feuilles. Jamais de pseudo ni d'objet de la carte.</td></tr>`)}
+          <tr><td><b>Ce qui part du navigateur</b></td><td><b>geo.api.gouv.fr</b> : un numéro de département, ou cinq points de la vue si « charger le département survolé » est coché. <b>data.gouv.fr</b> : la seule demande du jeu des panneaux (sa fiche, puis l'archive), sans aucune coordonnée, au premier clic sur 🪧 Panneaux. Google : la clé des deux feuilles. Jamais de pseudo ni d'objet de la carte.</td></tr>`)}
           <tr><td><b>WME lui-même</b></td><td>Lecture rapide d'une commune par <b>app/Features</b>, l'adresse interne que WME appelle pour remplir sa carte (même site, ta session) ; repli sur le balayage par le SDK si elle ne répond pas.</td></tr>
           <tr><td><b>Version minimale</b></td><td>Au démarrage, le fichier <b>version-min.json</b> du dépôt GitHub est lu : il peut empêcher une version retirée de démarrer ; injoignable, le script démarre. GreasyFork est interrogé une fois par jour au plus.</td></tr>
         </table>` },
@@ -17067,14 +17136,15 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
   function brancherSources(o) {
     const sel = o.querySelector('#agn-source');
     const zones = { gouv: o.querySelector('#agn-src-gouv'),
-                    fichier: o.querySelector('#agn-src-fichier'),
-                    wazefrance: o.querySelector('#agn-src-wazefrance') };
-    o.querySelector('#agn-src-wazefrance').firstElementChild.textContent = SOURCES.wazefrance.indisponible;
+                    fichier: o.querySelector('#agn-src-fichier') };
     sel.onchange = () => {
       Object.entries(zones).forEach(([k, z]) => { z.style.display = k === sel.value ? '' : 'none'; });
       ecrire('wmeAggloNaming.source', sel.value);
     };
-    sel.value = lire('wmeAggloNaming.source', 'gouv');
+    // ⚠️ 2.56.00 : l'option « api.wazefrance.com » a disparu ; un réglage qui la portait
+    //    encore laisserait le sélecteur VIDE. On retombe sur geo.api.gouv.fr.
+    const srcLue = lire('wmeAggloNaming.source', 'gouv');
+    sel.value = zones[srcLue] ? srcLue : 'gouv';
     sel.onchange();
 
     const grille = o.querySelector('#agn-deps');
@@ -17106,7 +17176,6 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
     // deux comportements, selon qu'on garde la reference ou le chemin.
     const optSource = o.querySelector('#agn-source option[value="gouv"]');
     const filtreUnites = o.querySelector('#agn-dep-filtre');
-    const optWazefrance = o.querySelector('#agn-source option[value="wazefrance"]');
     ui.peindreSourceContours = () => {
       const sc = REF.sourceContours;
       if (optSource) optSource.textContent = tr(sc.libelle);
@@ -17116,11 +17185,6 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
         filtre.title = 'Filtre la liste par numéro ou par nom de ' + tr(sc.uniteLabel);
         filtre.value = '';
       }
-      // ⚠️ `api.wazefrance.com` est une source FRANCAISE (panneaux d'entree
-      //    d'agglomeration du ministere de l'Interieur). La proposer ailleurs
-      //    n'a aucun sens : on la retire de la liste hors de France plutot que
-      //    de laisser l'editeur decouvrir qu'elle ne rend rien.
-      if (optWazefrance) optWazefrance.hidden = (REF.code !== 'FR');
       // ⚠️ L'infobulle du chargement automatique annonçait « Interroge
       //    geo.api.gouv.fr » — faux en Italie, qui répond sans réseau.
       if (ui.optAutoDep && sc.aideAuto) ui.optAutoDep.title = tr(sc.aideAuto);
