@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.56.00
+// @version      2.57.01
 // @description  FRANCE et ITALIE : audit du nommage et de l'adressage. Le bouton ⚡ (L6, Champs, GE, staff) écrit sans enregistrer : nom, ville, alternatif, cartouche, adresse de POI, numéro hors agglo converti en POI résidentiel (numéro supprimé) ; 500 éditions/h au plus. Sources : IGN/INSEE (geo.api.gouv.fr, Licence Ouverte), panneaux VMA (data.gouv.fr), WME Check Road Name, ISTAT/openpolis (CC BY 4.0). Échanges : GreasyFork, version-min.json (GitHub) ; coordonnées de zone, jamais d'identité.
 // @author       DrSlump34
 // @license      MIT
@@ -21,6 +21,7 @@
 // @connect      update.greasyfork.org
 // @connect      www.data.gouv.fr
 // @connect      static.data.gouv.fr
+// @connect      data.geopf.fr
 // @connect      raw.githubusercontent.com
 // @connect      docs.google.com
 // @connect      googleusercontent.com
@@ -402,6 +403,10 @@
     // doit pas s'allumer sur la carte comme un defaut.
     hnRoute: { libelle: '📏 Mesure : numéro sur une voie « Dxxx » (pas un écart)',
                defaut: '#90a4ae' },
+    // 2.57.00 — information BD TOPO : un bleu-gris, distinct de la mesure HN, et
+    // sans rien des teintes saturees des ecarts.
+    bdtopo: { libelle: '📏 BD TOPO : numéro de route absent de Waze (information)',
+              defaut: '#7986cb' },
     // Les VRAIS POI (v2.15) : famille a part, pour ne pas les confondre avec les
     // RPP sur la carte — ce sont deux sujets differents.
     poiAdresse: { libelle: 'POI : adresse en écart', defaut: '#ffab00' },
@@ -415,7 +420,7 @@
   // `adresse:true` et `sousType:'hn'` comme un vrai ecart : sans ce test en
   // tete, elle atterrissait dans « Numéro de rue hors agglomération » et se
   // lisait comme un defaut a corriger — exactement ce qu'elle n'est pas.
-  const familleDe = f => f.mesure ? 'hnRoute'
+  const familleDe = f => f.mesure ? (f.famille || 'hnRoute')
     : f.poi ? 'poiAdresse'
     : f.adresse ? (f.sousType === 'poi' ? 'rpp' : 'adresse')
     : f.cas === 'GIR' ? 'giratoire'
@@ -5930,8 +5935,8 @@
         'Insieme « Dati della segnaletica stradale che determina la velocità massima autorizzata » del <b>Ministero dell\'Interno francese</b>, <b>Licence Ouverte 2.0</b>, letto direttamente su <b>data.gouv.fr</b>; il bilancio ne cita l\'annata. Solo riferimenti informativi: questo insieme non è una fonte accreditata da Waze, e nulla viene importato sulla mappa.',
       'Règles de <b>WME Check Road Name</b> (buchet37), lues dans deux feuilles <b>Google Sheets</b> à chaque démarrage, avec l\'accord de son auteur. Licence non déclarée. Le dictionnaire <b>public</b> reste en lecture seule.':
         'Regole di <b>WME Check Road Name</b> (buchet37), lette in due fogli <b>Google Sheets</b> a ogni avvio, con l\'accordo del suo autore. Licenza non dichiarata. Il dizionario <b>pubblico</b> resta in sola lettura.',
-      '<b>geo.api.gouv.fr</b> : un numéro de département, ou cinq points de la vue si « charger le département survolé » est coché. <b>data.gouv.fr</b> : la seule demande du jeu des panneaux (sa fiche, puis l\'archive), sans aucune coordonnée, au premier clic sur 🪧 Panneaux. Google : la clé des deux feuilles. Jamais de pseudo ni d\'objet de la carte.':
-        '<b>geo.api.gouv.fr</b>: un numero di dipartimento, o cinque punti della vista se « caricare il dipartimento sorvolato » è selezionato. <b>data.gouv.fr</b>: la sola richiesta dell\'insieme dei cartelli (la scheda, poi l\'archivio), senza alcuna coordinata, al primo clic su 🪧 Cartelli. Google: la chiave dei due fogli. Mai un nome utente né un oggetto della mappa.',
+      '<b>geo.api.gouv.fr</b> : un numéro de département, ou cinq points de la vue si « charger le département survolé » est coché. <b>data.gouv.fr</b> : la seule demande du jeu des panneaux (sa fiche, puis l\'archive), sans aucune coordonnée, au premier clic sur 🪧 Panneaux. <b>data.geopf.fr</b> : l\'emprise de la commune analysée, si la comparaison BD TOPO est cochée. Google : la clé des deux feuilles. Jamais de pseudo ni d\'objet de la carte.':
+        '<b>geo.api.gouv.fr</b>: un numero di dipartimento, o cinque punti della vista se « caricare il dipartimento sorvolato » è selezionato. <b>data.gouv.fr</b>: la sola richiesta dell\'insieme dei cartelli (la scheda, poi l\'archivio), senza alcuna coordinata, al primo clic su 🪧 Cartelli. <b>data.geopf.fr</b>: il riquadro del comune analizzato, se il confronto BD TOPO è selezionato. Google: la chiave dei due fogli. Mai un nome utente né un oggetto della mappa.',
       'Limites <b>ISTAT</b> mises en forme par <b>openpolis/geojson-italy</b>, <b>CC BY 4.0</b>, version figée au commit <b>ba3347d</b> du 16/08/2026, lue sur raw.githubusercontent.com.':
         'Confini <b>ISTAT</b> messi in forma da <b>openpolis/geojson-italy</b>, <b>CC BY 4.0</b>, versione fissata al commit <b>ba3347d</b> del 16/08/2026, letta su raw.githubusercontent.com.',
       'Le nom du fichier de la province demandée, sur raw.githubusercontent.com. Jamais de pseudo ni d\'objet de la carte.':
@@ -7529,6 +7534,34 @@
       'format du fichier changé': 'formato del file cambiato',
       'aucune archive de panneaux dans le jeu': 'nessun archivio di cartelli nell\'insieme',
       'archive ZIP illisible': 'archivio ZIP illeggibile',
+      '📏 BD TOPO : numéro de route absent de Waze (information)':
+        '📏 BD TOPO: numero di strada assente da Waze (informazione)',
+      'BD TOPO (IGN) : numéro de route absent de Waze (information)':
+        'BD TOPO (IGN): numero di strada assente da Waze (informazione)',
+      'emprise trop grande pour la comparaison':
+        'riquadro troppo grande per il confronto',
+      'format de réponse inattendu':
+        'formato di risposta inatteso',
+      'information BD TOPO (pas un écart)':
+        'informazione BD TOPO (non è una difformità)',
+      'aucun numéro de route sur ce segment':
+        'nessun numero di strada su questo segmento',
+      'Information, sans correction proposée : vérifie le numéro sur le terrain (panneaux, Street View) avant de nommer. La BD TOPO ne numérote pas toutes les traversées d\'agglomération : son silence ne prouve rien, sa présence se vérifie.':
+        'Informazione, senza correzione proposta: verifica il numero sul terreno (cartelli, Street View) prima di nominare. La BD TOPO non numera tutti gli attraversamenti dei centri abitati: il suo silenzio non prova nulla, la sua presenza si verifica.',
+      'lecture directe indisponible — la comparaison BD TOPO a besoin de tous les segments de la commune d\'un coup. Relance quand la lecture directe remarchera.':
+        'lettura diretta non disponibile — il confronto BD TOPO ha bisogno di tutti i segmenti del comune in una volta. Rilancia quando la lettura diretta funzionerà di nuovo.',
+      'Comparaison avec la BD TOPO (IGN)':
+        'Confronto con la BD TOPO (IGN)',
+      'BD TOPO (IGN), source accréditée par Waze pour l\'affichage et la comparaison. Aucune correction n\'en découle. La zone urbaine de l\'IGN n\'est pas l\'agglomération du Code de la route : simple repère.':
+        'BD TOPO (IGN), fonte accreditata da Waze per la visualizzazione e il confronto. Non ne deriva alcuna correzione. La zona urbana dell\'IGN non è il centro abitato del Codice della strada: semplice riferimento.',
+      'BD TOPO : numéro de route absent':
+        'BD TOPO: numero di strada assente',
+      'Information, sans correction proposée : la BD TOPO de l\'IGN, source accréditée par Waze pour la comparaison, porte un numéro de route sur un segment qui n\'en a aucun dans Waze. À vérifier sur le terrain avant de nommer. Giratoires et bretelles exclus ; en ville, la BD TOPO ne numérote pas tout : son silence ne prouve rien.':
+        'Informazione, senza correzione proposta: la BD TOPO dell\'IGN, fonte accreditata da Waze per il confronto, porta un numero di strada su un segmento che non ne ha nessuno in Waze. Da verificare sul terreno prima di nominare. Rotatorie e rampe escluse; in città la BD TOPO non numera tutto: il suo silenzio non prova nulla.',
+      'Comparaison BD TOPO':
+        'Confronto BD TOPO',
+      '<b>BD TOPO</b> (IGN), tronçons de route lus sur <b>data.geopf.fr</b> (Géoplateforme), <b>Licence Ouverte 2.0</b>. Source accréditée par Waze pour l\'affichage et la comparaison : elle sert à <b>signaler</b>, jamais à corriger.':
+        '<b>BD TOPO</b> (IGN), tratti stradali letti su <b>data.geopf.fr</b> (Géoplateforme), <b>Licence Ouverte 2.0</b>. Fonte accreditata da Waze per la visualizzazione e il confronto: serve a <b>segnalare</b>, mai a correggere.',
       'navigateur trop ancien pour décompresser le jeu (DecompressionStream absent)':
         'browser troppo vecchio per decomprimere l\'insieme (DecompressionStream assente)',
       'Lecture de la fiche du jeu (data.gouv.fr)': 'Lettura della scheda dell\'insieme (data.gouv.fr)',
@@ -8118,6 +8151,17 @@
           ' — chiamata diretta bloccata da WME; installa lo script in Tampermonkey per usare questa fonte'],
       [/^compression ZIP non prise en charge \((\d+)\)$/, 'compressione ZIP non supportata ($1)'],
       [/^licence du jeu changée \(([^)]*)\), relevé suspendu$/, 'licenza dell\'insieme cambiata ($1), rilevamento sospeso'],
+      [/^data\.geopf\.fr : ([\s\S]+)$/,
+        (t, m) => 'data.geopf.fr: ' + (TEXTES.it[m] || traduireMotif(m) || m)],
+      [/^📏 BD TOPO : comparaison impossible \(([\s\S]+)\)\.$/,
+        (t, m) => '📏 BD TOPO: confronto impossibile (' + (TEXTES.it[m] || traduireMotif(m) || m) + ').'],
+      [/^📏 BD TOPO : ([\s\S]+)$/, (t, m) => '📏 BD TOPO: ' + (TEXTES.it[m] || traduireMotif(m) || m)],
+      [/^(\d+) tronçon\(s\) BD TOPO lu\(s\)$/, '$1 tratto/i BD TOPO letto/i'],
+      [/^la BD TOPO \(IGN\) y porte la ([A-Z0-9]+)$/, 'la BD TOPO (IGN) vi porta la $1'],
+      [/^📏 BD TOPO \(IGN\) : (\d+) segment\(s\) rapproché\(s\) sur (\d+), (\d+) tronçon\(s\) lu\(s\)\. Numéros de route : (\d+) concordant\(s\), (\d+) absent\(s\) de Waze\.$/,
+        '📏 BD TOPO (IGN): $1 segmento/i abbinato/i su $2, $3 tratto/i letto/i. Numeri di strada: $4 concordante/i, $5 assente/i da Waze.'],
+      [/^Zone urbaine IGN et agglomérations tracées : accord sur (\d+) % des segments ; (\d+) urbain\(s\) pour l'IGN hors de tes agglomérations, (\d+) rural\(aux\) dedans\.$/,
+        'Zona urbana IGN e centri abitati tracciati: accordo sul $1 % dei segmenti; $2 urbano/i per l\'IGN fuori dai tuoi centri abitati, $3 rurale/i dentro.'],
       [/^data\.gouv\.fr : ([\s\S]+)$/,
         (t, m) => 'data.gouv.fr: ' + (TEXTES.it[m] || traduireMotif(m) || m)],
       [/^rien de récupéré(?: — (\S+) \(([\s\S]+)\))?$/,
@@ -9234,7 +9278,12 @@
         // Saint-Laurent-des-Arbres, 49 POI sur 98 n'ont pas de numero. L'activer
         // d'office noierait les rues et communes manquantes, qui sont 25.
         { cle: 'poiNumero', portee: 'poi', defaut: false,
-          libelle: 'POI : numéro de rue manquant' }
+          libelle: 'POI : numéro de rue manquant' },
+        // 2.57.00 — BD TOPO (IGN), source accreditee par Waze pour la comparaison.
+        // ⚠️ INFORMATION, jamais de ⚡ (voir la section BD TOPO). Hors du flux des
+        // ecarts : `executer` absent, la comparaison tourne a part, apres les POI.
+        { cle: 'bdtopoNumero', portee: 'segment',
+          libelle: 'BD TOPO (IGN) : numéro de route absent de Waze (information)' }
       ],
       // Les controles de forme partagent une seule fonction, qui lit elle-meme
       // quelles cases sont cochees.
@@ -11146,6 +11195,206 @@
     return actives;
   }
 
+  // ===========================================================================
+  // BD TOPO (IGN) — COMPARAISON, JAMAIS ECRITURE (2.57.00, 12/11/2026)
+  //
+  // La BD TOPO fait partie des sources accreditees par Waze « pour l'affichage et
+  // la comparaison » (12/11/2026). On l'utilise donc pour MONTRER un ecart, jamais
+  // pour proposer un ⚡ : chaque report porte `mesure: true`, que `planDeCorrection`
+  // refuse.
+  //
+  // ⚡ MESURE DU 12/11/2026 A CARCASSONNE (16 445 troncons, 2 201 segments rapproches
+  //    a moins de 12 m, meme axe) — c'est elle qui fixe le perimetre :
+  //    - HORS ZONE URBAINE, le numero de route BD TOPO est fiable : 198 concordants,
+  //      0 contradictoire, 7 numeros absents de Waze.
+  //    - EN ZONE URBAINE, la BD TOPO NE NUMEROTE PAS la plupart des traversees
+  //      (9 124 troncons revetus sans classement contre 1 506 departementaux) :
+  //      310 segments portent dans Waze un numero qu'elle n'a pas. ⇒ SON SILENCE
+  //      NE PROUVE RIEN : on ne signale jamais « numero en trop ».
+  //    - Les giratoires ne se nomment pas (regle FR) et les bretelles suivent leur
+  //      propre format : ils sont EXCLUS.
+  //    ⇒ Un seul signal : « la BD TOPO porte un numero, Waze aucun ».
+  //
+  // ⚠️ WME interdit a la page d'appeler data.geopf.fr (politique de securite) :
+  //    l'appel passe par GM_xmlhttpRequest, comme toutes les sources du script.
+  // ===========================================================================
+
+  const BDTOPO_WFS = 'https://data.geopf.fr/wfs/ows';
+  const BDTOPO_PAGE = 5000, BDTOPO_PLAFOND = 60000;
+  /** Distance maximale segment ↔ troncon (m) et alignement minimal (|cos|). */
+  const BDTOPO_DIST = 12, BDTOPO_COS = 0.85;
+  const RE_NUMERO_ROUTE = /\b([ADNMC])\s?(\d{1,4}[A-Z]?)\b/g;
+  /**
+   * Types Waze compares : rue (1), rue principale (2), autoroute (3), route majeure (6),
+   * route mineure (7). ⚠️ 2.57.01 — mesure en live a Saint-Laurent-des-Arbres : une VOIE
+   * PRIVEE sans nom, longeant la D26 a moins de 12 m, recevait « la BD TOPO y porte la
+   * D26 ». Chemins, parkings, voies privees, pietonnes n'ont pas a porter un numero.
+   */
+  const BDTOPO_TYPES = new Set([1, 2, 3, 6, 7]);
+  const typeCompareBdTopo = rt => BDTOPO_TYPES.has(rt);
+
+  /** Numeros de route portes par un segment Waze : noms ET textes de cartouche. */
+  function numerosWaze(nam) {
+    const nums = new Set();
+    for (const e of [nam && nam.primary, ...((nam && nam.alts) || [])]) {
+      if (!e) continue;
+      for (const t of [e.name, e.signText]) {
+        if (!t) continue;
+        RE_NUMERO_ROUTE.lastIndex = 0;
+        let m;
+        while ((m = RE_NUMERO_ROUTE.exec(String(t).toUpperCase()))) nums.add(m[1] + m[2]);
+      }
+    }
+    return nums;
+  }
+
+  /**
+   * Rapproche chaque segment du troncon BD TOPO le plus proche, sur le MEME AXE.
+   * Fonction PURE (aucun appel WME ni reseau) : `tools/test-bdtopo.js` l'eprouve.
+   * @param segs  [{ id, coords: [[lon, lat], …] }]
+   * @param troncons [{ n, u, g: [[lon, lat], …] }]
+   * @returns Map id → { t, d } (troncon retenu, distance en metres)
+   */
+  function rapprocherBdTopo(segs, troncons) {
+    const lat0 = segs.length ? segs[0].coords[0][1] : 46;
+    const kx = 111320 * Math.cos(lat0 * Math.PI / 180), ky = 111320;
+    const P = c => [c[0] * kx, c[1] * ky];
+    const G = 100, grille = new Map();
+    const proj = troncons.map(t => t.g.map(P));
+    proj.forEach((pts, ti) => {
+      for (let k = 0; k + 1 < pts.length; k++) {
+        const a = pts[k], b = pts[k + 1];
+        for (let x = Math.floor(Math.min(a[0], b[0]) / G); x <= Math.floor(Math.max(a[0], b[0]) / G); x++) {
+          for (let y = Math.floor(Math.min(a[1], b[1]) / G); y <= Math.floor(Math.max(a[1], b[1]) / G); y++) {
+            const cle = x + ',' + y;
+            if (!grille.has(cle)) grille.set(cle, []);
+            grille.get(cle).push(ti * 100000 + k);
+          }
+        }
+      }
+    });
+    const res = new Map();
+    for (const s of segs) {
+      const c = s.coords.map(P);
+      if (c.length < 2) continue;
+      const i = Math.floor((c.length - 1) / 2);
+      const p = [(c[i][0] + c[i + 1][0]) / 2, (c[i][1] + c[i + 1][1]) / 2];
+      const dir = [c[i + 1][0] - c[i][0], c[i + 1][1] - c[i][1]];
+      const ldir = Math.hypot(dir[0], dir[1]);
+      if (!ldir) continue;
+      let best = null;
+      const gx = Math.floor(p[0] / G), gy = Math.floor(p[1] / G);
+      for (let x = gx - 1; x <= gx + 1; x++) for (let y = gy - 1; y <= gy + 1; y++) {
+        for (const code of (grille.get(x + ',' + y) || [])) {
+          const ti = Math.floor(code / 100000), k = code % 100000;
+          const a = proj[ti][k], b = proj[ti][k + 1];
+          const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy);
+          if (!L) continue;
+          let u = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (L * L);
+          u = Math.max(0, Math.min(1, u));
+          const d = Math.hypot(a[0] + u * dx - p[0], a[1] + u * dy - p[1]);
+          const cos = Math.abs((dx * dir[0] + dy * dir[1]) / (L * ldir));
+          if (d < BDTOPO_DIST && cos > BDTOPO_COS && (!best || d < best.d)) best = { t: troncons[ti], d };
+        }
+      }
+      if (best) res.set(s.id, best);
+    }
+    return res;
+  }
+
+  /** Troncons de route BD TOPO dans une emprise [ouest, sud, est, nord], pages de 5 000. */
+  async function chargerTronconsBdTopo(bbox, prog) {
+    const out = [];
+    for (let debut = 0; ; debut += BDTOPO_PAGE) {
+      if (prog) prog.verifier();
+      if (debut >= BDTOPO_PLAFOND) throw new Error('data.geopf.fr : emprise trop grande pour la comparaison');
+      const url = BDTOPO_WFS + '?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature' +
+        '&TYPENAMES=BDTOPO_V3:troncon_de_route&outputFormat=application/json' +
+        '&count=' + BDTOPO_PAGE + '&startIndex=' + debut +
+        '&PROPERTYNAME=cpx_numero,urbain,geometrie' +
+        '&BBOX=' + [bbox[1], bbox[0], bbox[3], bbox[2]].map(v => v.toFixed(5)).join(',') +
+        ',urn:ogc:def:crs:EPSG::4326';
+      let j;
+      try { j = JSON.parse(await telecharger(url, prog)); }
+      catch (e) {
+        if (e instanceof AnnulationDemandee) throw e;
+        throw new Error('data.geopf.fr : ' + e.message);
+      }
+      // ⚠️ Reponse au format CHANGE = ERREUR, jamais « aucun troncon ».
+      if (!j || !Array.isArray(j.features)) throw new Error('data.geopf.fr : format de réponse inattendu');
+      for (const f of j.features) {
+        const g = f && f.geometry, p = (f && f.properties) || {};
+        if (!g || g.type !== 'LineString' || !Array.isArray(g.coordinates)) continue;
+        out.push({ n: p.cpx_numero ? String(p.cpx_numero).replace(/\s+/g, '').toUpperCase() : null,
+                   u: p.urbain === true, g: g.coordinates.map(c => [c[0], c[1]]) });
+      }
+      if (prog) prog.info(out.length + ' tronçon(s) BD TOPO lu(s)');
+      if (j.features.length < BDTOPO_PAGE) break;
+    }
+    return out;
+  }
+
+  /**
+   * Compare les segments de la commune a la BD TOPO. Rend les reports (mesures) et
+   * remplit `st` : rapproches, concordants, absents de Waze, et le croisement
+   * « zone urbaine IGN » × « agglomerations tracees ».
+   */
+  async function comparerBdTopo(segments, listeAgglos, st, prog) {
+    const dansLaCommune = [];
+    for (const seg of segments) {
+      const coords = seg.geometry && seg.geometry.coordinates;
+      if (!coords || coords.length < 2) continue;
+      const m = coords[Math.floor((coords.length - 1) / 2)];
+      if (!pointInGeom(m[0], m[1], communeActive.geom)) continue;
+      dansLaCommune.push({ id: seg.id, coords, seg });
+    }
+    st.actif = true;
+    st.segments = dansLaCommune.length;
+    const troncons = await chargerTronconsBdTopo(communeActive.bbox, prog);
+    st.troncons = troncons.length;
+    if (prog) prog.verifier();
+    const liens = rapprocherBdTopo(dansLaCommune, troncons);
+    st.rapproches = liens.size;
+    const reports = [];
+    const enAgglo = (lon, lat) => listeAgglos.some(z => z && z.ring && pointInRing(lon, lat, z.ring));
+    for (const { id, coords, seg } of dansLaCommune) {
+      const lien = liens.get(id);
+      if (!lien) continue;
+      const t = lien.t;
+      const m = coords[Math.floor((coords.length - 1) / 2)];
+      // Croisement zone urbaine IGN × agglomerations tracees (giratoires compris :
+      // ils sont bien dans la zone, seul leur NOM est hors sujet).
+      if (listeAgglos.length) {
+        const a = enAgglo(m[0], m[1]);
+        st.zones[(t.u ? 'urbain' : 'rural') + (a ? 'Agglo' : 'Hors')]++;
+      }
+      if (seg.junctionId != null || !typeCompareBdTopo(seg.roadType)) continue;
+      if (!t.n) continue;
+      let nam = null;
+      try { nam = readNaming(seg); } catch (e) { /* hors modele */ }
+      if (!nam) continue;
+      const nums = numerosWaze(nam);
+      if (nums.has(t.n)) { st.concordants++; continue; }
+      if (nums.size) { st.differents++; continue; }
+      st.absents++;
+      reports.push({
+        segId: seg.id, roadType: seg.roadType,
+        libelle: (fmt(nam.primary) || '‹sans nom›') + ' — BD TOPO : ' + t.n,
+        centre: centreDe(coords), geom: seg.geometry,
+        editable: seg.editable !== undefined ? seg.editable : EDITABLE.get(String(seg.id)) === true,
+        cas: 'BDT', mesure: true, famille: 'bdtopo',
+        ecarts: [{ champ: 'information BD TOPO (pas un écart)',
+                   avant: 'aucun numéro de route sur ce segment',
+                   apres: 'la BD TOPO (IGN) y porte la ' + t.n }],
+        doute: 'Information, sans correction proposée : vérifie le numéro sur le terrain ' +
+               '(panneaux, Street View) avant de nommer. La BD TOPO ne numérote pas toutes ' +
+               'les traversées d\'agglomération : son silence ne prouve rien, sa présence se vérifie.'
+      });
+    }
+    return reports;
+  }
+  // =========================== fin BD TOPO ====================================
+
   async function analyserAdresses(segs, listeAgglos, stats, phases, venuesFournis, prog) {
     const c = options.controles;
     const faireHn = (!phases || phases.hn) && c.hnHorsAgglo;
@@ -12376,6 +12625,12 @@
                        poiAutoroute: 0,
                        poiConformes: 0, erreur: null, indisponible: null };
     let poiFindings = [];
+    // 2.57.00 — comparaison BD TOPO : ses reports rejoignent la liste APRES le
+    // regroupement (ils sont deja par segment), comme ceux des POI.
+    let bdtFindings = [];
+    const statsBdt = { actif: false, segments: 0, troncons: 0, rapproches: 0, concordants: 0,
+                       differents: 0, absents: 0, erreur: null, indisponible: null,
+                       zones: { urbainAgglo: 0, urbainHors: 0, ruralAgglo: 0, ruralHors: 0 } };
 
     // Une analyse dure de quelques secondes (lecture directe) a plus d'une
     // minute (balayage) : elle se montre, et elle s'interrompt.
@@ -12506,6 +12761,10 @@
       statsAdr.cellulesPoi = cellulesPoi.length;
     }
     statsAdr.cellules = cellules.length;
+    if (c.bdtopoNumero && REF.code === 'FR') {
+      statsBdt.indisponible = 'lecture directe indisponible — la comparaison BD TOPO a besoin ' +
+        'de tous les segments de la commune d\'un coup. Relance quand la lecture directe remarchera.';
+    }
     // ⚠️ En mode BALAYAGE, l'audit des VRAIS POI n'est pas possible : le point
     // d'accès et les catégories ne viennent que de l'API. On le DIT, plutôt que
     // de rendre un onglet vide que l'éditeur croirait « sans écart » (v2.15).
@@ -12515,6 +12774,18 @@
         'ne fournit pas. Relance quand la lecture directe remarchera.';
     }
     }   // fin du repli par balayage
+
+    // --- BD TOPO (2.57.00) : information, jamais de correction ---------------
+    if (donneesApi && c.bdtopoNumero && REF.code === 'FR') {
+      try {
+        prog.etape('Comparaison avec la BD TOPO (IGN)', 0);
+        await prog.respirer(true);
+        bdtFindings = await comparerBdTopo(donneesApi.segments, listeAgglos, statsBdt, prog);
+      } catch (e) {
+        if (e && e.annulation) throw e;
+        log('comparaison BD TOPO impossible', e); statsBdt.erreur = e.message || String(e);
+      }
+    }
 
     prog.etape('Mise en forme des résultats', 0);
     await prog.respirer(true);
@@ -12529,8 +12800,8 @@
     // Les reports POI rejoignent la meme liste : tout le rendu, le marquage
     // « traite » et la navigation fonctionnent deja dessus. Ils s'en distinguent
     // par `f.poi`, lu par `vueDe()` — un seul endroit decide de la famille.
-    findings = findings.concat(poiFindings);
-    lastScan = { poi: poiFindings, statsPoi,
+    findings = findings.concat(poiFindings, bdtFindings);
+    lastScan = { poi: poiFindings, statsPoi, bdt: statsBdt,
                  analyses: zones.agglo + zones.hors + zones.cheval + zones.limCom, skipped, zones,
                  ecarts: nbSegmentsEnEcart, lignes: findings.length, nbAgglos: listeAgglos.length,
                  adr: statsAdr, interrompu: false };
@@ -12546,7 +12817,7 @@
       // Interrompue : le recensement cartouche est forcement partiel (tous les
       // segments d'une voie n'ont pas ete vus), donc on ne conclut PAS dessus —
       // une voie jugee « eligible » sur un echantillon serait un faux positif.
-      lastScan = { poi: poiFindings, statsPoi,
+      lastScan = { poi: poiFindings, statsPoi, bdt: statsBdt,
                  analyses: zones.agglo + zones.hors + zones.cheval + zones.limCom, skipped, zones,
                    ecarts: nbSegmentsEnEcart, lignes: findings.length, nbAgglos: listeAgglos.length,
                    adr: statsAdr, interrompu: true };
@@ -15929,6 +16200,7 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
           ${siControle("dateRomaine", `<tr><td><b>Dates en chiffres romains</b></td><td><span class="agn-aide-ex">Via IV Novembre</span> s'écrit <span class="agn-aide-ex">Via 4 Novembre</span>. ⚠️ Ne vise que les <b>dates</b> : les papes et les rois gardent leurs chiffres romains.</td></tr>`)}
           ${siControle("formatBretelle", `<tr><td><b>Bretelles : format du nom</b></td><td>Le nom doit suivre le format du pays regardé — et le script dit lequel dans son infobulle.</td></tr>`)}
           ${siControle("voieCommunale", `<tr><td><b>Voies communales</b></td><td>Forme abrégée obligatoire : <span class="agn-aide-ex">C6</span>, pas <span class="agn-aide-ex">Voie Communale n°6</span>.</td></tr>`)}
+          ${siControle("bdtopoNumero", `<tr><td><b>BD TOPO : numéro de route absent</b></td><td>Information, sans correction proposée : la BD TOPO de l'IGN, source accréditée par Waze pour la comparaison, porte un numéro de route sur un segment qui n'en a aucun dans Waze. À vérifier sur le terrain avant de nommer. Giratoires et bretelles exclus ; en ville, la BD TOPO ne numérote pas tout : son silence ne prouve rien.</td></tr>`)}
         </table>
         ${siControle("redactionDico", `<div class="agn-aide-note">🏷️ <b>D'où viennent ces règles.</b> Elles ne sont pas de nous :
           c'est le dictionnaire de <b>WME Check Road Name</b> (buchet37), maintenu par la
@@ -16049,9 +16321,10 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
           <tr><td><b>Contours communaux</b></td><td>Limites <b>ISTAT</b> mises en forme par <b>openpolis/geojson-italy</b>, <b>CC BY 4.0</b>, version figée au commit <b>ba3347d</b> du 16/08/2026, lue sur raw.githubusercontent.com.</td></tr>
           <tr><td><b>Ce qui part du navigateur</b></td><td>Le nom du fichier de la province demandée, sur raw.githubusercontent.com. Jamais de pseudo ni d'objet de la carte.</td></tr>`)}${siPanneaux(`
           <tr><td><b>Contours communaux</b></td><td>ADMIN EXPRESS (IGN) et Code officiel géographique (INSEE), servis par <b>geo.api.gouv.fr</b>, <b>Licence Ouverte Etalab 2.0</b>. Millésime : celui que l'API sert le jour du chargement. ADMIN EXPRESS est une source accréditée par Waze pour l'affichage.</td></tr>
+          <tr><td><b>Comparaison BD TOPO</b></td><td><b>BD TOPO</b> (IGN), tronçons de route lus sur <b>data.geopf.fr</b> (Géoplateforme), <b>Licence Ouverte 2.0</b>. Source accréditée par Waze pour l'affichage et la comparaison : elle sert à <b>signaler</b>, jamais à corriger.</td></tr>
           <tr><td><b>Panneaux EB10 / EB20</b></td><td>Jeu « Données de signalisation routière déterminant la Vitesse Maximale Autorisée » du <b>Ministère de l'Intérieur</b>, <b>Licence Ouverte 2.0</b>, lu directement sur <b>data.gouv.fr</b> ; le bilan cite son millésime. Repères d'information seulement : ce jeu n'est pas une source accréditée par Waze, et rien n'est importé sur la carte.</td></tr>
           <tr><td><b>Dictionnaire de rédaction</b></td><td>Règles de <b>WME Check Road Name</b> (buchet37), lues dans deux feuilles <b>Google Sheets</b> à chaque démarrage, avec l'accord de son auteur. Licence non déclarée. Le dictionnaire <b>public</b> reste en lecture seule.</td></tr>
-          <tr><td><b>Ce qui part du navigateur</b></td><td><b>geo.api.gouv.fr</b> : un numéro de département, ou cinq points de la vue si « charger le département survolé » est coché. <b>data.gouv.fr</b> : la seule demande du jeu des panneaux (sa fiche, puis l'archive), sans aucune coordonnée, au premier clic sur 🪧 Panneaux. Google : la clé des deux feuilles. Jamais de pseudo ni d'objet de la carte.</td></tr>`)}
+          <tr><td><b>Ce qui part du navigateur</b></td><td><b>geo.api.gouv.fr</b> : un numéro de département, ou cinq points de la vue si « charger le département survolé » est coché. <b>data.gouv.fr</b> : la seule demande du jeu des panneaux (sa fiche, puis l'archive), sans aucune coordonnée, au premier clic sur 🪧 Panneaux. <b>data.geopf.fr</b> : l'emprise de la commune analysée, si la comparaison BD TOPO est cochée. Google : la clé des deux feuilles. Jamais de pseudo ni d'objet de la carte.</td></tr>`)}
           <tr><td><b>WME lui-même</b></td><td>Lecture rapide d'une commune par <b>app/Features</b>, l'adresse interne que WME appelle pour remplir sa carte (même site, ta session) ; repli sur le balayage par le SDK si elle ne répond pas.</td></tr>
           <tr><td><b>Version minimale</b></td><td>Au démarrage, le fichier <b>version-min.json</b> du dépôt GitHub est lu : il peut empêcher une version retirée de démarrer ; injoignable, le script démarre. GreasyFork est interrogé une fois par jour au plus.</td></tr>
         </table>` },
@@ -18648,6 +18921,31 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
       avant l'arrêt : la commune n'a pas été parcourue en entier.</div>`;
   }
 
+  /**
+   * 2.57.00 — Bilan de la comparaison BD TOPO. ⚠️ UNE MESURE DIT SON RESULTAT MEME
+   * NUL : « aucun numéro absent » est un resultat, pas un silence.
+   * Le croisement zone urbaine IGN × agglomerations tracees n'est qu'un REPERE : la
+   * zone urbaine de l'IGN n'est pas l'agglomeration du Code de la route.
+   */
+  function bandeauBdTopo() {
+    const b = lastScan && lastScan.bdt;
+    if (!b || !options.controles.bdtopoNumero) return '';
+    if (b.indisponible) return '<div class="agn-stat">' + esc('📏 BD TOPO : ' + b.indisponible) + '</div>';
+    if (b.erreur) return '<div class="agn-stat agn-alerte">' + esc('📏 BD TOPO : comparaison impossible (' + b.erreur + ').') + '</div>';
+    if (!b.actif) return '';
+    const z = b.zones, tot = z.urbainAgglo + z.urbainHors + z.ruralAgglo + z.ruralHors;
+    // ⚠️ Chaque ligne est UN noeud de texte, chiffres compris : la traduction italienne
+    //    se fait par motif sur le noeud entier (voir MOTIFS), un <b> la couperait.
+    const l1 = '📏 BD TOPO (IGN) : ' + b.rapproches + ' segment(s) rapproché(s) sur ' + b.segments +
+      ', ' + b.troncons + ' tronçon(s) lu(s). Numéros de route : ' + b.concordants + ' concordant(s), ' +
+      b.absents + ' absent(s) de Waze.';
+    const l2 = tot ? 'Zone urbaine IGN et agglomérations tracées : accord sur ' +
+      Math.round(100 * (z.urbainAgglo + z.ruralHors) / tot) + ' % des segments ; ' + z.urbainHors +
+      ' urbain(s) pour l\'IGN hors de tes agglomérations, ' + z.ruralAgglo + ' rural(aux) dedans.' : '';
+    return '<div class="agn-stat" title="' + esc('BD TOPO (IGN), source accréditée par Waze pour l\'affichage et la comparaison. Aucune correction n\'en découle. La zone urbaine de l\'IGN n\'est pas l\'agglomération du Code de la route : simple repère.') + '">' +
+      esc(l1) + (l2 ? '<br>' + esc(l2) : '') + '</div>';
+  }
+
   function bandeauSource() {
     if (!sourceDonnees || sourceDonnees.mode !== 'balayage') return '';
     return `<div class="agn-stat agn-alerte">
@@ -18853,7 +19151,7 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
         Ignorés : ${s.skipped.horsCommune} hors commune, ${s.skipped.sansAdresse} sans adressage${
           z.villeSansAdressage ? '<span title="Voies privées et parkings : leur nom n\'est pas audité (une absence de nom n\'y est pas une anomalie), mais hors agglomération le nom principal ne porte jamais de ville. Ceux-là sont donc signalés quand même.">' +
             ' (dont <b>' + z.villeSansAdressage + '</b> signalé(s) pour une ville en trop)</span>' : ''}, ${s.skipped.horsRegle} règles propres.
-      </div>${bandeauVillesSansPolygone()}${bandeauCommunesVoisines()}${bandeauInterrompu()}${bandeauSource()}`
+      </div>${bandeauVillesSansPolygone()}${bandeauCommunesVoisines()}${bandeauInterrompu()}${bandeauSource()}${bandeauBdTopo()}`
         : `<div class="agn-stat">
         ${s.adr ? '<b>' + s.adr.hnLus + '</b> numéro(s) lu(s) à ' + esc(communeActive.nom) +
             (options.controles.hnHorsAgglo
