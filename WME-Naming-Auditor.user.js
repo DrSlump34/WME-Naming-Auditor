@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.57.01
-// @description  FRANCE et ITALIE : audit du nommage et de l'adressage. Le bouton ⚡ (L6, Champs, GE, staff) écrit sans enregistrer : nom, ville, alternatif, cartouche, adresse de POI, numéro hors agglo converti en POI résidentiel (numéro supprimé) ; 500 éditions/h au plus. Sources : IGN/INSEE (geo.api.gouv.fr, Licence Ouverte), panneaux VMA (data.gouv.fr), WME Check Road Name, ISTAT/openpolis (CC BY 4.0). Échanges : GreasyFork, version-min.json (GitHub) ; coordonnées de zone, jamais d'identité.
+// @version      2.58.00
+// @description  FRANCE et ITALIE : audit du nommage et de l'adressage. Le bouton ⚡ (L6, Champs, GE, staff) écrit sans enregistrer : nom, ville, alternatif, cartouche, adresse de POI, numéro hors agglo converti en POI résidentiel (numéro supprimé) ; 500 éditions/h au plus. Sources : IGN/INSEE (geo.api.gouv.fr, data.geopf.fr, Licence Ouverte), WME Check Road Name, ISTAT/openpolis (CC BY 4.0). Échanges : GreasyFork, version-min.json (GitHub) ; coordonnées de zone, jamais d'identité.
 // @author       DrSlump34
 // @license      MIT
 // @icon         data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPScyNCcgaGVpZ2h0PScyNCcgdmlld0JveD0nMCAwIDI0IDI0Jz48cmVjdCB4PScxLjUnIHk9JzMnIHdpZHRoPScxNycgaGVpZ2h0PSc5JyByeD0nMS41JyBmaWxsPScjZmZmJyBzdHJva2U9JyM2MDdkOGInIHN0cm9rZS13aWR0aD0nMicvPjxwYXRoIGQ9J001IDcuNSBIMTUnIHN0cm9rZT0nIzkwYTRhZScgc3Ryb2tlLXdpZHRoPScxLjgnIHN0cm9rZS1saW5lY2FwPSdyb3VuZCcvPjxjaXJjbGUgY3g9JzE1JyBjeT0nMTUnIHI9JzQuNicgZmlsbD0nI2ZmZicgc3Ryb2tlPScjZWY2YzAwJyBzdHJva2Utd2lkdGg9JzIuNCcvPjxwYXRoIGQ9J00xOC40IDE4LjQgTDIyIDIyJyBzdHJva2U9JyNlZjZjMDAnIHN0cm9rZS13aWR0aD0nMycgc3Ryb2tlLWxpbmVjYXA9J3JvdW5kJy8+PC9zdmc+
@@ -19,8 +19,6 @@
 // @grant        GM_setValue
 // @connect      geo.api.gouv.fr
 // @connect      update.greasyfork.org
-// @connect      www.data.gouv.fr
-// @connect      static.data.gouv.fr
 // @connect      data.geopf.fr
 // @connect      raw.githubusercontent.com
 // @connect      docs.google.com
@@ -60,20 +58,21 @@
  *   - contours France : ADMIN EXPRESS (IGN) + COG (INSEE), par geo.api.gouv.fr — Licence Ouverte
  *     Etalab 2.0, millésime servi par l'API ; ADMIN EXPRESS est accréditée par Waze (affichage) ;
  *   - contours Italie : limites ISTAT, openpolis/geojson-italy — CC BY 4.0, commit ba3347d figé ;
- *   - panneaux EB10/EB20 : « Données de signalisation routière déterminant la Vitesse Maximale
- *     Autorisée », Ministère de l'Intérieur — Licence Ouverte 2.0, lu sur data.gouv.fr (jeu
- *     6666a0fa46b0f0997ebcea3d, millésime cité au bilan). Information seulement : jeu non accrédité ;
+ *   - BD TOPO (IGN), lue sur data.geopf.fr — Licence Ouverte 2.0 ; accréditée par Waze (affichage,
+ *     comparaison) : elle signale, elle ne corrige jamais ;
  *   - dictionnaire de rédaction : WME Check Road Name (buchet37), Google Sheets, avec son accord ;
  *     licence non déclarée par la source ;
  *   - WME : SDK, et `app/Features` (adresse interne de WME, même site) pour la lecture rapide.
- *   Ni les contours ni les panneaux ne s'écrivent sur la carte : ce sont des repères pour l'audit,
+ *   Ni les contours ni la BD TOPO ne s'écrivent sur la carte : ce sont des repères pour l'audit,
  *   et le ⚡ n'écrit jamais rien sans le clic de l'éditeur.
+ *   ⚠️ 2.58.00 : le relevé des panneaux EB10/EB20 (jeu « signalisation » du Ministère de l'Intérieur,
+ *   data.gouv.fr) est RETIRÉ, avec le pré-tracé qu'il nourrissait : source non accréditée par Waze,
+ *   plus-value trop faible pour la garder hors des règles (décision de l'auteur, 13/11/2026).
  *
  * SERVEURS CONTACTÉS (sans cookie, sauf WME lui-même) — ce qu'ils reçoivent :
  *   - geo.api.gouv.fr : un numéro de département, ou le point de la vue quand « charger le
  *     département survolé » est coché (décoché par défaut) ;
- *   - www.data.gouv.fr / static.data.gouv.fr : la fiche puis l'archive du jeu des panneaux, sans
- *     aucune coordonnée, au premier clic sur « 🪧 Panneaux » de la session ;
+ *   - data.geopf.fr : l'emprise de la commune analysée, si la comparaison BD TOPO est cochée ;
  *   - docs.google.com / googleusercontent.com : la clé des deux feuilles du dictionnaire de
  *     rédaction, au démarrage si le contrôle est coché ;
  *   - raw.githubusercontent.com : le fichier des contours italiens (Italie seulement), et au
@@ -371,7 +370,6 @@
   const LAYER_AGGLO = SCRIPT_ID + '-agglo';
   const LAYER_ECARTS = SCRIPT_ID + '-ecarts';
   const LAYER_ADRESSES = SCRIPT_ID + '-adresses';   // points : HN et POI residentiels
-  const LAYER_PANNEAUX = SCRIPT_ID + '-panneaux';   // points : EB10 / EB20 releves
 
   // Familles de problemes : chacune a sa couleur de surlignage, reglable.
   // Palette choisie pour NE PAS se confondre avec le rendu de WME : le reseau
@@ -409,12 +407,9 @@
               defaut: '#7986cb' },
     // Les VRAIS POI (v2.15) : famille a part, pour ne pas les confondre avec les
     // RPP sur la carte — ce sont deux sujets differents.
-    poiAdresse: { libelle: 'POI : adresse en écart', defaut: '#ffab00' },
-    // Les panneaux ne sont pas des ecarts : ils ne passent pas par `familleDe`,
-    // mais leurs deux couleurs se reglent au meme endroit que les autres.
-    panneauNeutre: { libelle: 'Panneau relevé (rien à confronter)', defaut: '#546e7a' },
-    panneauOk: { libelle: 'Panneau dans un polygone', defaut: '#00e676' },
-    panneauHors: { libelle: 'Panneau HORS polygone', defaut: '#ff1744' }
+    poiAdresse: { libelle: 'POI : adresse en écart', defaut: '#ffab00' }
+    // 2.58.00 : les trois couleurs des panneaux EB10/EB20 relevés sont parties avec leur calque.
+    // Une couleur memorisee par une version anterieure reste dans `options.couleurs`, sans effet.
   };
   // ⚠️⚠️ LA MESURE PASSE EN PREMIER, ET SE RANGE A PART. Elle porte
   // `adresse:true` et `sousType:'hn'` comme un vrai ecart : sans ce test en
@@ -1189,6 +1184,10 @@
    * tranche, secteur par secteur, et le script s'en souvient.
    * On retient le CENTRE du secteur, pas un indice : l'ordre des secteurs change
    * d'un releve a l'autre, leur position non.
+   *
+   * ⚠️ 2.58.00 : les SECTEURS venaient du releve des panneaux EB10/EB20, retire avec lui. Plus rien
+   * ne declare ni n'affiche de hameau ; la donnee reste lue, sauvee, fusionnee et partagee telle
+   * quelle (format de `prefs` et des fichiers de partage inchange), sans aucun effet sur l'analyse.
    */
   let hameaux = {};
   let communeActive = null;
@@ -1229,7 +1228,7 @@
     // les adresses (demande de l'auteur, 23/07). Jusqu'ici la carte ne peignait
     // que l'onglet actif : ouvrir « Segments » effacait les adresses de la
     // carte, alors qu'on veut souvent garder les deux sous les yeux.
-    vue: { segTable: true, segCarte: true, adrTable: true, adrCarte: true, panCarte: true,
+    vue: { segTable: true, segCarte: true, adrTable: true, adrCarte: true,
            // Les VRAIS POI (v2.15) : leur propre onglet et leur propre calque.
            poiTable: true, poiCarte: true },
     // Charger tout seul les contours du departement survole.
@@ -2071,7 +2070,7 @@
     // La commune en cours vivait peut-etre dans un departement retire.
     if (communeActive && !analyseEnCours && set.has(depDuCode(communeActive.code))) {
       ui.communePerdue = communeActive.nom;
-      communeActive = null; oublierPanneaux(); redrawCommune();
+      communeActive = null; redrawCommune();
       replierSection('commune', true);
     }
 
@@ -2197,7 +2196,7 @@
   /** Repart de zero : l'editeur doit pouvoir vider ce qu'il a accumule. */
   async function viderContours() {
     if (analyseEnCours) return;          // la base sert a l'analyse en cours
-    communes = []; metaContours = null; communeActive = null; oublierPanneaux();
+    communes = []; metaContours = null; communeActive = null;
     depsTentes.clear();
     try { await idbSet('communes', []); await idbSet('meta', null); }
     catch (e) { log('purge des contours impossible', e); }
@@ -2283,7 +2282,7 @@
              : (typeof GM !== 'undefined' && GM.xmlHttpRequest) ? GM.xmlHttpRequest : null;
     if (gm) {
       return new Promise((resolve, reject) => {
-        // ⚠️ Audit du 25/09/2026 : `anonymous` — aucune de ces sources publiques (contours, panneaux,
+        // ⚠️ Audit du 25/09/2026 : `anonymous` — aucune de ces sources publiques (contours,
         //    dictionnaire) n'a a recevoir les cookies de l'editeur. Verifie sans cookie le 25/09 : 200.
         const req = gm({ method: 'GET', url, timeout: 120000, anonymous: true,
           onload: r => (r.status >= 200 && r.status < 300)
@@ -2420,8 +2419,8 @@
       libelle: 'API Découpage administratif (geo.api.gouv.fr)',
       // Contours Admin Express (IGN) + Code Officiel Geographique (INSEE).
       // ⚠️ `mairie` est demandee depuis la v2.23 : c'est le repere du BOURG
-      // PRINCIPAL — celui qui porte le nom de la commune. Il sert a presenter
-      // les secteurs d'entrees dans le bon ordre sur les communes a hameaux.
+      // PRINCIPAL — celui qui porte le nom de la commune. Il sert de point de
+      // depart au trace a la main (`departDuTrace`).
       // ⚠️ Les contours deja en base ne l'ont pas : tout ce qui s'en sert doit
       // savoir s'en passer (repli sur le centre du contour).
       url: dep => 'https://geo.api.gouv.fr/departements/' + encodeURIComponent(dep) +
@@ -2431,251 +2430,14 @@
   };
 
   // ---------------------------------------------------------------------------
-  // PANNEAUX D'ENTREE D'AGGLOMERATION (EB10 / EB20)
-  //
-  // Idee de l'auteur (23/07), venue de Draw Borders France (Sebiseba) : les
-  // panneaux d'entree d'agglo disent OU commence l'agglomeration, ce qu'aucune
-  // donnee Waze ne dit. Deux usages : confronter les panneaux au polygone deja
-  // trace, et proposer un pre-trace quand il n'y en a pas. C'est de
-  // l'INFORMATION pour l'editeur : rien n'est importe sur la carte.
-  //
-  // ⚡ 2.56.00 (12/11/2026, decision de l'auteur) : LECTURE A LA SOURCE OFFICIELLE.
-  //    Jusqu'a la 2.55.01, les panneaux venaient de `api.wazefrance.com/rs`, une
-  //    COPIE tenue par un serveur tiers, plafonnee a 500 items par requete (d'ou
-  //    un decoupage adaptatif de 13 a 16 niveaux de zoom) et sans date de mise a
-  //    jour. La doctrine 1.5 (sujet 414279) demande de lire les donnees publiques
-  //    a leur source : on lit desormais le jeu PUBLIE PAR LE MINISTERE sur
-  //    data.gouv.fr, et l'on cite son millesime.
-  //
-  // ✅ SOURCE : « Donnees de signalisation routiere determinant la Vitesse
-  //    Maximale Autorisee », Ministere de l'Interieur, Licence Ouverte 2.0,
-  //    jeu data.gouv.fr 6666a0fa46b0f0997ebcea3d, mise a jour ANNUELLE.
-  //    ⚠️ Ce jeu N'EST PAS dans la liste des sources accreditees par Waze (BAN,
-  //    ADMIN EXPRESS, BD TOPO, 12/11/2026) : il ne sert qu'a AFFICHER des
-  //    reperes, jamais a ecrire quoi que ce soit.
-  //
-  // ⚠️ FORMAT MESURE le 12/11/2026 sur `signalisation-vma-112025.zip` (3,5 Mo) :
-  //  1. Un ZIP de 11 CSV, UN PAR REGION : `sign_extract_<REG>_<AAAA-MM>.csv`
-  //     (ARA BFC BZH CVL GE HDF NAQ NMD OCC PAC PDL). Ni Ile-de-France, ni
-  //     Corse, ni outre-mer : 86 departements. Une commune hors couverture
-  //     n'est PAS une commune sans agglomeration — il faut le dire.
-  //  2. Deux colonnes `code,coords`. `code` est un hstore PostgreSQL :
-  //     `"EB10"=>NULL`, `"B14"=>"70"`, et parfois DEUX paires dans la meme
-  //     cellule (`"B14"=>"70", "M9z"=>"rappel"` : 80 619 lignes sur 482 627).
-  //     `coords` vaut `"lat, lon"` — latitude D'ABORD.
-  //  3. 88 571 EB10 et 73 133 EB20 au total. La valeur d'un EB (le nom porte par
-  //     le panneau) est presque toujours NULL : on ne peut pas en tirer le nom
-  //     d'une agglomeration.
-  //  4. EB10 et EB20 sont poses sur le MEME poteau (les deux faces) : une
-  //     « porte » d'agglomeration est un couple, et le sens ne se lit pas dans
-  //     la geometrie.
-  // Le fichier est lu UNE FOIS par session, au premier clic sur « 🪧 Panneaux »,
-  // puis seule la region de la commune est decompressee (~1 a 4 Mo de texte).
+  // ⚠️ 2.58.00 (13/11/2026, decision de l'auteur) : le releve des panneaux d'entree
+  // d'agglomeration EB10/EB20 est RETIRE. Le jeu « Donnees de signalisation
+  // routiere determinant la Vitesse Maximale Autorisee » (Ministere de
+  // l'Interieur, data.gouv.fr) n'est pas une source accreditee par Waze, et sa
+  // plus-value ne justifiait pas de le garder hors des regles. Partis avec lui :
+  // le lecteur ZIP, le calque, le pre-trace, les secteurs d'entrees et leur
+  // guidage. Le trace a la main reste le seul chemin.
   // ---------------------------------------------------------------------------
-
-  const JEU_PANNEAUX_FR = {
-    id: '6666a0fa46b0f0997ebcea3d',
-    api: 'https://www.data.gouv.fr/api/1/datasets/6666a0fa46b0f0997ebcea3d/',
-    page: 'https://www.data.gouv.fr/datasets/6666a0fa46b0f0997ebcea3d/',
-    titre: 'Données de signalisation routière déterminant la Vitesse Maximale Autorisée',
-    producteur: 'Ministère de l\'Intérieur'
-  };
-
-  /** Departement → code de region tel qu'il figure dans le NOM des fichiers du jeu.
-   *  ⚠️ Ile-de-France (75, 77, 78, 91-95), Corse (2A, 2B) et outre-mer sont absents
-   *  du jeu : `regionPanneaux` rend alors `null`, et le releve le DIT. */
-  const REGION_PANNEAUX = (() => {
-    const t = {
-      ARA: '01 03 07 15 26 38 42 43 63 69 73 74', BFC: '21 25 39 58 70 71 89 90',
-      BZH: '22 29 35 56', CVL: '18 28 36 37 41 45',
-      GE: '08 10 51 52 54 55 57 67 68 88', HDF: '02 59 60 62 80',
-      NAQ: '16 17 19 23 24 33 40 47 64 79 86 87', NMD: '14 27 50 61 76',
-      OCC: '09 11 12 30 31 32 34 46 48 65 66 81 82', PAC: '04 05 06 13 83 84',
-      PDL: '44 49 53 72 85'
-    };
-    const m = new Map();
-    Object.entries(t).forEach(([r, l]) => l.split(' ').forEach(d => m.set(d, r)));
-    return m;
-  })();
-  const regionPanneaux = codeCommune =>
-    REGION_PANNEAUX.get(String(codeCommune || '').slice(0, 2).toUpperCase()) || null;
-
-  /** Licences admises pour ce jeu (codes data.gouv.fr : Licence Ouverte 2.0, 1.0).
-   *  Une autre licence SUSPEND le releve : on n'affiche pas a l'aveugle une donnee
-   *  dont les conditions ont change. */
-  const LICENCES_PANNEAUX = new Set(['lov2', 'fr-lo']);
-
-  /** Telechargement BINAIRE (le ZIP). Meme garde-fous que `telecharger` :
-   *  sans cookie, interruptible par « Annuler ». */
-  function telechargerBinaire(url, prog) {
-    const gm = (typeof GM_xmlhttpRequest !== 'undefined') ? GM_xmlhttpRequest
-             : (typeof GM !== 'undefined' && GM.xmlHttpRequest) ? GM.xmlHttpRequest : null;
-    if (!gm) return Promise.reject(new Error('appel direct bloqué par WME ; ' +
-      'installe le script dans Tampermonkey pour utiliser cette source'));
-    return new Promise((resolve, reject) => {
-      const req = gm({ method: 'GET', url, timeout: 180000, anonymous: true, responseType: 'arraybuffer',
-        onload: r => (r.status >= 200 && r.status < 300 && r.response)
-          ? resolve(r.response) : reject(new Error('HTTP ' + r.status)),
-        onerror: () => reject(new Error('appel refusé')),
-        ontimeout: () => reject(new Error('délai dépassé')),
-        onabort: () => reject(new Error('appel interrompu')) });
-      if (prog && req && typeof req.abort === 'function') {
-        prog.surAnnulation(() => {
-          try { req.abort(); } catch (e) { /* */ }
-          reject(new AnnulationDemandee());
-        });
-      }
-    });
-  }
-
-  /**
-   * Lecteur ZIP minimal, SANS dependance : repertoire central, puis
-   * decompression `deflate-raw` par le `DecompressionStream` du navigateur.
-   * ⚠️ On n'accepte que les methodes 0 (stocke) et 8 (deflate) — celles du jeu
-   *    mesure le 12/11. Toute autre methode est une ERREUR, jamais un vide.
-   */
-  function repertoireZip(buf) {
-    const dv = new DataView(buf);
-    let e = -1;
-    for (let i = buf.byteLength - 22; i >= Math.max(0, buf.byteLength - 65557); i--) {
-      if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
-    }
-    if (e < 0) throw new Error('archive ZIP illisible');
-    const n = dv.getUint16(e + 10, true);
-    let p = dv.getUint32(e + 16, true);
-    const td = new TextDecoder();
-    const out = [];
-    for (let k = 0; k < n; k++) {
-      if (dv.getUint32(p, true) !== 0x02014b50) throw new Error('archive ZIP illisible');
-      const lnom = dv.getUint16(p + 28, true);
-      out.push({ nom: td.decode(new Uint8Array(buf, p + 46, lnom)),
-                 methode: dv.getUint16(p + 10, true), taille: dv.getUint32(p + 20, true),
-                 position: dv.getUint32(p + 42, true) });
-      p += 46 + lnom + dv.getUint16(p + 30, true) + dv.getUint16(p + 32, true);
-    }
-    return out;
-  }
-
-  async function extraireZip(buf, ent) {
-    const dv = new DataView(buf), o = ent.position;
-    if (dv.getUint32(o, true) !== 0x04034b50) throw new Error('archive ZIP illisible');
-    const debut = o + 30 + dv.getUint16(o + 26, true) + dv.getUint16(o + 28, true);
-    const brut = new Uint8Array(buf, debut, ent.taille);
-    if (ent.methode === 0) return new TextDecoder().decode(brut);
-    if (ent.methode !== 8) throw new Error('compression ZIP non prise en charge (' + ent.methode + ')');
-    if (typeof DecompressionStream === 'undefined') {
-      throw new Error('navigateur trop ancien pour décompresser le jeu (DecompressionStream absent)');
-    }
-    const flux = new Blob([brut]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
-    return new Response(flux).text();
-  }
-
-  /**
-   * Choisit la ressource la plus RECENTE du jeu (le nom porte le mois :
-   * `signalisation-vma-MMAAAA.zip`), verifie la licence, telecharge le ZIP.
-   * Rend `{ millesime: 'MM/AAAA', licence, url, entrees, buf }`, une fois par
-   * session ; un echec ou une annulation n'est PAS mis en cache.
-   */
-  let jeuPanneauxFr = null;
-  function chargerJeuPanneauxFr(prog) {
-    if (jeuPanneauxFr) return jeuPanneauxFr;
-    jeuPanneauxFr = (async () => {
-      if (prog) prog.info('Lecture de la fiche du jeu (data.gouv.fr)');
-      let fiche;
-      try { fiche = JSON.parse(await telecharger(JEU_PANNEAUX_FR.api, prog)); }
-      catch (e) {
-        if (e instanceof AnnulationDemandee) throw e;
-        throw new Error('data.gouv.fr : ' + e.message);
-      }
-      const licence = fiche && fiche.license;
-      if (!LICENCES_PANNEAUX.has(licence)) throw new Error('data.gouv.fr : licence du jeu changée (' +
-        String(fiche && fiche.license) + '), relevé suspendu');
-      const candidats = (Array.isArray(fiche.resources) ? fiche.resources : []).map(r => {
-        const m = /signalisation-vma-(\d{2})(\d{4})\.zip$/i.exec(String(r.url || ''));
-        return m ? { url: r.url, mois: m[1], an: m[2], cle: m[2] + m[1] } : null;
-      }).filter(Boolean).sort((a, b) => b.cle.localeCompare(a.cle));
-      if (!candidats.length) throw new Error('data.gouv.fr : aucune archive de panneaux dans le jeu');
-      const choix = candidats[0];
-      if (prog) prog.info('Téléchargement du jeu officiel (~4 Mo)');
-      let buf;
-      try { buf = await telechargerBinaire(choix.url, prog); }
-      catch (e) {
-        if (e instanceof AnnulationDemandee) throw e;
-        throw new Error('data.gouv.fr : ' + e.message);
-      }
-      return { millesime: choix.mois + '/' + choix.an, licence, url: choix.url,
-               entrees: repertoireZip(buf), buf, regions: new Map() };
-    })();
-    jeuPanneauxFr.catch(() => { jeuPanneauxFr = null; });
-    return jeuPanneauxFr;
-  }
-
-  /** Les EB10/EB20 d'une region, decompresses et lus une fois par session. */
-  async function panneauxDeLaRegion(jeu, region, prog) {
-    if (jeu.regions.has(region)) return jeu.regions.get(region);
-    const ent = jeu.entrees.find(x => new RegExp('^sign_extract_' + region + '_', 'i').test(x.nom));
-    if (!ent) return null;
-    if (prog) prog.info('Lecture des panneaux de la région ' + region);
-    const texte = await extraireZip(jeu.buf, ent);
-    const lignes = texte.split(/\r?\n/);
-    // ⚠️ Format CHANGE = ERREUR, jamais « aucun panneau » (meme regle que
-    //    l'audit du 25/09/2026 sur l'ancienne source).
-    if (lignes[0].trim() !== 'code,coords') throw new Error('data.gouv.fr : format du fichier changé');
-    const LIGNE = /^"(.*)","(-?\d+(?:\.\d+)?), (-?\d+(?:\.\d+)?)"$/;
-    const PAIRE = /"(EB10|EB20)"=>(NULL|"([^"]*)")/g;
-    const liste = [];
-    let lues = 0;
-    for (let i = 1; i < lignes.length; i++) {
-      const m = LIGNE.exec(lignes[i]);
-      if (!m) continue;
-      lues++;
-      const code = m[1].replace(/""/g, '"');
-      if (code.indexOf('"EB') < 0) continue;
-      const latitude = parseFloat(m[2]), longitude = parseFloat(m[3]);
-      let p;
-      PAIRE.lastIndex = 0;
-      while ((p = PAIRE.exec(code))) {
-        liste.push({ latitude, longitude, panneau_code: p[1], panneau_value: p[3] == null ? null : p[3] });
-      }
-    }
-    if (lignes.length > 2 && !lues) throw new Error('data.gouv.fr : format du fichier changé');
-    jeu.regions.set(region, liste);
-    return liste;
-  }
-
-  /** Clef de dedoublonnage : le jeu porte parfois deux fois le meme panneau.
-   *  Le 1e-5 degre (~1 m) evite de fusionner deux panneaux voisins. */
-  const clePanneau = p => [p.latitude.toFixed(5), p.longitude.toFixed(5),
-                           p.panneau_code, p.panneau_value].join('|');
-
-  /**
-   * Les panneaux d'agglomeration dans l'emprise d'une commune.
-   * Rend `{ panneaux, cellules, tronque, horsCouverture, millesime }` —
-   * `cellules` et `tronque` restent pour les appelants (sondage), mais le jeu
-   * officiel n'a plus de plafond : un releve est complet ou c'est une erreur.
-   */
-  async function chargerPanneauxAgglo(commune, prog) {
-    if (!REF.sourcePanneaux) throw new Error('aucune source de panneaux dans ce pays');
-    const region = regionPanneaux(commune && commune.code);
-    if (!region) return { panneaux: [], cellules: 0, tronque: false, horsCouverture: true };
-    const jeu = await chargerJeuPanneauxFr(prog);
-    if (prog) prog.verifier();
-    let liste;
-    try { liste = await panneauxDeLaRegion(jeu, region, prog); }
-    catch (e) {
-      // Toute panne de lecture porte le nom de la source, comme celles du reseau.
-      if (e instanceof AnnulationDemandee || /^data\.gouv\.fr : /.test(e.message)) throw e;
-      throw new Error('data.gouv.fr : ' + e.message);
-    }
-    if (!liste) return { panneaux: [], cellules: 0, tronque: false, horsCouverture: true, millesime: jeu.millesime };
-    const b = commune.bbox, vus = new Map();
-    for (const p of liste) {
-      if (p.longitude < b[0] || p.longitude > b[2] || p.latitude < b[1] || p.latitude > b[3]) continue;
-      vus.set(clePanneau(p), p);
-    }
-    return { panneaux: [...vus.values()], cellules: 1, tronque: false, horsCouverture: false,
-             millesime: jeu.millesime, licence: jeu.licence };
-  }
 
   // Les 110 provinces italiennes, pour le meme selecteur.
   //
@@ -3404,22 +3166,9 @@
       // de se griser, et rien ne disait pourquoi (auteur, 27/07). On RAMENE donc
       // l'editeur a l'etape 1, et le guidage nomme la commune perdue.
       ui.communePerdue = communeActive.nom;
-      communeActive = null; oublierPanneaux(); redrawCommune();
+      communeActive = null; redrawCommune();
       replierSection('commune', true);      // l'etape a refaire s'ouvre
       replierSection('agglo', false);       // celle qui n'a plus d'objet se ferme
-    }
-    // ⚠️ Sondage des panneaux dès qu'une commune est en cours : c'est lui qui
-    // décide si « 🪧 Panneaux » et « ✏️ Proposer un tracé » ont un sens. Il ne
-    // part qu'UNE FOIS par commune (cache), et son retour rafraîchit les boutons.
-    // ⚠️⚠️ 2.52.00 (audit doctrine, axe 5) : il ne part plus TOUT SEUL sur le réseau. Choisir une
-    // commune envoyait jusqu'à 12 requêtes à la source des panneaux sans geste de l'éditeur ; le
-    // relevé ne part désormais qu'au clic sur « 🪧 Panneaux ». Seul reste ici le cas SANS réseau :
-    // un pays sans source de panneaux (Italie), que `sonderPanneaux` tranche sans rien appeler.
-    if (communeActive && !REF.sourcePanneaux && !sondages.has(communeActive.code)) {
-      const cible = communeActive.code;
-      sonderPanneaux(communeActive).then(() => {
-        if (communeActive && communeActive.code === cible) renderAgglos();
-      });
     }
     ui.nbCommunes.textContent = !communes.length ? ''
       : (f ? vus.length + ' sur ' + liste.length + ' commune(s) dans la vue'
@@ -3497,8 +3246,8 @@
           couleur: ctx => (ctx.feature.properties || {}).couleur || '#00e5ff',
           // ⚠️ `contour` distinct de `couleur` : c'est ce qui permet le HALO
           // BLANC. Sans lui, l'anneau orchidee du RPP se noyait dans le fond
-          // satellite (remarque de l'auteur, 23/07). Meme recette que les
-          // panneaux, seuls points bien lisibles jusque-la.
+          // satellite (remarque de l'auteur, 23/07). Meme recette que l'ancien
+          // calque des panneaux EB10/EB20 (retire en 2.58.00).
           contour: ctx => (ctx.feature.properties || {}).contour ||
                            (ctx.feature.properties || {}).couleur || '#00e5ff',
           rayon: ctx => (ctx.feature.properties || {}).rayon || 7,
@@ -3517,23 +3266,6 @@
           strokeColor: '${contour}', strokeWidth: '${trait}', strokeOpacity: 0.95,
           label: '${etiquette}', fontColor: '#004d5a', fontSize: '11px', fontWeight: 'bold',
           labelOutlineColor: '#fff', labelOutlineWidth: 3, labelYOffset: 14 }, INERTE) }]
-      });
-      // Panneaux EB10 / EB20. Ils ne sont pas des ecarts mais une DONNEE DE
-      // TERRAIN : calque a part, carre (aucune autre de nos features n'en a),
-      // pour qu'on ne les confonde jamais avec un report a traiter.
-      await sdk.Map.addLayer({
-        layerName: LAYER_PANNEAUX,
-        styleContext: {
-          couleur: ctx => (ctx.feature.properties || {}).couleur || '#ff1744',
-          rayon: ctx => (ctx.feature.properties || {}).rayon || 6,
-          etiquette: ctx => (ctx.feature.properties || {}).label || ''
-        },
-        styleRules: [{ style: Object.assign({
-          graphicName: 'square', pointRadius: '${rayon}',
-          fillColor: '${couleur}', fillOpacity: 0.85,
-          strokeColor: '#ffffff', strokeWidth: 2, strokeOpacity: 0.9,
-          label: '${etiquette}', fontColor: '#b71c1c', fontSize: '10px', fontWeight: 'bold',
-          labelOutlineColor: '#fff', labelOutlineWidth: 3, labelYOffset: -13 }, INERTE) }]
       });
       return true;
     } catch (e) { log('creation des calques impossible', e); return false; }
@@ -3963,18 +3695,6 @@
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // Panneaux : confrontation aux polygones traces
-  //
-  // ⚠️ Le panneau est un FAIT DE TERRAIN, le polygone une intention d'editeur.
-  // Quand les deux divergent, c'est le polygone qu'on suspecte — mais on ne le
-  // corrige jamais tout seul : la donnee data.gouv « peut presenter des ecarts
-  // avec la signalisation reelle », et un panneau peut avoir ete depose.
-  // ---------------------------------------------------------------------------
-
-  let panneaux = [];          // le releve brut de la commune active
-  let bilanPanneaux = null;
-
   /** Distance approximative entre deux points, en metres. */
   const distanceM = (a, b) => Math.hypot(
     (a[0] - b[0]) * 111320 * Math.cos((a[1] + b[1]) * Math.PI / 360),
@@ -3983,10 +3703,9 @@
   /**
    * Distance approximative d'un point a une POLYLIGNE, en metres.
    *
-   * ⚠️ Sert a deux choses qui n'ont rien a voir : l'anneau d'un polygone
-   * d'agglomeration (panneaux) et le TRACE d'une voie (v2.19, « le POI est-il
-   * le long de la rue qu'il declare ? »). Ce sont les memes mathematiques : en
-   * garder deux copies, c'est la faute exacte des giratoires de la v2.11.
+   * Sert au TRACE d'une voie (v2.19, « le POI est-il le long de la rue qu'il
+   * declare ? »). Elle servait aussi a l'anneau d'un polygone d'agglomeration
+   * (confrontation aux panneaux EB10/EB20, retiree en 2.58.00).
    */
   function distanceAuTrace(lon, lat, points) {
     if (!points || !points.length) return Infinity;
@@ -4001,616 +3720,6 @@
     }
     return best;
   }
-  /** Cas particulier : l'anneau d'un polygone est une polyligne fermee. */
-  const distanceAuRing = distanceAuTrace;
-
-  /**
-   * Classe chaque panneau de la commune par rapport aux polygones traces.
-   * ⚠️ On ne juge QUE les EB10/EB20 tombant dans le contour INSEE : ceux des
-   * communes voisines sont ramenes par l'API (l'emprise deborde largement) et
-   * n'ont rien a dire du polygone d'ici.
-   */
-  function classerPanneaux() {
-    if (!communeActive) return null;
-    const zones = agglos[communeActive.code] || [];
-    const dedans = [], dehors = [];
-    for (const p of panneaux) {
-      if (!pointInGeom(p.longitude, p.latitude, communeActive.geom)) continue;
-      let meilleure = null;
-      zones.forEach((z, i) => {
-        const d = distanceAuRing(p.longitude, p.latitude, z.ring);
-        const inclus = pointInRing(p.longitude, p.latitude, z.ring);
-        if (!meilleure || d < meilleure.d) meilleure = { i, d, inclus, label: z.label };
-      });
-      const fiche = { p, zone: meilleure };
-      if (meilleure && meilleure.inclus) dedans.push(fiche); else dehors.push(fiche);
-    }
-    return { dedans, dehors, zones: zones.length };
-  }
-
-  /** Repeint le calque des panneaux d'apres le classement courant. */
-  function redrawPanneaux() {
-    const features = (options.vue.panCarte && panneaux.length) ? featuresPanneaux() : [];
-    return surCalque(LAYER_PANNEAUX, async () => {
-      await ensureLayers();
-      try { await sdk.Map.removeAllFeaturesFromLayer({ layerName: LAYER_PANNEAUX }); } catch (e) { /* */ }
-      try { if (features.length) await sdk.Map.addFeaturesToLayer({ layerName: LAYER_PANNEAUX, features }); }
-      catch (e) { log('affichage des panneaux impossible', e); }
-    });
-  }
-  function featuresPanneaux() {
-    const cl = classerPanneaux();
-    if (!cl) return [];
-    const feat = (f, couleur) => ({
-      id: 'pn-' + f.p.latitude + '-' + f.p.longitude + '-' + f.p.panneau_code,
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [f.p.longitude, f.p.latitude] },
-      properties: {
-        couleur, rayon: 6,
-        // Le nom porte par le panneau est presque toujours vide : on n'affiche
-        // que le code, sinon l'etiquette ment par omission.
-        label: f.p.panneau_code + (f.p.panneau_value ? ' ' + f.p.panneau_value : '')
-      }
-    });
-    // ⚠️ Sans polygone trace, il n'y a RIEN a confronter : tout peindre en
-    // rouge ferait croire a 15 anomalies alors qu'aucune n'a ete constatee
-    // (vu en live sur Narbonne). Dans ce cas les panneaux sont NEUTRES.
-    const features = cl.zones
-      ? [...cl.dedans.map(f => feat(f, options.couleurs.panneauOk || '#00e676')),
-         ...cl.dehors.map(f => feat(f, options.couleurs.panneauHors || '#ff1744'))]
-      : [...cl.dedans, ...cl.dehors].map(f => feat(f, options.couleurs.panneauNeutre || '#546e7a'));
-    return features;
-  }
-
-  // ---------------------------------------------------------------------------
-  // PRE-TRACE d'un polygone a partir des panneaux
-  //
-  // ⚠️⚠️ CE QUE CE POLYGONE EST, ET CE QU'IL N'EST PAS. Les panneaux ne sont
-  // poses que SUR LES ROUTES : ils donnent les « portes » de l'agglomeration,
-  // pas son pourtour. Entre deux routes, la ligne est INVENTEE par le calcul.
-  // Le trace obtenu est donc un BROUILLON a corriger aux poignees — l'auteur
-  // l'a acte le 23/07 (« le polygone sera grossier entre 2 panneaux, c'est a
-  // l'utilisateur de tirer les poignees pour le parfaire »). Il ne doit jamais
-  // etre presente comme un contour valide, et l'interface le dit a chaque fois.
-  // ---------------------------------------------------------------------------
-
-  const R_TERRE = 6378137;
-  /** Repere metrique local : les calculs d'enveloppe et de distance n'ont aucun
-   *  sens en degres (un degre de longitude vaut 0,73 degre de latitude ici). */
-  const versM = (ref) => {
-    const kLon = 111320 * Math.cos(ref.lat * Math.PI / 180), kLat = 110540;
-    return {
-      aller: p => [(p[0] - ref.lon) * kLon, (p[1] - ref.lat) * kLat],
-      retour: p => [ref.lon + p[0] / kLon, ref.lat + p[1] / kLat]
-    };
-  };
-  const dist2 = (a, b) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2;
-
-  /** Enveloppe convexe (parcours monotone d'Andrew), points en metres. */
-  function hullConvexe(pts) {
-    if (pts.length < 3) return pts.slice();
-    const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-    const croix = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
-    const moitie = liste => {
-      const out = [];
-      for (const q of liste) {
-        while (out.length >= 2 && croix(out[out.length - 2], out[out.length - 1], q) <= 0) out.pop();
-        out.push(q);
-      }
-      out.pop();
-      return out;
-    };
-    return moitie(p).concat(moitie(p.slice().reverse()));
-  }
-
-  /**
-   * ⚠️⚠️ LE POLYGONE PASSE PAR LES PANNEAUX, ON N'Y TOUCHE PAS.
-   *
-   * Erreur de conception corrigee en v1.96 sur remarque de l'auteur (« le trace
-   * ne s'aligne pas aux panneaux »). La v1.95 ecartait chaque sommet de 150 m
-   * vers l'exterieur, au motif que le bati deborde ses entrees. **C'est faux et
-   * c'est meme contre-productif** : l'EB10 marque PRECISEMENT ou l'agglomeration
-   * commence sur cet axe. Un polygone pose 150 m plus loin fait passer pour
-   * « en agglo » des segments que le panneau declare hors agglo — soit
-   * exactement le genre d'ecart que ce script est cense trouver.
-   *
-   * Les sommets restent donc EXACTEMENT sur les portes. Seul le MILIEU de
-   * chaque cote est bombe vers l'exterieur : entre deux entrees, l'enveloppe
-   * convexe coupe en ligne droite a travers le bati (visible sur Coursan, au
-   * sud). Ce bombage-la est assume comme une approximation — il ne deplace
-   * aucun point releve, et il se corrige a la poignee.
-   */
-  function bomberCotes(ring, part, plafond) {
-    const cx = ring.reduce((s, p) => s + p[0], 0) / ring.length;
-    const cy = ring.reduce((s, p) => s + p[1], 0) / ring.length;
-    const out = [];
-    for (let i = 0; i < ring.length; i++) {
-      const a = ring[i], b = ring[(i + 1) % ring.length];
-      out.push(a);                                   // le sommet releve, intact
-      const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
-      const dx = mx - cx, dy = my - cy, d = Math.hypot(dx, dy);
-      if (!d) continue;
-      const pousse = Math.min(plafond, Math.hypot(b[0] - a[0], b[1] - a[1]) * part);
-      out.push([mx + dx / d * pousse, my + dy / d * pousse]);
-    }
-    return out;
-  }
-
-  const PORTE_FUSION_M = 60;    // EB10 et EB20 du meme poteau : ~15 m mesures
-  const CLUSTER_SEUIL_M = 2000; // au-dela, deux agglomerations distinctes
-  // Bombage des cotes seulement (les sommets ne bougent pas) : 15 % de la
-  // longueur du cote, jamais plus de 250 m.
-  const BOMBAGE_PART = 0.15, BOMBAGE_MAX_M = 250;
-  /**
-   * Largeur moyenne (aire / longueur) sous laquelle un groupe de portes n'est
-   * PAS une agglomeration mais un alignement de panneaux le long d'une voie.
-   *
-   * ⚠️⚠️ CALE SUR MESURE, PAS CHOISI (27/07, quatre communes) :
-   *   Lattes 29 m ❌ · Coursan 874 m · Laudun-l'Ardoise 1 212 m · Ploemeur 1 922 m.
-   * L'ecart entre le cas fautif et les bons est d'un facteur 30 : a 150 m on ne
-   * refuse que ce qui est manifestement une ligne, sans risquer un vrai hameau
-   * (un hameau de 3 ha fait deja ~170 m de cote).
-   */
-  const LARGEUR_MIN_AGGLO_M = 150;
-  /**
-   * Au-dela de cette part de la commune, un polygone reunit tres probablement
-   * PLUSIEURS agglomerations que le chainage a soudees. On le propose quand meme
-   * — il peut etre juste sur une commune tres urbanisee — mais on AVERTIT.
-   * ⚡ Mesure : Coursan 7,8 % · Laudun 12,8 % · Ploemeur 24,7 % (bourg + hameaux
-   * cotiers chaines en un seul bloc de 5,1 km).
-   */
-  const PART_COMMUNE_SUSPECTE = 0.20;
-  /**
-   * Part de la commune couverte par une proposition, de 0 a 1.
-   * ⚠️ Rend 0 si l'aire de la commune est inconnue : dans le doute, on
-   * n'avertit pas — un faux avertissement userait la confiance dans les vrais.
-   */
-  function partDeLaCommune(prop) {
-    if (!prop || !prop.aire || !communeActive) return 0;
-    const ha = aireGeomHa(communeActive.geom);
-    return ha > 0 ? (prop.aire / 10000) / ha : 0;
-  }
-
-  /** Aire approchee d'une geometrie, en hectares (projection locale). */
-  function aireGeomHa(geom) {
-    if (!geom || !geom.coordinates) return 0;
-    const anneaux = geom.type === 'Polygon' ? [geom.coordinates[0]]
-      : geom.type === 'MultiPolygon' ? geom.coordinates.map(p => p[0]) : [];
-    let total = 0;
-    for (const r of anneaux) {
-      if (!r || r.length < 3) continue;
-      const kx = 111320 * Math.cos(r[0][1] * Math.PI / 180), ky = 110540;
-      let s = 0;
-      for (let i = 0, k = r.length - 1; i < r.length; k = i++) {
-        s += (r[k][0] * kx) * (r[i][1] * ky) - (r[i][0] * kx) * (r[k][1] * ky);
-      }
-      total += Math.abs(s / 2);
-    }
-    return total / 10000;
-  }
-
-  /**
-   * Nom lisible porte par un panneau du groupe, s'il y en a un.
-   *
-   * ⚡ Suggestion de Glenan56 (rang 6, 27/07) : « ton systeme prend les EB10
-   * sans les LIRE ». Il a raison — le panneau porte le nom de l'agglomeration.
-   * ⚠️ Mais la source est avare : mesure du 27/07, **19 panneaux sur 116 en
-   * portent un a Ploemeur, 1 sur 62 a Lattes, 0 sur 53 a Coursan**. On s'en sert
-   * quand il est la, jamais on ne compte dessus.
-   * ⚠️ « AGGLO » est une valeur GENERIQUE, pas un nom de lieu : elle n'apprend
-   * rien et ne doit pas devenir une etiquette.
-   */
-  function nomDuGroupe(groupe) {
-    // Chaine reelle : groupe → portes → points → fiche → panneau brut.
-    for (const porte of (groupe.membres || [])) {
-      for (const pt of (porte.membres || [])) {
-        const v = pt && pt.f && pt.f.p && pt.f.p.panneau_value;
-        const t = v == null ? '' : String(v).trim();
-        if (t && !/^agglo$/i.test(t)) return t;
-      }
-    }
-    return '';
-  }
-
-  /**
-   * Presente les secteurs d'entrees quand aucun contour n'est deductible, avec
-   * un cadrage sur chacun. Le BOURG PRINCIPAL vient en tete.
-   *
-   * ⚠️ « Principal » = le secteur le plus proche de la MAIRIE (donnee INSEE) :
-   * c'est lui qui porte le nom de la commune. A defaut de mairie — contours
-   * charges avant la v2.23 — on retombe sur le nombre d'entrees, qui est un
-   * indice raisonnable mais pas une preuve : on ne l'annonce alors pas comme
-   * « principal ».
-   */
-  /**
-   * Les secteurs, dans l'ordre ou on doit les traiter : le plus proche de la
-   * MAIRIE d'abord (c'est le bourg qui porte le nom de la commune), puis les
-   * autres, du mieux fourni au moins fourni.
-   * ⚠️ Sans mairie — contours charges avant la v2.23 — on trie par nombre
-   * d'entrees, et l'appelant n'annonce alors PAS de « bourg principal » : c'est
-   * un indice, pas une preuve.
-   */
-  function trierSecteurs(groupes) {
-    const mairie = communeActive && communeActive.mairie;
-    const avec = (groupes || []).map((g, i) => ({
-      g, i, nom: nomDuGroupe(g),
-      d: mairie && g.centre ? distanceM([g.centre.lon, g.centre.lat], mairie) : Infinity
-    }));
-    avec.sort((a, b) => (a.d - b.d) || (b.g.portes - a.g.portes));
-    return avec;
-  }
-
-  /** Le secteur est-il deja couvert par un polygone trace ? */
-  function secteurCouvert(g) {
-    if (!g || !g.centre || !communeActive) return false;
-    return (agglos[communeActive.code] || [])
-      .some(z => z.ring && pointInRing(g.centre.lon, g.centre.lat, z.ring));
-  }
-
-  /**
-   * Le secteur a-t-il ete declare HAMEAU sur cette commune ?
-   * ⚠️ Tolerance de 250 m : un nouveau releve peut decaler le centre de quelques
-   * dizaines de metres (un panneau ajoute ou retire). Deux secteurs distincts
-   * sont bien plus eloignes — c'est la distance qui les separe en secteurs.
-   */
-  const TOLERANCE_HAMEAU_M = 250;
-  function secteurHameau(g) {
-    if (!g || !g.centre || !communeActive) return false;
-    return (hameaux[communeActive.code] || []).some(p =>
-      distanceM([p.lon, p.lat], [g.centre.lon, g.centre.lat]) < TOLERANCE_HAMEAU_M);
-  }
-
-  /** Le secteur est-il TRANCHE : entoure d'un polygone, ou declare hameau ? */
-  function secteurTranche(g) {
-    return secteurCouvert(g) || secteurHameau(g);
-  }
-
-  /** Declare (oui) ou retire (non) un secteur hameau, puis sauve. */
-  function declarerHameau(g, oui) {
-    if (!g || !g.centre || !communeActive) return;
-    const code = communeActive.code;
-    const reste = (hameaux[code] || []).filter(p =>
-      distanceM([p.lon, p.lat], [g.centre.lon, g.centre.lat]) >= TOLERANCE_HAMEAU_M);
-    if (oui) reste.push({ lon: g.centre.lon, lat: g.centre.lat });
-    // ⚠️ Liste VIDE conservee (pas supprimee) : la fusion multi-onglets doit
-    // pouvoir distinguer « tout retire » de « jamais vu » (meme piege que
-    // `sansAgglo`, 2.26.04).
-    hameaux[code] = reste;
-    sauverPrefs();
-  }
-
-  function listerSecteurs(groupes) {
-    if (!ui.bilanPanneaux || !groupes || !groupes.length || !communeActive) return;
-    const mairie = communeActive.mairie;
-    const avec = trierSecteurs(groupes);
-    const principal = mairie && isFinite(avec[0].d) ? avec[0] : null;
-    const bloc = el('<div class="agn-secteurs"></div>');
-    bloc.innerHTML = '<div class="agn-secteurs-t">' + avec.length +
-      ' secteur(s) d\'entrées repéré(s) — <b>trace les villages un par un</b> (un hameau reste hors agglomération)' +
-      (principal ? ', en commençant par le bourg' : '') + ' :</div>';
-    avec.forEach((x, rang) => {
-      const b = el('<button class="agn-secteur"></button>');
-      b.innerHTML = '<b>' + (rang + 1) + '.</b> ' +
-        (x.nom ? '<b>' + esc(x.nom) + '</b> · ' : '') +
-        x.g.portes + ' entrée(s)' +
-        (x === principal ? ' <span class="agn-secteur-p">bourg principal</span>' : '');
-      b.title = 'Cadrer la carte sur ce secteur pour le tracer';
-      b.onclick = () => {
-        if (!x.g.centre) return;
-        // Zoom 15 : on voit le bourg entier et ses entrees, de quoi tracer.
-        centrerSurZoneVisible(x.g.centre, 15, 'clic sur un secteur d\'entrées');
-      };
-      bloc.appendChild(b);
-    });
-    ui.bilanPanneaux.appendChild(bloc);
-  }
-
-  /**
-   * Des panneaux bruts aux polygones proposes.
-   * 1. les panneaux d'un meme poteau deviennent UNE porte (EB10 + EB20) ;
-   * 2. les portes proches se regroupent — une commune a souvent plusieurs
-   *    agglomerations (bourg + hameaux), il ne faut surtout pas toutes les
-   *    enfermer dans un seul polygone ;
-   * 3. chaque groupe donne une enveloppe convexe dilatee.
-   */
-  function proposerPolygones(fiches) {
-    if (!fiches.length) return [];
-    const ref = { lon: fiches[0].p.longitude, lat: fiches[0].p.latitude };
-    const proj = versM(ref);
-    const pts = fiches.map(f => ({ m: proj.aller([f.p.longitude, f.p.latitude]), f }));
-
-    // 1. portes
-    const portes = [];
-    for (const pt of pts) {
-      const prox = portes.find(g => dist2(g.m, pt.m) <= PORTE_FUSION_M ** 2);
-      if (prox) { prox.membres.push(pt); }
-      else portes.push({ m: pt.m, membres: [pt] });
-    }
-
-    // 2. clusters, par liaison simple
-    const groupes = [];
-    const restant = portes.slice();
-    while (restant.length) {
-      const g = [restant.shift()];
-      let bouge = true;
-      while (bouge) {
-        bouge = false;
-        for (let i = restant.length - 1; i >= 0; i--) {
-          if (g.some(x => dist2(x.m, restant[i].m) <= CLUSTER_SEUIL_M ** 2)) {
-            g.push(restant.splice(i, 1)[0]); bouge = true;
-          }
-        }
-      }
-      groupes.push(g);
-    }
-
-    // 3. enveloppes — mais SEULEMENT quand les portes forment une vraie surface
-    //
-    // ⚠️⚠️ ON NE TRACE PLUS DE CERCLE INVENTE. Le repli en cercle (v1.95-97)
-    // produisait des « ronds autour des panneaux » denonces par l'auteur sur
-    // Narbonne : ses 15 entrees sont eparpillees sur 14 km (hameaux et
-    // quartiers distincts), et chaque groupe de 1 a 3 portes ALIGNEES le long
-    // d'une route tombait sur le cercle. Or une poignee de portes alignees ne
-    // dit RIEN de l'etendue d'une agglo — juste ou elle commence sur cet axe.
-    // Meme faute que la dilatation de v1.95 : deviner une surface la ou on n'a
-    // qu'un point ou une ligne, c'est fabriquer de la donnee fausse.
-    //
-    // Regle : un groupe ne donne un polygone que si son enveloppe convexe est
-    // une VRAIE surface (>= 3 portes, aire >= 15 % de sa boite englobante).
-    // Les autres groupes sont RENDUS, mais sans `ring` : l'appelant les compte
-    // et invite a les tracer a la main, panneaux affiches en repere.
-    const props = groupes.map((g, i) => {
-      const m = g.map(x => x.m);
-      let ring = null;
-      let mesure = null;
-      if (m.length >= 3) {
-        const h = hullConvexe(m);
-        if (h.length >= 3) {
-          let aire = 0;
-          for (let k = 0, n = h.length; k < n; k++) {
-            const a = h[k], b = h[(k + 1) % n];
-            aire += a[0] * b[1] - b[0] * a[1];
-          }
-          aire = Math.abs(aire) / 2;
-          const lx = Math.max(...h.map(p => p[0])) - Math.min(...h.map(p => p[0]));
-          const ly = Math.max(...h.map(p => p[1])) - Math.min(...h.map(p => p[1]));
-          // Longueur = la plus grande distance entre deux sommets ; la LARGEUR
-          // MOYENNE s'en deduit (aire / longueur). C'est elle qui distingue une
-          // agglomeration d'un alignement de panneaux le long d'une route.
-          let diam = 0;
-          for (let a = 0; a < h.length; a++) for (let b = a + 1; b < h.length; b++) {
-            diam = Math.max(diam, Math.hypot(h[a][0] - h[b][0], h[a][1] - h[b][1]));
-          }
-          const largeur = diam > 0 ? aire / diam : 0;
-          mesure = { aire, longueur: diam, largeur };
-          // ⚠️⚠️ DEUX GARDE-FOUS, PAS UN. Le test d'aire relative (v1.98) laissait
-          // passer les RUBANS : une boite deja etroite donne un bon ratio. Cas
-          // vecu a LATTES (signale par l'auteur, 27/07) — 5 panneaux pour
-          // 3 224 ha, et le « polygone » proposé faisait **1 ha, 29 m de large**,
-          // soit l'alignement des panneaux le long d'une voie rapide.
-          // ⚡ Mesures du 27/07 : Lattes 29 m · Coursan 874 m · Laudun 1 212 m ·
-          // Ploemeur 1 922 m. L'ecart est tel qu'un seuil a 150 m ne refuse que
-          // ce qui est manifestement une ligne.
-          if (aire >= 0.15 * Math.max(1, lx * ly) && largeur >= LARGEUR_MIN_AGGLO_M) {
-            ring = bomberCotes(h, BOMBAGE_PART, BOMBAGE_MAX_M);
-          }
-        }
-      }
-      const info = { idx: i, portes: g.length,
-                     panneaux: g.reduce((s, x) => s + x.membres.length, 0),
-                     // Les portes suivent la proposition : c'est par elles qu'on
-                     // retrouve le NOM porte par un panneau (quand il y en a un).
-                     membres: g,
-                     // Les mesures suivent la proposition : l'editeur doit pouvoir
-                     // juger sur des chiffres, pas sur une forme a l'ecran.
-                     aire: mesure ? mesure.aire : 0,
-                     longueur: mesure ? mesure.longueur : 0,
-                     largeur: mesure ? mesure.largeur : 0,
-                     // Trop plat pour etre une agglomeration : dit a part, parce
-                     // que « pas de surface » et « une ligne » ne se corrigent
-                     // pas de la meme facon.
-                     ruban: !!(mesure && mesure.largeur < LARGEUR_MIN_AGGLO_M) };
-      if (!ring) {
-        // Groupe non tracable : on garde son centre pour pouvoir cadrer dessus,
-        // mais aucun anneau — rien a proposer, rien d'invente.
-        const cx = m.reduce((s, p) => s + p[0], 0) / m.length;
-        const cy = m.reduce((s, p) => s + p[1], 0) / m.length;
-        const c = proj.retour([cx, cy]);
-        return Object.assign(info, { ring: null, centre: { lon: c[0], lat: c[1] } });
-      }
-      const anneau = ring.map(proj.retour);
-      anneau.push(anneau[0].slice());       // un anneau se referme
-      const centre = anneau.reduce((s, p) => [s[0] + p[0], s[1] + p[1]], [0, 0])
-        .map(v => v / anneau.length);
-      return Object.assign(info, { ring: anneau, centre: { lon: centre[0], lat: centre[1] } });
-    });
-    // Les vrais polygones d'abord (le plus de portes en tete), les non-tracables
-    // ensuite : l'appelant les distingue par la presence de `ring`.
-    return props.sort((a, b) => (!!b.ring - !!a.ring) || (b.portes - a.portes));
-  }
-
-  /** Efface le releve courant : appele des que la commune change. */
-  function oublierPanneaux() {
-    panneaux = []; bilanPanneaux = null;
-    // ⚠️⚠️ CE QUI DERIVE DES PANNEAUX DOIT PARTIR AVEC EUX. Sans ca, les
-    // secteurs de la commune PRECEDENTE survivaient au changement de commune :
-    // le guidage reclamait de couvrir des hameaux qui n'existent pas ici, et
-    // l'avertissement d'exhaustivite les nommait.
-    bilanPreTrace = null; secteursCourants = []; releveFait = false;
-    if (ui.btnPreTrace) ui.btnPreTrace.disabled = true;
-    redrawPanneaux(); renderBilanPanneaux();
-  }
-
-  /** Va chercher les panneaux de la commune active, puis les confronte. */
-  // ===========================================================================
-  // SONDAGE DES PANNEAUX — savoir AVANT de cliquer si ca vaut le coup
-  //
-  // Demande de l'auteur (27/07) : « pour la commune choisie, checker la
-  // disponibilite des panneaux. Si pas de panneau […] on grise le bouton, on
-  // explique la raison au survol, et ne reste dispo que Tracer l'agglomeration ».
-  //
-  // ⚠️ Le sondage est VOLONTAIREMENT LEGER : la grille de depart, SANS
-  // subdivision. Le releve complet peut demander une dizaine de requetes (13 sur
-  // Lattes) — hors de question de le lancer a chaque changement de commune.
-  // ⚠️⚠️ Et une cellule PLEINE ne permet pas de conclure « aucun panneau » : la
-  // subdivision existe justement pour ces cas-la. On repond alors « incertain »
-  // et on laisse le bouton actif — un faux « aucun » priverait l'editeur d'un
-  // relevé qui aurait marche.
-  // ===========================================================================
-
-  /** code INSEE → { etat: 'aucun'|'des'|'incertain', nb } */
-  const sondages = new Map();
-
-  /**
-   * Ce que donnerait le pré-tracé avec les panneaux actuellement relevés, sans
-   * rien tracer : { tracables, rubans, isoles }. Recalculé après chaque relevé.
-   */
-  let bilanPreTrace = null;
-
-  /** Secteurs du dernier relevé, triés — sert aussi de point de départ au tracé. */
-  let secteursCourants = [];
-
-  /**
-   * Le relevé de panneaux a-t-il ETE FAIT sur la commune en cours ?
-   *
-   * ⚠️⚠️ A ne pas confondre avec « il y a des panneaux ». Cas vecu a LIRAC
-   * (980 ha, signale par l'auteur) : le releve tourne et ne rend RIEN. En
-   * testant `panneaux.length`, le guidage renvoyait indefiniment vers le bouton
-   * « Panneaux » qu'on venait de cliquer. Un relevé infructueux est un relevé
-   * fait : on passe a la suite.
-   */
-  let releveFait = false;
-
-  function majBilanPreTrace() {
-    if (!panneaux.length) { bilanPreTrace = null; secteursCourants = []; return; }
-    try {
-      // ⚠️ EXACTEMENT les fiches qu'utilisera `preTracerDepuisPanneaux` : les
-      // calculer autrement ici, c'est risquer d'annoncer un tracé possible que
-      // le bouton ne produira pas — ou l'inverse.
-      const cl = classerPanneaux();
-      const fiches = cl ? [...cl.dedans, ...cl.dehors] : [];
-      if (!fiches.length) { bilanPreTrace = { tracables: 0, rubans: 0, isoles: 0 }; return; }
-      const props = proposerPolygones(fiches);
-      bilanPreTrace = {
-        tracables: props.filter(p => p.ring).length,
-        rubans: props.filter(p => p.ruban).length,
-        isoles: props.filter(p => !p.ring && !p.ruban).length
-      };
-      // Gardes pour le tracé manuel : c'est par le bourg qu'on commence.
-      secteursCourants = trierSecteurs(props);
-    } catch (e) { bilanPreTrace = null; secteursCourants = []; }   // dans le doute, on ne ferme rien
-  }
-
-  async function sonderPanneaux(commune) {
-    if (!commune) return null;
-    // ⚠️ Pas de source de panneaux dans ce pays : on ne sonde RIEN et on le dit
-    //    clairement — `aucun` grise le bouton avec sa raison, la ou `incertain`
-    //    laisserait croire a une panne reseau passagere.
-    if (!REF.sourcePanneaux) { sondages.set(commune.code, { etat: 'aucun', nb: 0 });
-                               return sondages.get(commune.code); }
-    if (sondages.has(commune.code)) return sondages.get(commune.code);
-    sondages.set(commune.code, { etat: 'encours', nb: 0 });
-    let res;
-    try {
-      const r = await chargerPanneauxAgglo(commune, null);
-      const dedans = r.panneaux.filter(p => pointInGeom(p.longitude, p.latitude, commune.geom));
-      res = dedans.length ? { etat: 'des', nb: dedans.length }
-        : r.tronque ? { etat: 'incertain', nb: 0 }
-        : { etat: 'aucun', nb: 0 };
-    } catch (e) {
-      // Reseau muet : on ne conclut RIEN. Griser sur une panne reseau ferait
-      // croire a une commune sans panneaux.
-      res = { etat: 'incertain', nb: 0 };
-    }
-    sondages.set(commune.code, res);
-    return res;
-  }
-
-  /** Ce que le sondage sait de la commune en cours (jamais d'appel reseau ici). */
-  const sondageCourant = () =>
-    (communeActive && sondages.get(communeActive.code)) || null;
-
-  async function releverPanneaux() {
-    if (!communeActive) return;
-    const btn = ui.btnPanneaux, bilan = ui.bilanPanneaux;
-    btn.disabled = true;
-    // Total 0 = barre indeterminee : la duree depend du telechargement du jeu
-    // (une fois par session) puis de la region a decompresser.
-    const prog = progression(ui.progPanneaux,
-      { titre: 'Panneaux d\'agglomération', annulable: true }).etape('Interrogation de la source', 0);
-    try {
-      const r = await chargerPanneauxAgglo(communeActive, prog);
-      panneaux = r.panneaux;
-      const cl = classerPanneaux();
-      bilanPanneaux = { ...r, ...cl };
-      // ⚠️ On sait DES MAINTENANT si un tracé est possible : le calcul ne coûte
-      // rien (aucun réseau) et évite de proposer un bouton qui ne donnera rien.
-      // C'est ce qui ferme « Proposer un tracé » avec sa raison, à Lattes par
-      // exemple, plutôt que de laisser l'éditeur cliquer pour rien.
-      majBilanPreTrace();
-      redrawPanneaux();
-      renderBilanPanneaux();
-      // ⚠️⚠️ INDISPENSABLE : c'est `renderAgglos` qui recalcule l'etat ET LES
-      // INFOBULLES des boutons. Sans lui, « ✏️ Proposer un tracé » continuait
-      // d'afficher « relève d'abord les panneaux » alors qu'ils venaient d'etre
-      // releves (signale par l'auteur, 27/07). Un bouton qui ment sur son etat
-      // est pire qu'un bouton muet.
-      renderAgglos();
-    } catch (e) {
-      panneaux = []; bilanPanneaux = null;
-      redrawPanneaux();
-      bilan.innerHTML = (e instanceof AnnulationDemandee)
-        ? 'Relevé interrompu.'
-        : '⚠ ' + esc(e.message) +
-          '<br>Cette source exige Tampermonkey (la page de WME ne peut pas appeler l\'extérieur).';
-    } finally {
-      prog.fin();
-      btn.disabled = !communeActive;
-      // ⚠️ Le relevé a EU LIEU, qu'il ait rendu des panneaux ou non : c'est ce
-      // qui fait avancer le guidage. Sans ca, une commune sans panneau (Lirac)
-      // renvoyait indefiniment vers le bouton qu'on venait de cliquer.
-      releveFait = true;
-      renderAgglos();
-    }
-  }
-
-  function renderBilanPanneaux() {
-    const z = ui.bilanPanneaux;
-    if (!z) return;
-    if (!bilanPanneaux) { z.textContent = ''; return; }
-    const b = bilanPanneaux;
-    const total = b.dedans.length + b.dehors.length;
-    if (!total && b.horsCouverture) {
-      z.innerHTML = '<b>Commune hors du jeu national des panneaux.</b><br>' +
-        'Il ne couvre ni l\'Île-de-France, ni la Corse, ni l\'outre-mer : cela ne dit RIEN ' +
-        'sur son agglomération.';
-      return;
-    }
-    if (!total) {
-      // ⚠️ Ne JAMAIS traduire « aucun panneau » par « aucune agglomeration » :
-      // 86 departements sur 101 sont couverts, et le releve peut etre muet.
-      z.innerHTML = '<b>Aucun panneau EB10 / EB20 relevé dans cette commune.</b><br>' +
-        'Le jeu national ne couvre que 86 départements, et une commune couverte ' +
-        'peut n\'avoir aucun panneau saisi : cela ne dit RIEN sur son agglomération.';
-      return;
-    }
-    const lignes = ['<b>' + total + ' panneau(x) d\'agglomération</b> dans la commune (jeu officiel du ' +
-      b.millesime + ').'];
-    if (!b.zones) {
-      lignes.push('Aucun polygone tracé : rien à confronter pour l\'instant.');
-    } else {
-      // ⚠️ Le decompte « n dedans / n dehors » et les distances au bord ont ete
-      // retires a la demande de l'auteur (23/07) : ils n'apprennent rien
-      // d'actionnable, et ils sont devenus trompeurs depuis que le trace passe
-      // PAR les panneaux — un point pile sur le bord bascule d'un cote ou de
-      // l'autre selon l'arrondi, d'ou des « 0 m » absurdes. Ce qui compte,
-      // c'est de regarder si le trace englobe le bati.
-      lignes.push('Vérifie que le tracé englobe bien les habitations de ' +
-        'l\'agglomération, et ajuste-le aux poignées (✎) si besoin.');
-    }
-    z.innerHTML = lignes.join('<br>');
-  }
-
   /**
    * Les villes que WME connait dans la vue courante. ⚠️ C'est la demande
    * expresse de l'auteur (23/07) : « il faut que WME parcoure la liste, en
@@ -4652,190 +3761,6 @@
     return choix;
   }
 
-  /**
-   * Demande le nom d'un polygone propose. Rend `{label, rattache}` ou null.
-   * ⚠️ Le format « Village (Commune) » coche tout seul « village rattache » :
-   * c'est ce format, et lui seul, qui change la ville appliquee par l'analyse.
-   */
-  function demanderNomAgglo(prop, rang, total) {
-    return new Promise(resolve => {
-      const commune = communeActive.nom;
-      majDatalistVilles();
-      const boite = el(`
-        <div id="agn-modale">
-          <div class="agn-modale-in" role="dialog" aria-modal="true">
-            <div class="agn-modale-t">Polygone ${rang} / ${total} — quel nom ?</div>
-            <div class="agn-modale-c">
-              Ce tracé vient de <b>${prop.portes}</b> entrée(s) d'agglomération
-              (${prop.panneaux} panneau(x))${prop.aire
-                ? ` : <b>${Math.round(prop.aire / 10000)} ha</b>, ${Math.round(prop.longueur)} m
-                    de long sur ${Math.round(prop.largeur)} m de large en moyenne` : ''}.
-              <div class="agn-modale-geo">
-                <div class="agn-d">⚠️ <b>Tracé grossier</b> : les panneaux ne sont
-                  posés que sur les routes. Entre deux entrées, la ligne est
-                  calculée, pas relevée — <b>à corriger aux poignées</b> ensuite.</div>
-                ${partDeLaCommune(prop) >= PART_COMMUNE_SUSPECTE ? `<div class="agn-d agn-alerte">
-                  ⚠️ Ce polygone couvre <b>${Math.round(partDeLaCommune(prop) * 100)} %</b>
-                  de la commune. Il réunit <b>probablement plusieurs agglomérations</b>
-                  que la chaîne des entrées a soudées : vérifie sur la carte, et si c'est
-                  le cas, passe-le pour les tracer séparément.</div>` : ''}
-              </div>
-              L'étiquette sert de repère. Le format
-              <b>Village (Commune)</b> est le seul qui change la ville appliquée.
-            </div>
-            <input type="text" class="agn-sel" id="agn-na-sel" list="agn-villes-wme"
-                   value="${esc(commune)}" autocomplete="off"
-                   placeholder="Choisis une ville, ou saisis un nom">
-            <div class="agn-note" id="agn-na-apercu"></div>
-            <label class="agn-sb-c"><input type="checkbox" id="agn-na-rat" title="Village rattaché : le nom appliqué devient « Village (Commune) » au lieu du seul nom de la commune ${instituts()}">
-              Village rattaché (ville = « Village (Commune) »)</label>
-            <button class="agn-btn primary" id="agn-na-ok">Créer ce polygone</button>
-            <button class="agn-btn" id="agn-na-hameau" title="Un hameau ou un lieu-dit reste hors agglomération, même équipé de panneaux : pas de polygone, et le script ne le réclamera plus">C'est un hameau</button>
-            <button class="agn-btn" id="agn-na-skip">Passer celui-ci</button>
-            <button class="agn-btn" id="agn-na-stop">Tout arrêter</button>
-          </div>
-        </div>`);
-      document.body.appendChild(boite);
-      // Deplacable par son titre : ces boites masquent l'endroit de la carte
-      // dont elles parlent (demande de l'auteur, 26/07).
-      rendreDeplacable(boite.querySelector('.agn-modale-in'),
-                       boite.querySelector('.agn-modale-t'));
-      boite.addEventListener('mousedown', e => e.stopPropagation());
-      isolerClavier(boite, () => boite.querySelector('#agn-na-stop').click());
-      // ⚠️ v2.49.03 : cette boite vit dans le `body`, HORS de la fenetre que
-      // l'observateur surveille — elle restait donc en francais. On la traduit,
-      // et on l'observe : l'apercu « Ville appliquée : … » se reecrit a la frappe.
-      traduireDOM(boite);
-      const obsTrad = observerTraduction(boite);
-      const sel = boite.querySelector('#agn-na-sel'), rat = boite.querySelector('#agn-na-rat');
-      const apercu = boite.querySelector('#agn-na-apercu');
-      /**
-       * ⚠️ « Le script ne me propose pas de choisir la Commune de » (auteur,
-       * 23/07, sur Gruissan-Les Ayguades). Un village rattache s'ecrit
-       * « Village (Commune) », et c'est la COMMUNE INSEE qui va entre
-       * parentheses — l'editeur n'a donc a choisir QUE le village, le reste
-       * se compose tout seul. Il peut taper un nom qui n'existe pas encore
-       * dans WME : la liste propose, elle n'enferme pas.
-       */
-      const composer = () => {
-        const brut = sel.value.trim();
-        if (!rat.checked) return brut;
-        const village = brut.replace(/\s*\(.*\)\s*$/, '').trim();   // « X (Y) » → « X »
-        return village && village !== commune ? village + ' (' + commune + ')' : commune;
-      };
-      const maj = () => {
-        apercu.textContent = rat.checked
-          ? 'Ville appliquée : ' + composer()
-          : 'Ville appliquée : ' + (sel.value.trim() || commune);
-      };
-      // Un nom deja au format « X (Y) » coche la case tout seul.
-      sel.oninput = () => { if (/\s\(.+\)\s*$/.test(sel.value)) rat.checked = true; maj(); };
-      rat.onchange = maj;
-      maj();
-      const finir = v => { if (obsTrad) obsTrad.disconnect(); boite.remove(); resolve(v); };
-      boite.querySelector('#agn-na-ok').onclick =
-        () => finir({ label: composer(), rattache: rat.checked });
-      boite.querySelector('#agn-na-hameau').onclick = () => finir({ hameau: true });
-      boite.querySelector('#agn-na-skip').onclick = () => finir({ passe: true });
-      boite.querySelector('#agn-na-stop').onclick = () => finir(null);
-    });
-  }
-
-  /**
-   * Pre-trace : un polygone A LA FOIS, cadre sur la carte avant d'etre nomme.
-   * ⚠️ Deposer trois polygones anonymes d'un bloc serait ingerable — l'auteur
-   * a demande qu'on ne « s'emmele pas les pinceaux ». On montre donc chaque
-   * proposition la ou elle est, et on la nomme avant de passer a la suivante.
-   */
-  async function preTracerDepuisPanneaux() {
-    if (!communeActive) return;
-    const cl = classerPanneaux();
-    const fiches = cl ? [...cl.dedans, ...cl.dehors] : [];
-    if (!fiches.length) {
-      ui.bilanPanneaux.innerHTML = 'Aucun panneau relevé : rien à proposer. ' +
-        'Lance d\'abord « 🪧 Panneaux d\'agglomération ».';
-      return;
-    }
-    const tous = proposerPolygones(fiches);
-    // ⚠️ Seuls les groupes qui forment une VRAIE surface sont proposables. Les
-    // autres (portes isolees ou alignees) ne sont pas traces — on ne devine
-    // pas une etendue qu'on ne connait pas —, mais on les COMPTE pour le dire.
-    const props = tous.filter(p => p.ring);
-    const nonTracables = tous.filter(p => !p.ring);
-    const nManuels = nonTracables.reduce((s, p) => s + p.portes, 0);
-    const rubans = nonTracables.filter(p => p.ruban);
-    // ⚠️⚠️ UNE SEULE PHRASE (auteur, 27/07 : « y'a trop de blabla, on n'a pas
-    // envie de lire pour comprendre ce qu'il se passe »). Le constat tenait
-    // auparavant en TROIS messages qui disaient la meme chose. Ici : le chiffre,
-    // la raison en trois mots, l'action. Le detail est dans l'aide.
-    const raisonCourte = rubans.length
-      ? 'alignés le long d\'une route'
-      : nManuels ? 'trop isolés' : '';
-
-    if (!props.length) {
-      // Rien a proposer : c'est le cas Narbonne. On le dit clairement plutot
-      // que de sortir des ronds arbitraires.
-      const ha = communeActive ? Math.round(aireGeomHa(communeActive.geom)) : 0;
-      ui.bilanPanneaux.innerHTML = '<b>' + fiches.length + ' panneau(x)</b>' +
-        (ha ? ' sur ' + ha + ' ha' : '') +
-        (raisonCourte ? ', ' + raisonCourte : '') +
-        ' : <b>aucun tracé possible</b>. Trace à la main — les panneaux restent affichés.';
-      // ⚠️ Sur une commune a hameaux (La Hague : 19 communes deleguees, 32
-      // panneaux, 6 secteurs, AUCUN tracable), s'arreter la laisse l'editeur
-      // devant une carte muette. On ne DEVINE pas la surface — doctrine v1.98 —
-      // mais on donne l'ORDRE DE MARCHE : voici les secteurs d'entrees, va les
-      // tracer un par un, en commencant par le bourg principal.
-      listerSecteurs(tous);
-      return;
-    }
-
-    const vueAvant = { centre: await sdk.Map.getMapCenter(), zoom: await sdk.Map.getZoomLevel() };
-    let crees = 0;
-    try {
-      for (let i = 0; i < props.length; i++) {
-        const p = props[i];
-        // On MONTRE avant de demander : nommer un polygone qu'on ne voit pas
-        // n'a aucun sens.
-        try { await centrer({ lonLat: p.centre, zoomLevel: 14 }); } catch (e) { /* */ }
-        agglos[communeActive.code] = agglos[communeActive.code] || [];
-        const apercu = { id: 'apercu', label: '(proposition)', rattache: false, ring: p.ring };
-        agglos[communeActive.code].push(apercu);
-        redrawAgglos();
-        const rep = await demanderNomAgglo(p, i + 1, props.length);
-        // L'apercu ne survit jamais a la reponse : il n'est pas une donnee.
-        const liste = agglos[communeActive.code];
-        liste.splice(liste.indexOf(apercu), 1);
-        if (rep === null) break;
-        if (rep.passe) { redrawAgglos(); continue; }
-        // Hameau : pas de polygone, et le secteur ne sera plus reclame.
-        if (rep.hameau) { declarerHameau(p, true); redrawAgglos(); continue; }
-        // ⚠️ `aAffiner` : ce tracé vient des panneaux, il est GROSSIER par
-        // construction. Le drapeau sert au guidage (il pointe vers ✎) et tombe
-        // dès la première édition — on ne réclame pas deux fois la même chose.
-        liste.push({ id: 'a' + Date.now() + '-' + i, label: rep.label,
-                     rattache: rep.rattache, ring: p.ring, aAffiner: true });
-        crees++;
-        saveAgglos(); redrawAgglos(); renderAgglos();
-      }
-    } finally {
-      redrawAgglos(); renderAgglos();
-      try { await centrer({ lonLat: vueAvant.centre, zoomLevel: vueAvant.zoom }); } catch (e) { /* */ }
-      // Meme regle qu'au-dessus : une phrase. Ce qui reste a faire d'abord,
-      // le reliquat ensuite, et rien de plus.
-      const reste = nManuels
-        ? ' · <b>' + nManuels + '</b> entrée(s) non tracée(s) (' +
-          (raisonCourte || 'trop isolées') + ')'
-        : '';
-      ui.bilanPanneaux.innerHTML = crees
-        ? '<b>' + crees + ' polygone(s) créé(s)</b> — <b>ajuste-les aux poignées (✎)</b>, ' +
-          'les panneaux ne marquent que les routes' + reste + '.'
-        : '<b>Aucun polygone créé</b>' + reste + '.';
-      // Les secteurs qu'aucun tracé ne couvre restent a faire a la main : on
-      // les liste avec leur cadrage, plutot que de les reduire a un compteur.
-      if (nonTracables.length) listerSecteurs(nonTracables);
-    }
-  }
-
   // ---------------------------------------------------------------------------
   // Tracer une agglomeration
   // ---------------------------------------------------------------------------
@@ -4871,26 +3796,20 @@
    * l'auteur sur LA HAGUE (19 communes deleguees, 14 963 ha) : « la vue ne zoome
    * sur rien, je ne vois ni le bourg ni la mairie, je suis perdu ».
    *
-   * Trois repli successifs, du plus precis au plus grossier :
-   *   1. le premier secteur d'entrees PAS ENCORE couvert par un polygone —
-   *      c'est le bourg principal tant qu'il n'est pas trace ;
-   *   2. la MAIRIE (donnee INSEE) : par definition le bourg qui porte le nom ;
-   *   3. le centre du contour, faute de mieux.
+   * Deux repli successifs, du plus precis au plus grossier :
+   *   1. la MAIRIE (donnee INSEE) : par definition le bourg qui porte le nom ;
+   *   2. le centre du contour, faute de mieux.
+   * (Jusqu'a la 2.57, le premier secteur d'entrees non couvert passait avant la
+   * mairie ; les secteurs venaient du releve des panneaux, retire en 2.58.00.)
    */
   function departDuTrace() {
     if (!communeActive) return null;
-    const libre = secteursCourants.find(x => x.g && x.g.centre && !secteurTranche(x.g));
-    if (libre) {
-      return { centre: libre.g.centre, zoom: 15,
-               quoi: libre.nom || (isFinite(libre.d) ? 'le bourg' : 'un secteur d\'entrées'),
-               entrees: libre.g.portes };
-    }
     if (communeActive.mairie) {
       return { centre: { lon: communeActive.mairie[0], lat: communeActive.mairie[1] },
                zoom: 15, quoi: 'le bourg (mairie)' };
     }
     const em = empriseDeGeom(communeActive.geom);
-    // ⚠️ `large` MARQUE L'AVEU D'IGNORANCE : ni secteur libre ni mairie, on ne
+    // ⚠️ `large` MARQUE L'AVEU D'IGNORANCE : pas de mairie connue, on ne
     // sait pas ou l'editeur va tracer, alors on montre la commune ENTIERE. Ce
     // cadrage-la est le plus brutal (il descend souvent sous le zoom 14), et
     // c'est le seul que `departDejaSousLesYeux` a le droit d'annuler d'office.
@@ -4971,7 +3890,6 @@
     // de dire comment le faire.
     bandeauTrace('✏️ <b>Entoure la zone bâtie ' + esc(deLieu(depart ? depart.quoi : communeActive.nom)) + '</b>' +
       ' <span>· celle entre les panneaux d’entrée et de sortie d’agglo — <b>pas</b> la limite de commune</span>' +
-      (depart && depart.entrees ? ' <span>· ' + depart.entrees + ' entrée(s) relevée(s) ici</span>' : '') +
       '<span> · clique les sommets, <b>double-clic pour fermer</b> · Échap pour renoncer</span>');
     if (!etaitReplie) basculerRepli(true);   // ferme aussi le volet (voir basculerRepli)
     else basculerVolet(false);
@@ -5919,8 +4837,6 @@
         '📚 Fonti e dati scambiati',
       '<b>Contours communaux</b>':
         '<b>Confini comunali</b>',
-      '<b>Panneaux EB10 / EB20</b>':
-        '<b>Cartelli EB10 / EB20</b>',
       '<b>Dictionnaire de rédaction</b>':
         '<b>Dizionario di redazione</b>',
       '<b>Ce qui part du navigateur</b>':
@@ -5931,12 +4847,10 @@
         '<b>Versione minima</b>',
       'ADMIN EXPRESS (IGN) et Code officiel géographique (INSEE), servis par <b>geo.api.gouv.fr</b>, <b>Licence Ouverte Etalab 2.0</b>. Millésime : celui que l\'API sert le jour du chargement. ADMIN EXPRESS est une source accréditée par Waze pour l\'affichage.':
         'ADMIN EXPRESS (IGN) e Codice geografico ufficiale (INSEE), forniti da <b>geo.api.gouv.fr</b>, <b>Licence Ouverte Etalab 2.0</b>. Annata: quella che l\'API fornisce il giorno del caricamento. ADMIN EXPRESS è una fonte accreditata da Waze per la visualizzazione.',
-      'Jeu « Données de signalisation routière déterminant la Vitesse Maximale Autorisée » du <b>Ministère de l\'Intérieur</b>, <b>Licence Ouverte 2.0</b>, lu directement sur <b>data.gouv.fr</b> ; le bilan cite son millésime. Repères d\'information seulement : ce jeu n\'est pas une source accréditée par Waze, et rien n\'est importé sur la carte.':
-        'Insieme « Dati della segnaletica stradale che determina la velocità massima autorizzata » del <b>Ministero dell\'Interno francese</b>, <b>Licence Ouverte 2.0</b>, letto direttamente su <b>data.gouv.fr</b>; il bilancio ne cita l\'annata. Solo riferimenti informativi: questo insieme non è una fonte accreditata da Waze, e nulla viene importato sulla mappa.',
       'Règles de <b>WME Check Road Name</b> (buchet37), lues dans deux feuilles <b>Google Sheets</b> à chaque démarrage, avec l\'accord de son auteur. Licence non déclarée. Le dictionnaire <b>public</b> reste en lecture seule.':
         'Regole di <b>WME Check Road Name</b> (buchet37), lette in due fogli <b>Google Sheets</b> a ogni avvio, con l\'accordo del suo autore. Licenza non dichiarata. Il dizionario <b>pubblico</b> resta in sola lettura.',
-      '<b>geo.api.gouv.fr</b> : un numéro de département, ou cinq points de la vue si « charger le département survolé » est coché. <b>data.gouv.fr</b> : la seule demande du jeu des panneaux (sa fiche, puis l\'archive), sans aucune coordonnée, au premier clic sur 🪧 Panneaux. <b>data.geopf.fr</b> : l\'emprise de la commune analysée, si la comparaison BD TOPO est cochée. Google : la clé des deux feuilles. Jamais de pseudo ni d\'objet de la carte.':
-        '<b>geo.api.gouv.fr</b>: un numero di dipartimento, o cinque punti della vista se « caricare il dipartimento sorvolato » è selezionato. <b>data.gouv.fr</b>: la sola richiesta dell\'insieme dei cartelli (la scheda, poi l\'archivio), senza alcuna coordinata, al primo clic su 🪧 Cartelli. <b>data.geopf.fr</b>: il riquadro del comune analizzato, se il confronto BD TOPO è selezionato. Google: la chiave dei due fogli. Mai un nome utente né un oggetto della mappa.',
+      '<b>geo.api.gouv.fr</b> : un numéro de département, ou cinq points de la vue si « charger le département survolé » est coché. <b>data.geopf.fr</b> : l\'emprise de la commune analysée, si la comparaison BD TOPO est cochée. Google : la clé des deux feuilles. Jamais de pseudo ni d\'objet de la carte.':
+        '<b>geo.api.gouv.fr</b>: un numero di dipartimento, o cinque punti della vista se « caricare il dipartimento sorvolato » è selezionato. <b>data.geopf.fr</b>: il riquadro del comune analizzato, se il confronto BD TOPO è selezionato. Google: la chiave dei due fogli. Mai un nome utente né un oggetto della mappa.',
       'Limites <b>ISTAT</b> mises en forme par <b>openpolis/geojson-italy</b>, <b>CC BY 4.0</b>, version figée au commit <b>ba3347d</b> du 16/08/2026, lue sur raw.githubusercontent.com.':
         'Confini <b>ISTAT</b> messi in forma da <b>openpolis/geojson-italy</b>, <b>CC BY 4.0</b>, versione fissata al commit <b>ba3347d</b> del 16/08/2026, letta su raw.githubusercontent.com.',
       'Le nom du fichier de la province demandée, sur raw.githubusercontent.com. Jamais de pseudo ni d\'objet de la carte.':
@@ -5955,10 +4869,8 @@
         '<b>Carica i confini</b> della tua provincia: pulsante <b>☰</b> poi <b>Confini comunali</b> → <b>Scarica (openpolis / ISTAT)</b>. Una volta per tutte.',
       '<b>Choisis la commune</b> dans la liste. Celles qui sont sous tes yeux remontent en tête (<b>📍 Sous les yeux</b>).':
         '<b>Scegli il comune</b> nell\'elenco. Quelli sotto i tuoi occhi salgono in cima (<b>📍 Sotto gli occhi</b>).',
-      '<b>Délimite l\'agglomération</b> : <b>🪧 Panneaux d\'agglomération</b> puis <b>✏️ Proposer un tracé</b> — le script place les polygones d\'après les panneaux d\'entrée. À défaut, <b>＋ Tracer l\'agglomération</b> à la main.':
-        '<b>Delimita il centro abitato</b>: <b>🪧 Cartelli di centro abitato</b> poi <b>✏️ Proponi un tracciato</b> — lo script posiziona i poligoni in base ai cartelli di ingresso. In mancanza, <b>＋ Traccia il centro abitato</b> a mano.',
-      '<b>Délimite la zone bâtie</b> avec <b>＋ Tracer l\'agglomération</b>. ⚠️ <b>À la main : il n\'existe pas de relevé officiel des panneaux d\'entrée dans ce pays</b>, le bouton de tracé automatique n\'est donc pas proposé. Le tracé à la main est ici le chemin normal, pas un repli.':
-        '<b>Delimita il centro abitato</b> con <b>＋ Traccia il centro abitato</b>. ⚠️ <b>A mano: in questo paese non esiste alcun rilevamento ufficiale dei cartelli di ingresso</b>, quindi il tracciato automatico non viene proposto. Qui il tracciato a mano è la via normale, non un ripiego.',
+      '<b>Délimite la zone bâtie</b> avec <b>＋ Tracer l\'agglomération</b>, à la main : ce qui se trouve entre les panneaux d\'entrée et de sortie, <b>pas</b> la limite de commune.':
+        '<b>Delimita il centro abitato</b> con <b>＋ Traccia il centro abitato</b>, a mano: ciò che si trova tra i cartelli di ingresso e di uscita, <b>non</b> il confine comunale.',
       '<b>Analyser la commune</b>. Rien n\'est enregistré : le script lit, compare, et propose.':
         '<b>Analizza il comune</b>. Nulla viene salvato: lo script legge, confronta e propone.',
       '<b>Traite les écarts</b> onglet par onglet. <b>⚡</b> applique une correction dans WME (sans enregistrer), <b>✓</b> marque une ligne comme traitée. <b>C\'est toi qui relis et qui enregistres.</b>':
@@ -6286,28 +5198,12 @@
         'Dimentica i confini caricati. I tuoi poligoni di centro abitato, invece, sono conservati.',
       'Les contours sont volumineux : ils sont rangés dans le navigateur (IndexedDB) et <b>ne partent jamais</b> dans les exports de partage.':
         'I confini sono voluminosi: vengono riposti nel browser (IndexedDB) e <b>non partono mai</b> nelle esportazioni di condivisione.',
-      'C\'est <b>la</b> donnée que le script ne peut pas deviner : où commence et où finit l\'agglomération, au sens des panneaux d\'entrée. Trois façons de la poser.':
-        'È <b>il</b> dato che lo script non può indovinare: dove comincia e dove finisce il centro abitato, nel senso dei cartelli di ingresso. Tre modi per posarlo.',
-      'C\'est <b>la</b> donnée que le script ne peut pas deviner : où commence et où finit l\'agglomération, au sens des panneaux d\'entrée. <b>Ici, elle se trace à la main.</b> Les panneaux existent sur le terrain, mais <b>aucun relevé officiel ouvert ne les recense dans ce pays</b> : le script ne propose donc ni le relevé, ni le pré-tracé, plutôt qu\'un bouton qui ne rendrait rien. Le tracé à la main est ici le chemin normal, pas un repli.':
-        'È <b>il</b> dato che lo script non può indovinare: dove comincia e dove finisce il centro abitato, nel senso dei cartelli di ingresso. <b>Qui si traccia a mano.</b> I cartelli esistono sul terreno, ma <b>in questo paese non esiste alcun rilevamento ufficiale aperto che li censisca</b>: lo script non propone quindi né il rilevamento, né il tracciato automatico, piuttosto che un pulsante che non renderebbe nulla. Qui il tracciato a mano è la via normale, non un ripiego.',
+      'C\'est <b>la</b> donnée que le script ne peut pas deviner : où commence et où finit l\'agglomération, au sens des panneaux d\'entrée. <b>Elle se trace à la main</b> : le script ne relève pas les panneaux, faute de source accréditée par Waze.':
+        'È <b>il</b> dato che lo script non può indovinare: dove comincia e dove finisce il centro abitato, nel senso dei cartelli di ingresso. <b>Si traccia a mano</b>: lo script non rileva i cartelli, in mancanza di una fonte accreditata da Waze.',
       '🎬 <b><a href="https://drive.google.com/file/d/1f1zLZQvBatKcZv9dQ6dCtRN-VDXAiq6_/view" target="_blank" rel="noopener">Voir en vidéo</a></b> — ce qu\'on trace, pourquoi il peut y en avoir plusieurs, et à quoi sert « village rattaché ». Exemple : Gruissan et ses trois zones bâties.':
         '🎬 <b><a href="https://drive.google.com/file/d/1f1zLZQvBatKcZv9dQ6dCtRN-VDXAiq6_/view" target="_blank" rel="noopener">Guarda il video</a></b> — cosa si traccia, perché possono essercene diversi, e a cosa serve « frazione ». Esempio: Gruissan (Francia) e i suoi tre centri abitati.',
-      '<b>🪧 Panneaux d\'agglomération</b>':
-        '<b>🪧 Cartelli di centro abitato</b>',
-      '<b>À essayer en premier.</b> Relève les panneaux <b>EB10</b> (entrée) et <b>EB20</b> (sortie) de la commune, d\'après le jeu officiel de signalisation. Ils s\'affichent sur la carte.':
-        '<b>Da provare per primo.</b> Rileva i cartelli <b>EB10</b> (ingresso) e <b>EB20</b> (uscita) del comune, secondo il rilevamento ufficiale della segnaletica. Vengono mostrati sulla mappa.',
-      '<b>✏️ Proposer un tracé</b>':
-        '<b>✏️ Proponi un tracciato</b>',
-      'Transforme ces panneaux en polygones — <b>un par agglomération</b> : le bourg, puis chaque village ou ancienne commune. Un <b>hameau</b> reste hors agglomération, même panneauté. Le script te les présente <b>un par un</b> : <b>Créer ce polygone</b>, <b>C\'est un hameau</b>, <b>Passer celui-ci</b>, <b>Tout arrêter</b>.':
-        'Trasforma questi cartelli in poligoni — <b>uno per centro abitato</b>: il capoluogo, poi ogni villaggio o ex comune. Un <b>hameau</b> (borgata) resta fuori dal centro abitato, anche con i cartelli. Lo script te li presenta <b>uno per uno</b>: <b>Crea questo poligono</b>, <b>È un hameau</b>, <b>Salta questo</b>, <b>Ferma tutto</b>.',
-      '<b>C\'est un hameau</b>':
-        '<b>È un hameau</b>',
-      'Un secteur d\'entrées qui n\'est ni un village ni une ancienne commune reste <b>hors agglomération</b>, même panneauté. Le bouton le déclare, dans la fenêtre du pré-tracé comme dans le cadre de fin de zonage : pas de polygone, et le script ne le réclame plus. <b>Annuler</b> le remet à trancher. En cas de doute, un <b>Local Champ</b> ou un <b>Country Manager</b> tranche.':
-        'Un settore di ingressi che non è né un villaggio né un ex comune resta <b>fuori dal centro abitato</b>, anche con i cartelli. Il pulsante lo dichiara, nella finestra del pre-tracciato come nel riquadro di fine zonizzazione: nessun poligono, e lo script non lo richiede più. <b>Annulla</b> lo rimette da decidere. In caso di dubbio decide un <b>Local Champ</b> o un <b>Country Manager</b>.',
       '<b>＋ Tracer l\'agglomération</b>':
         '<b>＋ Traccia il centro abitato</b>',
-      'Tracé à la main, point par point, quand les panneaux manquent ou ne suffisent pas.':
-        'Tracciato a mano, punto per punto, quando i cartelli mancano o non bastano.',
       'Tracé à la main, point par point.':
         'Tracciato a mano, punto per punto.',
       '<b>sans agglomération</b>':
@@ -6320,20 +5216,6 @@
         '<b>Frazione.</b> Quando un centro abitato porta un nome diverso dal comune, spunta <b>frazione</b> e scegli la città <b>nell\'elenco di WME</b>: lo script si aspetterà allora il formato <b>« nomefrazione, nomecomune »</b> su quelle strade — <b>è il formato del paese guardato</b>, e non si scrive uguale ovunque.',
       '⚠️ Une ville que Waze porte sur des segments <b>sans aucun polygone</b> en face déclenche une alerte : il manque presque toujours un polygone, et sans lui le script réclamerait le <b>retrait</b> de cette ville — une correction à l\'envers.':
         '⚠️ Una città che Waze porta su segmenti <b>senza alcun poligono</b> di fronte fa scattare un avviso: quasi sempre manca un poligono, e senza di esso lo script chiederebbe di <b>togliere</b> quella città — una correzione al contrario.',
-      '<b>Quand le pré-tracé ne propose rien — ou pas grand-chose.</b> Le relevé de panneaux est <b>très inégal, et l\'écart se joue au niveau du département</b> : mesuré le 28/08/2026 sur un échantillon d\'une commune sur huit, <b>98 %</b> des communes d\'Ille-et-Vilaine ont au moins un panneau relevé (41 sur 42), contre <b>28 %</b> dans l\'Hérault (12 sur 43) — alors que les deux départements sont desservis par la source. Là où elle est fournie, le pré-tracé est le chemin le plus court ; ailleurs, le tracé à la main reste la norme. Le script annonce le nombre relevé plutôt que de bricoler une forme.':
-        '<b>Quando il tracciato automatico non propone nulla — o quasi.</b> Il rilevamento dei cartelli è <b>molto disomogeneo, e lo scarto si gioca a livello del dipartimento</b>: misurato il 28/08/2026 su un campione di un comune su otto, il <b>98 %</b> dei comuni dell\'Ille-et-Vilaine ha almeno un cartello rilevato (41 su 42), contro il <b>28 %</b> nell\'Hérault (12 su 43) — mentre i due dipartimenti sono entrambi serviti dalla fonte. Dove è fornito, il tracciato automatico è la via più breve; altrove, il tracciato a mano resta la norma. Lo script annuncia il numero rilevato invece di inventare una forma.',
-      '<b>« s\'aligne le long d\'une voie »</b>':
-        '<b>« si allinea lungo una strada »</b>',
-      'Les panneaux forment une ligne, pas une surface (moins de 150 m de large) : c\'est une route. Rien n\'est tracé — sinon le polygone couvrirait la voie et pas le village.':
-        'I cartelli formano una linea, non una superficie: è una strada. Nulla viene tracciato — altrimenti il poligono coprirebbe la strada e non il paese.',
-      '<b>« couvre N % de la commune »</b>':
-        '<b>« copre N % del comune »</b>',
-      'Le polygone proposé est probablement <b>plusieurs agglomérations soudées</b> : les entrées se sont enchaînées de proche en proche. Vérifie, et passe-le pour les tracer séparément. Un hameau pris dans la soudure reste hors agglomération.':
-        'Il poligono proposto è probabilmente <b>più centri abitati saldati insieme</b>: gli ingressi si sono concatenati di vicino in vicino. Verifica, e saltalo per tracciarli separatamente. Un hameau preso nella saldatura resta fuori dal centro abitato.',
-      '<b>« trop isolées »</b>':
-        '<b>« troppo isolati »</b>',
-      'Moins de trois entrées, ou éparpillées : aucune surface déductible. Elles restent affichées en repère pour un tracé à la main.':
-        'Meno di tre ingressi, o sparpagliati: nessuna superficie deducibile. Restano mostrati come riferimento per un tracciato a mano.',
       // ── L'AIDE (09/09) ──────────────────────────────────────────────────
       // ⭐ Traduite PAR BLOC : dans l'aide une phrase est coupee par ses
       //    <b>, et l'italien ne remet pas les morceaux dans cet ordre. La
@@ -6505,8 +5387,6 @@
       //    peut le designer. Ils restent en francais, et c'est visible.
       'Analyse en cours…':
         'Analisi in corso…',
-      'Cadrer la carte sur ce secteur pour le tracer':
-        'Inquadra la mappa su questa zona per tracciarla',
       'Glisser pour déplacer cette fenêtre':
         'Trascina per spostare questa finestra',
       'Relance une analyse pour appliquer.':
@@ -6673,12 +5553,8 @@
         'Delimita il',
       'zone bâtie':
         'centro abitato',
-      '— entre les panneaux d’entrée et de sortie d’agglo, pas la limite de commune. Relève les panneaux, tires-en un tracé, ou dessine à la main.':
-        '— tra i cartelli di ingresso e di uscita, non il confine comunale. Rileva i cartelli, ricavane un tracciato, o disegna a mano.',
-      '🪧 Panneaux d\'agglomération':
-        '🪧 Cartelli di centro abitato',
-      '✏️ Proposer un tracé':
-        '✏️ Proponi un tracciato',
+      '— entre les panneaux d’entrée et de sortie d’agglo, pas la limite de commune. Dessine-la à la main.':
+        '— tra i cartelli di ingresso e di uscita, non il confine comunale. Disegnalo a mano.',
       '＋ Tracer l\'agglomération':
         '＋ Traccia il centro abitato',
       'Terminer et replier':
@@ -6713,8 +5589,6 @@
         'filtra per nome o codice INSEE…',
       'La commune sur laquelle porte l\'analyse. Celle qui est sous le centre de la carte est remontée en tête de liste.':
         'Il comune su cui verte l\'analisi. Quello sotto il centro della mappa è portato in cima all\'elenco.',
-      'Fabrique un polygone par groupe d\'entrées d\'agglomération. Tracé grossier, à ajuster aux poignées.':
-        'Crea un poligono per ogni gruppo di ingressi del centro abitato. Tracciato approssimativo, da regolare con le maniglie.',
       'Entoure à la main, sur la carte, la zone bâtie — celle entre les panneaux d\'entrée et de sortie d\'agglomération, PAS la limite de commune (double-clic pour fermer le tracé)':
         'Delimita a mano, sulla mappa, il centro abitato — quello tra i cartelli di ingresso e di uscita, NON il confine comunale (doppio clic per chiudere il tracciato)',
       'Referme ce volet et rend la place à la fenêtre de travail':
@@ -6789,24 +5663,8 @@
         "Scegli il tuo comune nell'elenco.",
       "Celle qui est sous le centre de la carte est remontée en tête.":
         "Quello sotto il centro della mappa è in cima all'elenco.",
-      "Vérification des panneaux disponibles sur cette commune…":
-        "Verifica dei cartelli disponibili in questo comune…",
-      "Une seconde — la source est très inégale, et c'est elle qui décide par où commencer.":
-        "Un secondo — la fonte è molto disomogenea, ed è lei a decidere da dove cominciare.",
-      "Relève les panneaux d'agglomération.":
-        "Rileva i cartelli di centro abitato.",
-      "Ils marquent les entrées et sorties : c'est le point de départ du tracé.":
-        "Segnano ingressi e uscite: è il punto di partenza del tracciato.",
-      "Tire un tracé de ces panneaux.":
-        "Ricava un tracciato da questi cartelli.",
-      "Un polygone par agglomération — le bourg, puis chaque village ou ancienne commune. Un hameau reste hors agglomération, même avec des panneaux.":
-        "Un poligono per centro abitato — il capoluogo, poi ogni villaggio o ex comune. Un hameau resta fuori dal centro abitato, anche con i cartelli.",
-      "C'est la zone entre les panneaux d'entrée et de sortie d'agglo — pas la limite de commune (celle en tirets bleus). Les panneaux ne suffisent pas ici. Double-clic pour fermer le tracé — ou coche « sans agglomération » si la commune n'en a pas.":
-        "È la zona tra i cartelli di ingresso e di uscita — non il confine comunale (quello a trattini blu). Qui i cartelli non bastano. Doppio clic per chiudere il tracciato — o spunta « senza centro abitato » se il comune non ne ha.",
-      "Il reste des secteurs d'entrées à trancher.":
-        "Restano settori di ingressi da decidere.",
-      "Pour chacun : village ou ancienne commune ⇒ trace-le ; hameau ou lieu-dit ⇒ « C'est un hameau » (il reste hors agglomération, même panneauté).":
-        "Per ciascuno: villaggio o ex comune ⇒ traccialo; hameau o lieu-dit ⇒ « È un hameau » (resta fuori dal centro abitato, anche con i cartelli).",
+      'C\'est la zone entre les panneaux d\'entrée et de sortie d\'agglo — pas la limite de commune (celle en tirets bleus). Double-clic pour fermer le tracé — ou coche « sans agglomération » si la commune n\'en a pas.':
+        'È la zona tra i cartelli di ingresso e di uscita — non il confine comunale (quello a trattini blu). Doppio clic per chiudere il tracciato — o spunta « senza centro abitato » se il comune non ne ha.',
       "Ajuste le tracé proposé (✎).":
         "Regola il tracciato proposto (✎).",
       "Les panneaux ne marquent que les routes : entre deux entrées, la ligne est calculée. Tire les poignées pour la coller au terrain.":
@@ -6827,18 +5685,8 @@
         "⚠ da tracciare",
       "sans agglomération (déclarée)":
         "senza centro abitato (dichiarato)",
-      "Délimite la <b>zone bâtie</b> — entre les panneaux d’entrée et de sortie d’agglo, pas la limite de commune. Relève les panneaux, tires-en un tracé, ou dessine à la main.":
-        "Delimita la <b>zona edificata</b> — tra i cartelli di ingresso e di uscita, non il confine comunale. Rileva i cartelli, ricavane un tracciato, o disegna a mano.",
-      "Récupère les panneaux EB10 / EB20 (entrée et sortie d'agglomération) et les confronte aux polygones tracés.":
-        "Recupera i cartelli EB10 / EB20 (ingresso e uscita del centro abitato) e li confronta con i poligoni tracciati.",
-      "Aucun panneau d'entrée d'agglomération relevé sur cette commune dans le jeu officiel de signalisation. Ce n'est pas un défaut du script : la source est très inégale. Trace l'agglomération à la main.":
-        "Nessun cartello di ingresso rilevato in questo comune nel rilevamento ufficiale della segnaletica. Non è un difetto dello script: la fonte è molto disomogenea. Traccia il centro abitato a mano.",
-      "Vérification de la disponibilité des panneaux…":
-        "Verifica della disponibilità dei cartelli…",
-      "Relève d'abord les panneaux (bouton au-dessus).":
-        "Rileva prima i cartelli (pulsante qui sopra).",
-      "Aucun panneau sur cette commune : rien à proposer.":
-        "Nessun cartello in questo comune: niente da proporre.",
+      'Délimite la <b>zone bâtie</b> — entre les panneaux d’entrée et de sortie d’agglo, pas la limite de commune. Dessine-la à la main.':
+        'Delimita la <b>zona edificata</b> — tra i cartelli di ingresso e di uscita, non il confine comunale. Disegnala a mano.',
       "Choisis une commune.":
         "Scegli un comune.",
       "Termine d'abord l'édition du tracé en cours (💾 pour enregistrer, Échap pour annuler).":
@@ -6992,8 +5840,6 @@
         "mappa",
       "Adresses":
         "Indirizzi",
-      "Panneaux":
-        "Cartelli",
       "Lister les écarts de nommage dans l'onglet Segments":
         "Elenca le anomalie di denominazione nella scheda Segmenti",
       "Surligner les segments en écart sur la carte":
@@ -7006,8 +5852,6 @@
         "Elenca le anomalie di indirizzo dei veri luoghi nella scheda Luoghi",
       "Marquer sur la carte les POI dont l'adresse est en écart":
         "Segna sulla mappa i luoghi il cui indirizzo presenta un'anomalia",
-      "Afficher les panneaux d'entrée et de sortie d'agglomération relevés : vert dans un polygone, rouge dehors, gris si aucun polygone n'est tracé":
-        "Mostra i cartelli di ingresso e di uscita del centro abitato rilevati: verde dentro un poligono, rosso fuori, grigio se nessun poligono è tracciato",
       "Surlignage sur la carte":
         "Evidenziazione sulla mappa",
       "Surligner les écarts sur la carte":
@@ -7193,112 +6037,36 @@
         'Errori ({n}):',
       "Polygone supprimé.":
         "Poligono eliminato.",
-      "Bourg, village, ancienne commune : chaque agglomération de la commune a son propre polygone. La carte se cadre sur le prochain secteur d'entrées à couvrir — sauf si tu l'as déjà sous les yeux.":
-        "Capoluogo, villaggio, ex comune: ogni centro abitato del comune ha il proprio poligono. La mappa si inquadra sul prossimo settore di ingressi da coprire — salvo che tu lo abbia già sotto gli occhi.",
+      'Bourg, village, ancienne commune : chaque agglomération de la commune a son propre polygone. La carte se cadre sur le bourg (mairie) — sauf si tu l\'as déjà sous les yeux.':
+        'Capoluogo, villaggio, ex comune: ogni centro abitato del comune ha il proprio poligono. La mappa si inquadra sul capoluogo (municipio) — salvo che tu lo abbia già sotto gli occhi.',
       "＋ Ajouter une autre agglomération":
         "＋ Aggiungi un altro centro abitato",
-      "Panneaux d'agglomération":
-        "Cartelli di centro abitato",
-      "Interrogation de la source":
-        "Interrogazione della fonte",
       "Onglet en arrière-plan : le navigateur ralentit le travail. Reviens sur cet onglet.":
         "Scheda in secondo piano: il browser rallenta il lavoro. Torna su questa scheda.",
-      "Relevé interrompu.":
-        "Rilevamento interrotto.",
-      "Cette source exige Tampermonkey (la page de WME ne peut pas appeler l'extérieur).":
-        "Questa fonte richiede Tampermonkey (la pagina di WME non può chiamare l'esterno).",
-      "Aucun panneau EB10 / EB20 relevé dans cette commune.":
-        "Nessun cartello EB10 / EB20 rilevato in questo comune.",
-      "Le jeu national ne couvre que 86 départements, et une commune couverte peut n'avoir aucun panneau saisi : cela ne dit RIEN sur son agglomération.":
-        "Il rilevamento nazionale copre solo 86 dipartimenti, e un comune coperto può non avere alcun cartello inserito: questo NON dice nulla sul suo centro abitato.",
-      "Aucun polygone tracé : rien à confronter pour l'instant.":
-        "Nessun poligono tracciato: per ora niente da confrontare.",
-      "Vérifie que le tracé englobe bien les habitations de l'agglomération, et ajuste-le aux poignées (✎) si besoin.":
-        "Verifica che il tracciato includa bene le abitazioni del centro abitato, e regolalo con le maniglie (✎) se serve.",
-      "Aucun panneau relevé : rien à proposer. Lance d'abord « 🪧 Panneaux d'agglomération ».":
-        "Nessun cartello rilevato: niente da proporre. Avvia prima « 🪧 Cartelli di centro abitato ».",
-      "aucun tracé possible":
-        "nessun tracciato possibile",
-      ". Trace à la main — les panneaux restent affichés.":
-        ". Traccia a mano — i cartelli restano visibili.",
-      "ajuste-les aux poignées (✎)":
-        "regolali con le maniglie (✎)",
-      "Aucun polygone créé":
-        "Nessun poligono creato",
-      "trace les villages un par un":
-        "traccia i villaggi uno per uno",
-      "(un hameau reste hors agglomération) :":
-        "(un hameau resta fuori dal centro abitato):",
-      "(un hameau reste hors agglomération), en commençant par le bourg :":
-        "(un hameau resta fuori dal centro abitato), cominciando dal capoluogo:",
       "bourg principal":
         "capoluogo",
-      "ne sont ni couverts par un polygone, ni déclarés hameau. Pour chacun :":
-        "non sono né coperti da un poligono, né dichiarati hameau. Per ciascuno:",
       "village ou ancienne commune":
         "villaggio o ex comune",
-      "⇒ trace-le (une agglomération oubliée passe en hors agglomération) ;":
-        "⇒ traccialo (un centro abitato dimenticato passa fuori dal centro abitato);",
-      "hameau ou lieu-dit":
-        "hameau o lieu-dit",
-      "⇒ il reste hors agglomération, même avec des panneaux.":
-        "⇒ resta fuori dal centro abitato, anche con i cartelli.",
-      "C'est un hameau":
-        "È un hameau",
-      "Pas de polygone pour ce secteur : il reste hors agglomération, et le script ne le réclamera plus. Réversible.":
-        "Nessun poligono per questo settore: resta fuori dal centro abitato, e lo script non lo richiederà più. Reversibile.",
       "En cas de doute, un <b>Local Champ</b> ou un <b>Country Manager</b> tranche.":
         "In caso di dubbio decide un <b>Local Champ</b> o un <b>Country Manager</b>.",
       "— hors agglomération :":
         "— fuori dal centro abitato:",
-      "Ce secteur redevient à trancher : village (polygone) ou hameau.":
-        "Questo settore torna da decidere: villaggio (poligono) o hameau.",
-      "secteur non relevé":
-        "settore non rilevato",
-      "✔ Tous les secteurs d'entrées relevés sont tranchés (polygone ou hameau). Vérifie tout de même les villages sans panneau avant de terminer.":
-        "✔ Tutti i settori di ingressi rilevati sono decisi (poligono o hameau). Verifica comunque i villaggi senza cartelli prima di terminare.",
       "⚠️ Assure-toi d'avoir tracé":
         "⚠️ Assicurati di aver tracciato",
       "toutes":
         "tutti",
       "les agglomérations de la commune (le bourg, les villages et les anciennes communes — pas les hameaux, même panneautés) : une agglomération oubliée passe en hors agglomération, et tous ses écarts seront faux.":
         "i centri abitati del comune (il capoluogo, i villaggi e gli ex comuni — non gli hameau, anche con i cartelli): un centro abitato dimenticato passa fuori dal centro abitato, e tutte le sue difformità saranno false.",
-      "Aucun panneau d'agglomération n'est disponible ici :":
-        "Nessun cartello di centro abitato è disponibile qui:",
-      "le script ne peut pas vérifier à ta place":
-        "lo script non può verificare al posto tuo",
       "Au besoin,":
         "Se serve,",
-      "les recense pour toi.":
-        "li elenca per te.",
       "est déclarée":
         "è dichiarato",
       "sans agglomération":
         "senza centro abitato",
       ": tous ses segments seront jugés hors agglomération. Décoche la case si ce n'est plus vrai.":
         ": tutti i suoi segmenti saranno giudicati fuori dal centro abitato. Togli la spunta se non è più vero.",
-      "Ce tracé vient de":
-        "Questo tracciato viene da",
-      "⚠️ <b>Tracé grossier</b> : les panneaux ne sont posés que sur les routes. Entre deux entrées, la ligne est calculée, pas relevée — <b>à corriger aux poignées</b> ensuite.":
-        "⚠️ <b>Tracciato approssimativo</b>: i cartelli sono posati solo sulle strade. Tra due ingressi la linea è calcolata, non rilevata — <b>da correggere con le maniglie</b> in seguito.",
-      "L'étiquette sert de repère. Le format":
-        "L'etichetta serve da riferimento. Il formato",
-      "est le seul qui change la ville appliquée.":
-        "è l'unico che cambia la città applicata.",
       "Choisis une ville, ou saisis un nom":
         "Scegli una città, o scrivi un nome",
-      "Village rattaché : le nom appliqué devient « Village (Commune) » au lieu du seul nom de la commune INSEE":
-        "Frazione: il nome applicato diventa « Village (Commune) » invece del solo nome del comune INSEE",
-      "Village rattaché (ville = « Village (Commune) »)":
-        "Frazione (città = « Village (Commune) »)",
-      "Créer ce polygone":
-        "Crea questo poligono",
-      "Un hameau ou un lieu-dit reste hors agglomération, même équipé de panneaux : pas de polygone, et le script ne le réclamera plus":
-        "Un hameau o un lieu-dit resta fuori dal centro abitato, anche con i cartelli: nessun poligono, e lo script non lo richiederà più",
-      "Passer celui-ci":
-        "Salta questo",
-      "Tout arrêter":
-        "Ferma tutto",
       "· celle entre les panneaux d’entrée et de sortie d’agglo — <b>pas</b> la limite de commune":
         "· quella tra i cartelli di ingresso e di uscita — <b>non</b> il confine comunale",
       "· clique les sommets, <b>double-clic pour fermer</b> · Échap pour renoncer":
@@ -7495,9 +6263,6 @@
         'data in numeri romani (alt)',
       // --- Relevé intégral du 30/09/2026 (tools/releve-textes.js) : le reste de l'interface ---
       // ── Familles de couleurs (FAMILLES, l. 346-348) ─────────────────────────
-      'Panneau relevé (rien à confronter)': 'Cartello rilevato (niente da confrontare)',
-      'Panneau dans un polygone': 'Cartello dentro un poligono',
-      'Panneau HORS polygone': 'Cartello FUORI dal poligono',
       // ── Barre de progression (l. 1171, 1260) ────────────────────────────────
       'Travail en cours…': 'Lavoro in corso…',
       'interruption en cours…': 'interruzione in corso…',
@@ -7529,11 +6294,6 @@
       // ── Sources de contours (l. 2278 = même texte que REF.sourceContours.aide, l. 8125) ──
       'Numéro de département (01 à 95, 2A, 2B, 971…). ~3 Mo et ~10 s par département.':
         'Numero di dipartimento (da 01 a 95, 2A, 2B, 971…). ~3 MB e ~10 s per dipartimento.',
-      // ── Panneaux (l. 2426-2438) ──────────────────────────────────────────────
-      'aucune source de panneaux dans ce pays': 'nessuna fonte di cartelli in questo paese',
-      'format du fichier changé': 'formato del file cambiato',
-      'aucune archive de panneaux dans le jeu': 'nessun archivio di cartelli nell\'insieme',
-      'archive ZIP illisible': 'archivio ZIP illeggibile',
       '📏 BD TOPO : numéro de route absent de Waze (information)':
         '📏 BD TOPO: numero di strada assente da Waze (informazione)',
       'BD TOPO (IGN) : numéro de route absent de Waze (information)':
@@ -7562,13 +6322,6 @@
         'Confronto BD TOPO',
       '<b>BD TOPO</b> (IGN), tronçons de route lus sur <b>data.geopf.fr</b> (Géoplateforme), <b>Licence Ouverte 2.0</b>. Source accréditée par Waze pour l\'affichage et la comparaison : elle sert à <b>signaler</b>, jamais à corriger.':
         '<b>BD TOPO</b> (IGN), tratti stradali letti su <b>data.geopf.fr</b> (Géoplateforme), <b>Licence Ouverte 2.0</b>. Fonte accreditata da Waze per la visualizzazione e il confronto: serve a <b>segnalare</b>, mai a correggere.',
-      'navigateur trop ancien pour décompresser le jeu (DecompressionStream absent)':
-        'browser troppo vecchio per decomprimere l\'insieme (DecompressionStream assente)',
-      'Lecture de la fiche du jeu (data.gouv.fr)': 'Lettura della scheda dell\'insieme (data.gouv.fr)',
-      'Téléchargement du jeu officiel (~4 Mo)': 'Download dell\'insieme ufficiale (~4 MB)',
-      'Commune hors du jeu national des panneaux.': 'Comune fuori dall\'insieme nazionale dei cartelli.',
-      "Il ne couvre ni l'Île-de-France, ni la Corse, ni l'outre-mer : cela ne dit RIEN sur son agglomération.":
-        "Non copre né l'Île-de-France, né la Corsica, né l'oltremare: questo NON dice nulla sul suo centro abitato.",
       // ── Téléchargement des contours (l. 2685-2706) ──────────────────────────
       'aucun département sélectionné': 'nessun dipartimento selezionato',
       'Téléchargement des contours': 'Scaricamento dei confini',
@@ -7701,17 +6454,12 @@
    *    le code sait produire. `tools/test-zone-trace-it.js` les eprouve tous.
    */
   const LIEUX_IT = {
-    'bourg': 'del capoluogo', 'bourg (mairie)': 'del capoluogo (municipio)',
-    'un secteur d\'entrées': 'di un settore di ingressi'
+    'bourg': 'del capoluogo', 'bourg (mairie)': 'del capoluogo (municipio)'
   };
-  // « du bourg », « d'un secteur d'entrées », « de Ploemeur », « du Havre » →
+  // « du bourg », « de Ploemeur », « du Havre » →
   // italien. `deLieu` a mange l'article (« Le Havre » → « du Havre ») : on le rend.
   const lieuIt = (art, q) => LIEUX_IT[q] ||
     'di ' + (art === 'du ' ? 'Le ' : art === 'des ' ? 'Les ' : '') + q;
-  const RAISONS_IT = {
-    'trop isolés': 'troppo isolati', 'trop isolées': 'troppo isolati',
-    'alignés le long d\'une route': 'allineati lungo una strada'
-  };
 
   // --- Onglet Segments : ce que les reports et le bilan construisent (v2.50.10) ---
   // ⚠️⚠️ Jusqu'a la 2.50.09, un editeur italien lisait TOUT le contenu des reports
@@ -8162,8 +6910,6 @@
         '📏 BD TOPO (IGN): $1 segmento/i abbinato/i su $2, $3 tratto/i letto/i. Numeri di strada: $4 concordante/i, $5 assente/i da Waze.'],
       [/^Zone urbaine IGN et agglomérations tracées : accord sur (\d+) % des segments ; (\d+) urbain\(s\) pour l'IGN hors de tes agglomérations, (\d+) rural\(aux\) dedans\.$/,
         'Zona urbana IGN e centri abitati tracciati: accordo sul $1 % dei segmenti; $2 urbano/i per l\'IGN fuori dai tuoi centri abitati, $3 rurale/i dentro.'],
-      [/^data\.gouv\.fr : ([\s\S]+)$/,
-        (t, m) => 'data.gouv.fr: ' + (TEXTES.it[m] || traduireMotif(m) || m)],
       [/^rien de récupéré(?: — (\S+) \(([\s\S]+)\))?$/,
         (t, c, m) => 'niente recuperato' + (c ? ' — ' + c + ' (' + (TEXTES.it[m] || traduireMotif(m) || m) + ')' : '')],
       // « principal : appel refusé · public : HTTP 503 » — le détail du dictionnaire de rédaction
@@ -8209,9 +6955,6 @@
       [/^<b>Chargement automatique indisponible\.<\/b> ([\s\S]*)<br>Charge les contours à la main \(sélecteur de départements ci-dessus\), ou décoche l'option dans les réglages\.$/,
         (t, m) => '<b>Caricamento automatico non disponibile.</b> ' + (TEXTES.it[m] || traduireMotif(m) || m) +
           '<br>Carica i confini a mano (con il selettore qui sopra), oppure deseleziona l\'opzione nelle impostazioni.'],
-      // --- panneaux : « ⚠ <message> » (l. 4318) ---
-      [/^⚠ (aucune source de panneaux dans ce pays|data\.gouv\.fr : [\s\S]+)$/,
-        (t, m) => '⚠ ' + (TEXTES.it[m] || traduireMotif(m) || m)],
       // --- dictionnaire de rédaction : blocs (l. 2241-2248) ---
       [/^⚠️ Dictionnaire de rédaction <b>non chargé<\/b> — le contrôle est coché mais ne peut rien signaler(?: \(([\s\S]+)\))?\.$/,
         (t, d) => '⚠️ Dizionario di redazione <b>non caricato</b> — il controllo è selezionato ma non può segnalare nulla' +
@@ -8323,39 +7066,6 @@
       [/^(\d+) polygones?$/, (t, n) => n === '1' ? '1 poligono' : n + ' poligoni'],
       [/^(\d+) sommets — ville appliquée :$/, '$1 vertici — città applicata:'],
       [/^‹ville du segment› \((.+)\)$/, '‹città del segmento› ($1)'],
-      [/^Récupère les panneaux EB10 \/ EB20 \(entrée et sortie d'agglomération\) et les confronte aux polygones tracés\. (\d+) panneau\(x\) repéré\(s\) sur cette commune\.$/,
-        'Recupera i cartelli EB10 / EB20 (ingresso e uscita del centro abitato) e li confronta con i poligoni tracciati. $1 cartello/i individuato/i in questo comune.'],
-      [/^Aucun jeu de données de panneaux d'entrée d'agglomération n'existe pour (.+)\. Le tracé se fait à la main — c'est déjà le cas dans une bonne partie de la France\.$/,
-        'Non esiste alcun insieme di dati dei cartelli di ingresso per $1. Il tracciato si fa a mano — è già così in buona parte della Francia.'],
-      [/^Les (\d+) panneaux relevés ne forment aucune surface exploitable : (ils s'alignent le long d'une voie|ils sont trop isolés)\. Trace à la main\.$/,
-        (t, n, r) => 'I ' + n + ' cartelli rilevati non formano alcuna superficie utilizzabile: ' +
-          (/aligne/.test(r) ? 'sono allineati lungo una strada' : 'sono troppo isolati') + '. Traccia a mano.'],
-      // --- releve et bilan ------------------------------------------------------
-      [/^(\d+) zone\(s\) interrogée\(s\), (\d+) panneau\(x\) d'agglo$/, '$1 zona/e interrogata/e, $2 cartello/i di centro abitato'],
-      [/^(\d+) panneau\(x\) d'agglomération$/, '$1 cartello/i di centro abitato'],
-      [/^dans la commune \(jeu officiel du (\d{2}\/\d{4})\)\.$/, 'nel comune (dati ufficiali del $1).'],
-      [/^Lecture des panneaux de la région ([A-Z]+)$/, 'Lettura dei cartelli della regione $1'],
-      [/^(\d+) panneau\(x\)$/, '$1 cartello/i'],
-      [/^(?:sur (\d+) ha)?(?:, (alignés le long d'une route|trop isolés))? :$/,
-        (t, ha, r) => (ha ? 'su ' + ha + ' ha' : '') + (r ? ', ' + RAISONS_IT[r] : '') + ':'],
-      [/^(\d+) polygone\(s\) créé\(s\)$/, '$1 poligono/i creato/i'],
-      [/^, les panneaux ne marquent que les routes( ·|\.)$/, (t, fin) => ', i cartelli segnano solo le strade' + fin],
-      [/^entrée\(s\) non tracée\(s\) \((.+)\)\.$/, (t, r) => 'ingresso/i non tracciato/i (' + (RAISONS_IT[r] || r) + ').'],
-      // --- secteurs et hameaux -----------------------------------------------------
-      [/^(\d+) secteur\(s\) d'entrées repéré\(s\) —$/, '$1 settore/i di ingressi individuato/i —'],
-      [/^(\d+) secteur\(s\) d'entrées$/, '$1 settore/i di ingressi'],
-      [/^(\d+) secteur\(s\) déclaré\(s\) hameau$/, '$1 settore/i dichiarato/i hameau'],
-      [/^([•·]) (\d+) entrée\(s\)$/, '$1 $2 ingresso/i'],
-      [/^(\d+) entrée\(s\)$/, '$1 ingresso/i'],
-      [/^· (\d+) entrée\(s\) relevée\(s\) ici$/, '· $1 ingresso/i rilevato/i qui'],
-      // --- fenetre du pre-trace ------------------------------------------------------
-      [/^Polygone (\d+) \/ (\d+) — quel nom \?$/, 'Poligono $1 / $2 — quale nome?'],
-      [/^entrée\(s\) d'agglomération \((\d+) panneau\(x\)\)( :|\.)$/,
-        (t, n, fin) => 'ingresso/i di centro abitato (' + n + ' cartello/i)' + (fin === '.' ? '.' : ':')],
-      [/^, (\d+) m de long sur (\d+) m de large en moyenne\.$/, ', lungo $1 m e largo in media $2 m.'],
-      [/^⚠️ Ce polygone couvre <b>(\d+) %<\/b> de la commune\. Il réunit <b>probablement plusieurs agglomérations<\/b> que la chaîne des entrées a soudées : vérifie sur la carte, et si c'est le cas, passe-le pour les tracer séparément\.$/,
-        '⚠️ Questo poligono copre il <b>$1 %</b> del comune. Riunisce <b>probabilmente più centri abitati</b> che la catena degli ingressi ha saldato: verifica sulla mappa e, se è così, saltalo per tracciarli separatamente.'],
-      [/^Ville appliquée : (.+)$/, 'Città applicata: $1'],
       // --- guide et bandeau du trace ---------------------------------------------------
       [/^Entoure la zone bâtie (du |des |d'|de )(.+?)( à la main\.)?$/,
         (t, art, q, main) => 'Delimita la zona edificata ' + lieuIt(art, q) + (main ? ' a mano.' : '')],
@@ -8566,8 +7276,9 @@
   /**
    * Traduit UN attribut visible d'un element (infobulle, texte d'attente).
    * ⚠️ Appelee aussi par l'observateur quand le script REECRIT une infobulle :
-   * `renderAgglos` recalcule celles de « Panneaux » et « Proposer un tracé » a
-   * chaque rendu, et elles repassaient en francais (mesure du 23/09/2026).
+   * `renderAgglos` recalculait celles de « Panneaux » et « Proposer un tracé »
+   * (boutons retires en 2.58.00) a chaque rendu, et elles repassaient en
+   * francais (mesure du 23/09/2026) ; d'autres infobulles se reecrivent encore.
    * ⚠️ La marque `__agnTr` retient la derniere valeur ECRITE par nous : la
    * mutation que provoque notre propre `setAttribute` revient ici et s'arrete
    * la, meme si une traduction se trouvait etre aussi une cle.
@@ -9098,13 +7809,6 @@
           + 'les yeux, et télécharge ses contours quand ils manquent.'
       },
 
-      // ⚠️ Les panneaux d'entree d'agglomeration (EB10/EB20) viennent d'un jeu
-      //    du Ministere de l'Interieur FRANCAIS. Un pays sans equivalent laisse
-      //    ce champ a `null` : tout le chemin « relever les panneaux / proposer
-      //    un trace » disparait alors, au lieu de proposer un bouton qui ne
-      //    peut rien rendre.
-      sourcePanneaux: { jeu: JEU_PANNEAUX_FR, libelle: 'panneaux EB10 / EB20' },
-
       // Decoupage administratif de reference et cles admises dans le GeoJSON.
       // Le departement : deux caracteres, trois en outre-mer (971...).
       uniteDuCode: s => /^9[78]/.test(s) ? s.slice(0, 3) : s.slice(0, 2).toUpperCase(),
@@ -9424,12 +8128,6 @@
         unitesSousLaVue: (lon, lat) => PROVINCES_IT.filter(
           p => p.b && lon >= p.b[0] && lon <= p.b[2] && lat >= p.b[1] && lat <= p.b[3])
       },
-
-      // ⏳ AUCUNE source de panneaux italienne connue (question posee a Silvio
-      //    le 08/09, recherche en cours de son cote). Le trace se fait donc a
-      //    la main — ce qui est deja le quotidien de la moitie des departements
-      //    francais. Mieux vaut ne rien proposer qu'un bouton qui echoue.
-      sourcePanneaux: null,
 
       // ⚠️ La province tient dans les TROIS premiers chiffres du code ISTAT,
       //    et s'ecrit sans zero de tete : « 016024 » (Bergamo) => « 16 ».
@@ -14771,16 +13469,6 @@
     font-style:normal;opacity:1;cursor:pointer;color:var(--agn-brun, #a34a00)}
   .agn-sansagglo span{flex:1;min-width:0}
   .agn-sansagglo input{flex:0 0 auto}
-  /* Secteurs d'entrees : la ou aucun contour ne se deduit, on donne au moins
-     l'ordre de marche — un bouton par secteur, qui cadre la carte dessus. */
-  .agn-secteurs{margin-top:8px}
-  .agn-secteurs-t{font-size:11px;color:var(--agn-gris, #546e7a);margin-bottom:4px;font-style:normal}
-  .agn-secteur{display:block;width:100%;text-align:left;margin:3px 0;padding:5px 8px;
-    border:1px solid #cfd8dc;border-radius:4px;background:#fff;cursor:pointer;
-    font-size:11px;font-style:normal;color:var(--agn-texte, #1f2933)}
-  .agn-secteur:hover{background:#e3f2fd;border-color:var(--agn-bleu, #1e88e5)}
-  .agn-secteur-p{background:#1976d2;color:#fff;border-radius:8px;
-    padding:1px 6px;font-size:10px;margin-left:4px}
   /* Rappel pendant le trace : l'interface est repliee, c'est le SEUL repere a
      l'ecran. En haut, centre, au-dessus de la carte et sous les modales. */
   #agn-trace-aide{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:9500;
@@ -14793,12 +13481,6 @@
   .agn-avert-exh{margin-top:8px;padding:7px 9px;border-radius:4px;font-size:11px;line-height:1.45;
     background:#fff3e0;border-left:3px solid var(--agn-orange, #e65100);color:var(--agn-texte, #1f2933)}
   .agn-avert-doux{background:#f1f8e9;border-left-color:var(--agn-vert, #2e7d32)}
-  .agn-hameau-l{margin-top:4px}
-  /* v2.49.04 : .agn-btn est display:block + width:100% ; sans ces deux
-     corrections le bouton s'etalait sous la ligne (vu sur la capture du 23/09). */
-  .agn-hameau-l .agn-btn{display:inline-block;width:auto;vertical-align:middle;
-    padding:1px 8px;font-size:10px;margin:0 0 0 6px}
-  #agn-tracer-encore{margin-top:8px}
   #agn-modale{position:fixed;inset:0;z-index:9700;background:rgba(0,0,0,.35);
     display:flex;align-items:center;justify-content:center;
     font:12px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--agn-texte, #1f2933)}
@@ -15340,18 +14022,12 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
             <div class="agn-sect-t"><span class="agn-chev">▾</span><b>3. Agglomération</b>
               <span class="agn-sect-r"></span></div>
             <div class="agn-sect-c">
-              <!-- ⚠️ ORDRE = PROGRESSION (auteur, 27/07) : on relève les
-                   panneaux, on en tire un tracé, et le tracé manuel ferme la
-                   marche — c'est le recours quand les deux premiers ne donnent
-                   rien. -->
+              <!-- 2.58.00 : « 🪧 Panneaux d'agglomération » et « ✏️ Proposer un tracé »
+                   sont retirés (source non accréditée par Waze) : le tracé à la
+                   main est le seul chemin. -->
               <div class="agn-sb-n" id="agn-voies">Délimite la <b>zone bâtie</b> — entre les panneaux
-                d’entrée et de sortie d’agglo, pas la limite de commune. Relève les panneaux,
-                tires-en un tracé, ou dessine à la main.</div>
-              <button class="agn-btn" id="agn-panneaux" disabled title="Récupère les panneaux EB10 / EB20 (entrée et sortie d'agglomération) et les confronte aux polygones tracés.">🪧 Panneaux d'agglomération</button>
-              <button class="agn-btn" id="agn-pretrace" disabled title="Fabrique un polygone par groupe d'entrées d'agglomération. Tracé grossier, à ajuster aux poignées.">✏️ Proposer un tracé</button>
+                d’entrée et de sortie d’agglo, pas la limite de commune. Dessine-la à la main.</div>
               <button class="agn-btn" id="agn-tracer" disabled title="Entoure à la main, sur la carte, la zone bâtie — celle entre les panneaux d'entrée et de sortie d'agglomération, PAS la limite de commune (double-clic pour fermer le tracé)">＋ Tracer l'agglomération</button>
-              <div id="agn-prog-panneaux"></div>
-              <div id="agn-bilan-panneaux" class="agn-sb-n"></div>
               <div id="agn-agglos"></div>
             </div>
           </div>
@@ -15388,17 +14064,13 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
     if (ui.btnSelHors) ui.btnSelHors.onclick = () => lancerSel(ui.btnSelHors, 'horsVille');
     ui.btnTracer = o.querySelector('#agn-tracer');
     ui.listeAgglos = o.querySelector('#agn-agglos');
-    ui.btnPanneaux = o.querySelector('#agn-panneaux');
-    ui.btnPreTrace = o.querySelector('#agn-pretrace');
-    ui.progPanneaux = o.querySelector('#agn-prog-panneaux');
-    ui.bilanPanneaux = o.querySelector('#agn-bilan-panneaux');
     ui.btnScan = o.querySelector('#agn-scan');
     ui.bandeauPays = o.querySelector('#agn-pays');
     ui.stats = o.querySelector('#agn-stats');
     ui.bandeauFix = o.querySelector('#agn-fix');
     // ⚠️ Audit du 25/09/2026 (accessibilite) : ces zones changent SANS que l'editeur y soit —
     //    bilans, statuts, erreurs. `role=status` les fait annoncer par un lecteur d'ecran.
-    [ui.stats, ui.bandeauFix, ui.statutContours, ui.zoneInfo, ui.bilanPanneaux].forEach(z => {
+    [ui.stats, ui.bandeauFix, ui.statutContours, ui.zoneInfo].forEach(z => {
       if (z) { z.setAttribute('role', 'status'); z.setAttribute('aria-live', 'polite'); }
     });
     ui.results = o.querySelector('#agn-results');
@@ -15446,8 +14118,6 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
     ui.inputFichier.onchange = surFichierContours;
     brancherSources(o);
     ui.btnTracer.onclick = tracerAgglo;
-    ui.btnPanneaux.onclick = releverPanneaux;
-    ui.btnPreTrace.onclick = preTracerDepuisPanneaux;
     // Le scan est asynchrone depuis qu'il lit les numeros de rue (aller-retour
     // serveur) : on verrouille le bouton le temps qu'il tourne, et on affiche
     // l'echec plutot que de laisser une promesse tomber en silence.
@@ -15471,9 +14141,6 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
       // Le rappel « la carte a quitté X » a fait son office : il ne doit pas
       // survivre au choix suivant.
       if (communeActive) delete ui.communePerdue;
-      // ⚠️ Un releve de panneaux appartient a UNE commune : le garder en
-      // changeant de commune afficherait un bilan qui ne parle plus de rien.
-      oublierPanneaux();
       redrawCommune(); redrawAgglos(); renderAgglos();
       if (communeActive) {
         replierSection('commune', false);   // choix fait
@@ -15569,7 +14236,7 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
     // casserait le branchement des contours, de la commune et de l'agglo.
     coucheWna().appendChild(ui.volet);
     // ⚠️⚠️ Audit du 25/09/2026 : sorti de la fenetre, le volet n'etait PLUS observe — tout ce que
-    //    `renderAgglos` y reecrit (liste des agglomerations, panneaux, guidage) repassait en francais.
+    //    `renderAgglos` y reecrit (liste des agglomerations, guidage) repassait en francais.
     observerTraduction(ui.volet);
   }
 
@@ -15695,7 +14362,7 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
   // section doit suivre — sinon l'editeur cherche un bouton qui n'existe plus.
   // ⚠️ Le premier retour utilisateur (Glenan56, rang 6, 27/07) tracait ses
   // polygones a la main sur une commune a hameaux multiples, sans avoir vu le
-  // pre-trace par panneaux : le probleme n'etait pas la fonction, c'etait sa
+  // pre-trace par panneaux (retire en 2.58.00) : le probleme n'etait pas la fonction, c'etait sa
   // DECOUVRABILITE. D'ou l'ordre des sections — ce qu'on cherche en premier
   // vient en premier.
   // ===========================================================================
@@ -15775,8 +14442,7 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
     if (edition) return 'terminer';
     const zones = agglos[communeActive.code] || [];
     const declaree = !!sansAgglo[communeActive.code];
-    // L'analyse a tourne : le parcours est fait, le guidage se tait. Sans ce
-    // garde, la regle « les panneaux d'abord » le ferait repartir en boucle.
+    // L'analyse a tourne : le parcours est fait, le guidage se tait.
     if (lastScan) return null;
     // ⚠️⚠️ AVANT TOUTE AFFIRMATION SUR LE ZONAGE : la carte regarde-t-elle bien
     // la commune dont on s'apprete a parler ? Sinon le guidage decrit fidelement
@@ -15785,42 +14451,15 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
     // navigue d'un ecart a l'autre et sort forcement de la commune — l'y ramener
     // serait du bruit, et la regle n°1 dit que le guidage se tait quand c'est fait.
     if (guidageDecale(communeActive, communeSousLeCentre())) return 'commune-decalee';
-    const s = sondageCourant();
-    const sourceMuette = !!(s && s.etat === 'aucun');
-    // ⚠️ TANT QUE LE SONDAGE N'A PAS REPONDU, ON NE DESIGNE AUCUN BOUTON. Sans ce
-    // garde, le halo se posait sur « Panneaux », puis sautait sur « Tracer » une
-    // seconde plus tard quand la source repondait « aucun » — un guidage qui se
-    // dedit. Et l'editeur assez rapide lancait un releve complet pour rien.
-    if (!zones.length && !releveFait && !declaree && s && s.etat === 'encours') return 'agglo-sondage';
-    // ⚠️⚠️ LES PANNEAUX D'ABORD — MAIS SEULEMENT QUAND RIEN N'EST TRACE (auteur,
-    // 27/07, apres essai de la 2.25.00 sur une commune deja zonee : « on s'en
-    // fout, y'a deja une agglo tracee »). Le releve est le point de depart du
-    // TRACE : sans polygone il ouvre le parcours, avec un polygone il fait
-    // refaire un geste dont l'editeur n'a plus besoin — et le bandeau « c'est le
-    // point de depart du trace » devient faux sous ses yeux.
-    // ⚠️ Le garde-fou d'exhaustivite de la 2.24.01 ne DISPARAIT pas, il change de
-    // place : c'est le panneau de vigilance de fin de zonage
-    // (`avertissementExhaustivite`) qui le porte, halo compris, au moment de
-    // refermer le volet. On avertit la ou l'editeur decide, pas en le renvoyant
-    // en arriere.
-    // ⚠️ Et pas non plus si la source est muette sur cette commune : inutile
-    // d'envoyer vers un bouton qu'on vient de griser.
-    if (!zones.length && !releveFait && !sourceMuette && !declaree) return 'agglo-panneaux';
-    if (!zones.length && !declaree) {
-      // Le parcours de l'agglomeration, dans l'ordre ou il se deroule.
-      // ⚠️ Un relevé infructueux (Lirac : 0 panneau) mene au tracé manuel, pas
-      // au bouton qu'on vient de cliquer.
-      if (sourceMuette || !panneaux.length) return 'agglo-tracer';
-      if (bilanPreTrace && !bilanPreTrace.tracables) return 'agglo-tracer';
-      return 'agglo-proposer';
-    }
-    // Des polygones existent : ceux qui viennent du pre-trace sont GROSSIERS et
-    // demandent un passage aux poignees — on le dit une fois, pas a chaque fois.
+    // ⚠️ 2.58.00 : plus de releve de panneaux ni de pre-trace (source non
+    // accreditee par Waze) — sans polygone ni declaration, le geste suivant est
+    // TOUJOURS le trace a la main. Les etapes « agglo-sondage », « agglo-panneaux »,
+    // « agglo-proposer » et « agglo-encore » (secteurs d'entrees) sont parties avec.
+    if (!zones.length && !declaree) return 'agglo-tracer';
+    // Des polygones existent : ceux qui sortent de l'ancien pre-trace (avant la
+    // 2.58.00) portent encore `aAffiner` tant qu'ils n'ont pas ete repris aux
+    // poignees. Ils restent GROSSIERS : on le dit une fois, pas a chaque fois.
     if (zones.some(z => z.aAffiner)) return 'affiner';
-    // ⚠️ Et surtout : reste-t-il des secteurs d'entrees DECOUVERTS ? Une
-    // agglomeration oubliee passe en hors agglomeration et fausse tous ses
-    // ecarts — c'est la faute la plus couteuse du parcours.
-    if (secteursCourants.some(x => x.g && x.g.centre && !secteurTranche(x.g))) return 'agglo-encore';
     // ⚠️ Le zonage est fait : deux gestes restent, dans cet ordre. Refermer le
     // volet (il masque la fenetre de travail et le bouton d'analyse), puis
     // analyser. Guider directement vers « Analyser » alors que le volet le
@@ -15852,25 +14491,13 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
     commune: { n: 1, cible: '#agn-commune', dansVolet: true,
       texte: 'Choisis ta commune dans la liste.',
       suite: 'Celle qui est sous le centre de la carte est remontée en tête.' },
-    // Pas de cible : on ne montre pas un geste qu'on s'apprete peut-etre a fermer.
-    'agglo-sondage': { n: 2, cible: null,
-      texte: 'Vérification des panneaux disponibles sur cette commune…',
-      suite: 'Une seconde — la source est très inégale, et c\'est elle qui décide ' +
-             'par où commencer.' },
-    'agglo-panneaux': { n: 2, cible: '#agn-panneaux', dansVolet: true,
-      texte: 'Relève les panneaux d\'agglomération.',
-      suite: 'Ils marquent les entrées et sorties : c\'est le point de départ du tracé.' },
-    'agglo-proposer': { n: 2, cible: '#agn-pretrace', dansVolet: true,
-      texte: 'Tire un tracé de ces panneaux.',
-      suite: 'Un polygone par agglomération — le bourg, puis chaque village ou ancienne ' +
-             'commune. Un hameau reste hors agglomération, même avec des panneaux.' },
     // ⚠️ Même piège que le bandeau de tracé : « l'agglomération de ‹commune› » se lit
     // comme « la commune ». On nomme CE QU'ON ENTOURE, et on l'oppose explicitement à
     // la limite communale — laquelle est à l'écran, en tirets bleus.
     'agglo-tracer': { n: 2, cible: '#agn-tracer', dansVolet: true,
       texte: () => 'Entoure la zone bâtie ' + deLieu(nomSuivi()) + ' à la main.',
       suite: 'C\'est la zone entre les panneaux d\'entrée et de sortie d\'agglo — pas la ' +
-             'limite de commune (celle en tirets bleus). Les panneaux ne suffisent pas ici. ' +
+             'limite de commune (celle en tirets bleus). ' +
              'Double-clic pour fermer le tracé — ou coche « sans agglomération » si la ' +
              'commune n\'en a pas.' },
     // ⚠️⚠️ LA CARTE ET LE SCRIPT NE REGARDENT PAS LA MEME COMMUNE. Cas vecu le
@@ -15887,12 +14514,9 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
                '. Choisis-la dans la liste pour travailler dessus — ou recadre sur ' +
                nomSuivi() + ' pour reprendre où tu en étais.';
       } },
-    'agglo-encore': { n: 2, cible: '#agn-tracer-encore', dansVolet: true,
-      texte: 'Il reste des secteurs d\'entrées à trancher.',
-      suite: 'Pour chacun : village ou ancienne commune ⇒ trace-le ; hameau ou lieu-dit ⇒ ' +
-             '« C\'est un hameau » (il reste hors agglomération, même panneauté).' },
     // ⚠️ On vise le crayon DU polygone concerné, pas le premier venu : avec
     // plusieurs agglomérations, le halo se serait posé n'importe où.
+    // Polygones issus de l'ancien pre-trace (avant la 2.58.00) : voir `etapeCourante`.
     affiner: { n: 2, cible: '.agn-a-affiner .agn-edit', dansVolet: true,
       texte: 'Ajuste le tracé proposé (✎).',
       suite: 'Les panneaux ne marquent que les routes : entre deux entrées, la ligne ' +
@@ -15981,11 +14605,10 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
   // le lui servir.
   //
   // 🔴 MESURE DU 09/09 : 110 mentions franco-specifiques dans les 37 Ko d'aide,
-  // dont CINQ sur les panneaux EB10/EB20 — un chemin qui n'existe pas en
-  // Italie, ou `sourcePanneaux` vaut `null` et ou le bouton n'est meme pas
-  // construit. Traduite mot a mot, l'aide aurait explique a un editeur italien
-  // comment se servir d'un bouton absent de son ecran. Ce n'etait donc pas un
-  // travail de traduction.
+  // dont CINQ sur les panneaux EB10/EB20 — un chemin qui n'existait pas en
+  // Italie (et qui a disparu partout en 2.58.00). Traduite mot a mot, l'aide
+  // aurait explique a un editeur italien comment se servir d'un bouton absent
+  // de son ecran. Ce n'etait donc pas un travail de traduction.
   //
   // ⇒ Ce qui depend du pays passe par ces trois helpers, jamais par une phrase
   // ecrite en dur. Ils lisent `REF`, donc ils suivent le territoire REGARDE.
@@ -16006,10 +14629,13 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
   const siControle = (cle, html) =>
     ((REF.controles || []).some(c => c.cle === cle) ? html : '');
 
-  /** Le bloc n'apparait que si le pays regarde a une source de panneaux. */
-  const siPanneaux = html => (REF.sourcePanneaux ? html : '');
-  /** … et son contraire : ce qu'il faut dire quand ce chemin n'existe pas. */
-  const siPasDePanneaux = html => (REF.sourcePanneaux ? '' : html);
+  /**
+   * Le bloc n'apparait que pour le pays regarde (les SOURCES de donnees, qui ne
+   * sont pas les memes en France et en Italie).
+   * ⚠️ 2.58.00 : remplace `siPanneaux` / `siPasDePanneaux`, qui tranchaient le
+   *    pays par la presence d'une source de panneaux — retiree partout.
+   */
+  const siPays = (code, html) => (REF.code === code ? html : '');
   /**
    * Le vocabulaire du decoupage, pris dans le referentiel.
    * ⚠️ `uniteLabel` est deja la (« département » / « provincia ») : c'est celui
@@ -16034,13 +14660,9 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
             <b>Contours communaux</b> → <b>${REF.sourceContours ? REF.sourceContours.libelle : 'Télécharger et charger'}</b>. Une fois pour toutes.</li>
           <li><b>Choisis la commune</b> dans la liste. Celles qui sont sous tes yeux
             remontent en tête (<b>📍 Sous les yeux</b>).</li>
-          ${siPanneaux(`<li><b>Délimite l'agglomération</b> : <b>🪧 Panneaux d'agglomération</b> puis
-            <b>✏️ Proposer un tracé</b> — le script place les polygones d'après les
-            panneaux d'entrée. À défaut, <b>＋ Tracer l'agglomération</b> à la main.</li>`)}
-          ${siPasDePanneaux(`<li><b>Délimite la zone bâtie</b> avec <b>＋ Tracer l'agglomération</b>.
-            ⚠️ <b>À la main : il n'existe pas de relevé officiel des panneaux d'entrée dans ce
-            pays</b>, le bouton de tracé automatique n'est donc pas proposé. Le tracé
-            à la main est ici le chemin normal, pas un repli.</li>`)}
+          <li><b>Délimite la zone bâtie</b> avec <b>＋ Tracer l'agglomération</b>, à la main :
+            ce qui se trouve entre les panneaux d'entrée et de sortie, <b>pas</b> la limite
+            de commune.</li>
           <li><b>Analyser la commune</b>. Rien n'est enregistré : le script lit, compare,
             et propose.</li>
           <li><b>Traite les écarts</b> onglet par onglet. ${siCorrecteur(
@@ -16068,20 +14690,13 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
 
       { id: 'agglo', titre: '✏️ Délimiter l\'agglomération', corps: `
         <p>C'est <b>la</b> donnée que le script ne peut pas deviner : où commence et où finit
-          l'agglomération, au sens des panneaux d'entrée.
-          ${siPanneaux('Trois façons de la poser.')}${siPasDePanneaux(`<b>Ici, elle se trace à la
-          main.</b> Les panneaux existent sur le terrain, mais <b>aucun relevé officiel ouvert
-          ne les recense dans ce pays</b> : le script ne propose donc ni le relevé, ni le
-          pré-tracé, plutôt qu'un bouton qui ne rendrait rien. Le tracé à la main est ici le
-          chemin normal, pas un repli.`)}</p>
+          l'agglomération, au sens des panneaux d'entrée. <b>Elle se trace à la main</b> :
+          le script ne relève pas les panneaux, faute de source accréditée par Waze.</p>
         <p class="agn-aide-video">🎬 <b><a href="https://drive.google.com/file/d/1f1zLZQvBatKcZv9dQ6dCtRN-VDXAiq6_/view" target="_blank" rel="noopener">Voir
           en vidéo</a></b> — ce qu'on trace, pourquoi il peut y en avoir plusieurs, et à quoi sert
           « village rattaché ». Exemple : Gruissan et ses trois zones bâties.</p>
         <table class="agn-aide-t">
-          ${siPanneaux(`<tr><td><b>🪧 Panneaux d'agglomération</b></td><td><b>À essayer en premier.</b> Relève les panneaux <b>EB10</b> (entrée) et <b>EB20</b> (sortie) de la commune, d'après le jeu officiel de signalisation. Ils s'affichent sur la carte.</td></tr>
-          <tr><td><b>✏️ Proposer un tracé</b></td><td>Transforme ces panneaux en polygones — <b>un par agglomération</b> : le bourg, puis chaque village ou ancienne commune. Un <b>hameau</b> reste hors agglomération, même panneauté. Le script te les présente <b>un par un</b> : <b>Créer ce polygone</b>, <b>C'est un hameau</b>, <b>Passer celui-ci</b>, <b>Tout arrêter</b>.</td></tr>
-          <tr><td><b>C'est un hameau</b></td><td>Un secteur d'entrées qui n'est ni un village ni une ancienne commune reste <b>hors agglomération</b>, même panneauté. Le bouton le déclare, dans la fenêtre du pré-tracé comme dans le cadre de fin de zonage : pas de polygone, et le script ne le réclame plus. <b>Annuler</b> le remet à trancher. En cas de doute, un <b>Local Champ</b> ou un <b>Country Manager</b> tranche.</td></tr>`)}
-          <tr><td><b>＋ Tracer l'agglomération</b></td><td>Tracé à la main, point par point${siPanneaux(', quand les panneaux manquent ou ne suffisent pas')}.</td></tr>
+          <tr><td><b>＋ Tracer l'agglomération</b></td><td>Tracé à la main, point par point.</td></tr>
           <tr><td><b>sans agglomération</b></td><td>À cocher pour une commune qui n'en a pas. ⚠️ <b>Toute la commune passera alors en hors agglomération</b> : aucune voie ne doit plus porter de ville.</td></tr>
         </table>
         <p><b>Village rattaché.</b> Quand une agglomération porte un nom différent de la commune,
@@ -16090,19 +14705,7 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
           voies — <b>c'est le format du pays regardé</b>, et il ne s'écrit pas pareil partout.</p>
         <div class="agn-aide-note">⚠️ Une ville que Waze porte sur des segments <b>sans aucun polygone</b>
           en face déclenche une alerte : il manque presque toujours un polygone, et sans lui le script
-          réclamerait le <b>retrait</b> de cette ville — une correction à l'envers.</div>
-        ${siPanneaux(`<p><b>Quand le pré-tracé ne propose rien — ou pas grand-chose.</b> Le relevé de panneaux
-          est <b>très inégal, et l'écart se joue au niveau du département</b> : mesuré le 28/08/2026
-          sur un échantillon d'une commune sur huit, <b>98 %</b> des communes d'Ille-et-Vilaine ont
-          au moins un panneau relevé (41 sur 42), contre <b>28 %</b> dans l'Hérault (12 sur 43) —
-          alors que les deux départements sont desservis par la source. Là où elle est fournie, le
-          pré-tracé est le chemin le plus court ; ailleurs, le tracé à la main reste la norme. Le
-          script annonce le nombre relevé plutôt que de bricoler une forme.</p>
-        <table class="agn-aide-t">
-          <tr><td><b>« s'aligne le long d'une voie »</b></td><td>Les panneaux forment une ligne, pas une surface (moins de ${LARGEUR_MIN_AGGLO_M} m de large) : c'est une route. Rien n'est tracé — sinon le polygone couvrirait la voie et pas le village.</td></tr>
-          <tr><td><b>« couvre N % de la commune »</b></td><td>Le polygone proposé est probablement <b>plusieurs agglomérations soudées</b> : les entrées se sont enchaînées de proche en proche. Vérifie, et passe-le pour les tracer séparément. Un hameau pris dans la soudure reste hors agglomération.</td></tr>
-          <tr><td><b>« trop isolées »</b></td><td>Moins de trois entrées, ou éparpillées : aucune surface déductible. Elles restent affichées en repère pour un tracé à la main.</td></tr>
-        </table>`)}` },
+          réclamerait le <b>retrait</b> de cette ville — une correction à l'envers.</div>` },
 
       { id: 'analyse', titre: '🔍 Lancer l\'analyse', corps: `
         <p><b>Analyser la commune</b> lit tout le territoire communal — pas seulement ce que
@@ -16317,14 +14920,13 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
       //    donnees nommee avec son producteur et sa licence, et tout ce qui part du navigateur. Elle
       //    suit le REFERENTIEL, comme le reste de l'aide : un editeur en Italie ne lit pas les sources francaises.
       { id: 'sources', titre: '📚 Sources et données échangées', corps: `
-        <table class="agn-aide-t">${siPasDePanneaux(`
+        <table class="agn-aide-t">${siPays('IT', `
           <tr><td><b>Contours communaux</b></td><td>Limites <b>ISTAT</b> mises en forme par <b>openpolis/geojson-italy</b>, <b>CC BY 4.0</b>, version figée au commit <b>ba3347d</b> du 16/08/2026, lue sur raw.githubusercontent.com.</td></tr>
-          <tr><td><b>Ce qui part du navigateur</b></td><td>Le nom du fichier de la province demandée, sur raw.githubusercontent.com. Jamais de pseudo ni d'objet de la carte.</td></tr>`)}${siPanneaux(`
+          <tr><td><b>Ce qui part du navigateur</b></td><td>Le nom du fichier de la province demandée, sur raw.githubusercontent.com. Jamais de pseudo ni d'objet de la carte.</td></tr>`)}${siPays('FR', `
           <tr><td><b>Contours communaux</b></td><td>ADMIN EXPRESS (IGN) et Code officiel géographique (INSEE), servis par <b>geo.api.gouv.fr</b>, <b>Licence Ouverte Etalab 2.0</b>. Millésime : celui que l'API sert le jour du chargement. ADMIN EXPRESS est une source accréditée par Waze pour l'affichage.</td></tr>
           <tr><td><b>Comparaison BD TOPO</b></td><td><b>BD TOPO</b> (IGN), tronçons de route lus sur <b>data.geopf.fr</b> (Géoplateforme), <b>Licence Ouverte 2.0</b>. Source accréditée par Waze pour l'affichage et la comparaison : elle sert à <b>signaler</b>, jamais à corriger.</td></tr>
-          <tr><td><b>Panneaux EB10 / EB20</b></td><td>Jeu « Données de signalisation routière déterminant la Vitesse Maximale Autorisée » du <b>Ministère de l'Intérieur</b>, <b>Licence Ouverte 2.0</b>, lu directement sur <b>data.gouv.fr</b> ; le bilan cite son millésime. Repères d'information seulement : ce jeu n'est pas une source accréditée par Waze, et rien n'est importé sur la carte.</td></tr>
           <tr><td><b>Dictionnaire de rédaction</b></td><td>Règles de <b>WME Check Road Name</b> (buchet37), lues dans deux feuilles <b>Google Sheets</b> à chaque démarrage, avec l'accord de son auteur. Licence non déclarée. Le dictionnaire <b>public</b> reste en lecture seule.</td></tr>
-          <tr><td><b>Ce qui part du navigateur</b></td><td><b>geo.api.gouv.fr</b> : un numéro de département, ou cinq points de la vue si « charger le département survolé » est coché. <b>data.gouv.fr</b> : la seule demande du jeu des panneaux (sa fiche, puis l'archive), sans aucune coordonnée, au premier clic sur 🪧 Panneaux. <b>data.geopf.fr</b> : l'emprise de la commune analysée, si la comparaison BD TOPO est cochée. Google : la clé des deux feuilles. Jamais de pseudo ni d'objet de la carte.</td></tr>`)}
+          <tr><td><b>Ce qui part du navigateur</b></td><td><b>geo.api.gouv.fr</b> : un numéro de département, ou cinq points de la vue si « charger le département survolé » est coché. <b>data.geopf.fr</b> : l'emprise de la commune analysée, si la comparaison BD TOPO est cochée. Google : la clé des deux feuilles. Jamais de pseudo ni d'objet de la carte.</td></tr>`)}
           <tr><td><b>WME lui-même</b></td><td>Lecture rapide d'une commune par <b>app/Features</b>, l'adresse interne que WME appelle pour remplir sa carte (même site, ta session) ; repli sur le balayage par le SDK si elle ne répond pas.</td></tr>
           <tr><td><b>Version minimale</b></td><td>Au démarrage, le fichier <b>version-min.json</b> du dépôt GitHub est lu : il peut empêcher une version retirée de démarrer ; injoignable, le script démarre. GreasyFork est interrogé une fois par jour au plus.</td></tr>
         </table>` },
@@ -16603,9 +15205,7 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
               <label class="agn-sb-c"><input type="checkbox" id="agn-r-adrcarte" title="Marquer les numéros de rue et POI en écart sur la carte : disque plein pour un numéro hors agglomération, anneau pour un RPP en agglomération"> carte</label></div>
             <div class="agn-sb-oc"><b>POI</b>
               <label class="agn-sb-c"><input type="checkbox" id="agn-r-poitable" title="Lister les écarts d'adresse des vrais POI dans l'onglet POI"> tableau</label>
-              <label class="agn-sb-c"><input type="checkbox" id="agn-r-poicarte" title="Marquer sur la carte les POI dont l'adresse est en écart"> carte</label></div>
-            <div class="agn-sb-oc"><b>Panneaux</b>
-              <label class="agn-sb-c"><input type="checkbox" id="agn-r-pancarte" title="Afficher les panneaux d'entrée et de sortie d'agglomération relevés : vert dans un polygone, rouge dehors, gris si aucun polygone n'est tracé"> carte</label></div>`)}
+              <label class="agn-sb-c"><input type="checkbox" id="agn-r-poicarte" title="Marquer sur la carte les POI dont l'adresse est en écart"> carte</label></div>`)}
           ${sect('surlignage', 'Surlignage sur la carte', `
             <label class="agn-sb-c"><input type="checkbox" id="agn-r-surligner" title="Peint les segments et les points en écart directement sur la carte">
               Surligner les écarts sur la carte</label>
@@ -16757,8 +15357,7 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
     // racine : `coche` ne sait pas les atteindre.
     const CASES_VUE = { '#agn-r-segtable': 'segTable', '#agn-r-adrtable': 'adrTable',
                         '#agn-r-segcarte': 'segCarte', '#agn-r-adrcarte': 'adrCarte',
-                        '#agn-r-poitable': 'poiTable', '#agn-r-poicarte': 'poiCarte',
-                        '#agn-r-pancarte': 'panCarte' };
+                        '#agn-r-poitable': 'poiTable', '#agn-r-poicarte': 'poiCarte' };
     // ⚠️ Relire l'etat APRES coup, sur les quatre : `majOnglets` peut avoir
     // recoche « Segments / tableau » de force (on ne masque pas les deux
     // onglets). Sans ca, la case resterait vide alors que l'onglet est la.
@@ -16769,7 +15368,6 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
       q(id).onchange = () => {
         options.vue[cle] = q(id).checked; saveUI();
         if (cle === 'segTable' || cle === 'adrTable') { majOnglets(); renderResults(); }
-        else if (cle === 'panCarte') redrawPanneaux();
         else redrawEcarts(null);
         syncVue();
       };
@@ -16969,7 +15567,7 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
     if (edition) sortirEdition(false);
     cacherBulle();
     // Même file que les dessins (2.55.00) : un dessin encore en attente ne repeint pas après le vidage.
-    [[LAYER_COMMUNE], [LAYER_AGGLO], [LAYER_ECARTS, LAYER_ADRESSES], [LAYER_PANNEAUX]].forEach(ns => {
+    [[LAYER_COMMUNE], [LAYER_AGGLO], [LAYER_ECARTS, LAYER_ADRESSES]].forEach(ns => {
       surCalque(ns[0], async () => {
         for (const n of ns) { try { await sdk.Map.removeAllFeaturesFromLayer({ layerName: n }); } catch (e) { /* */ } }
       });
@@ -16978,7 +15576,7 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
 
   /** Reouverture : on remet ce qui correspond a l'etat courant. */
   function repeindreCarte() {
-    redrawCommune(); redrawAgglos(); redrawEcarts(null); redrawPanneaux();
+    redrawCommune(); redrawAgglos(); redrawEcarts(null);
   }
 
     // >>> DSX-DOCK 1.0.4 — rangement partagé des boutons de carte des scripts de DrSlump34.
@@ -17715,59 +16313,9 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
     //    une regression — on trace au zoom 12, precisement la ou WME n'a charge
     //    aucun segment et ou le pays est donc illisible.
     const horsFrance = pays.etat === 'hors';
-    // ⚠️ Le tracé à la main reste TOUJOURS ouvert : c'est le recours quand la
-    // source de panneaux est muette, et elle l'est souvent.
-    // ⚠️⚠️ « SOUVENT » NE VEUT RIEN DIRE AU NIVEAU NATIONAL — mesuré le 28/08/2026
-    // (tools/couverture-eb10.js, 1 commune sur 8, découpage adaptatif, aucune mesure
-    // tronquée) : **98 % des communes servies en Ille-et-Vilaine (41/42), 28 % dans
-    // l'Hérault (12/43)**. Les deux départements sont pourtant desservis par la source ;
-    // c'est la densité de relevé qui varie du simple au triple. Le chemin à conseiller
-    // dépend donc de l'endroit où l'éditeur travaille, et lui seul ne peut pas le
-    // deviner — d'où le guidage ci-dessous, qui le lui dit commune par commune.
+    // ⚠️ Le tracé à la main est le SEUL chemin depuis la 2.58.00 (relevé des
+    // panneaux et pré-tracé retirés) : il reste ouvert dès qu'une commune est choisie.
     ui.btnTracer.disabled = !communeActive || horsFrance;
-    // Les deux boutons qui dependent des panneaux disent POURQUOI ils sont
-    // fermes : un bouton grise sans raison se lit comme une panne.
-    const s = sondageCourant();
-    const sansPanneaux = s && s.etat === 'aucun';
-    // ⚠️ Ferme AUSSI pendant le sondage : cliquer a cet instant lance le releve
-    // complet (une dizaine de requetes) alors que la reponse legere arrive dans
-    // la seconde — et peut dire qu'il n'y a rien a relever.
-    const sondageEnCours = s && s.etat === 'encours';
-    ui.btnPanneaux.disabled = !communeActive || horsFrance || !!sansPanneaux || !!sondageEnCours;
-    // ⚠️ DEUX raisons de n'avoir aucun panneau, et elles ne se disent pas
-    //    pareil : la source existe mais ne couvre pas cette commune (France),
-    //    ou le pays n'a aucune source du tout (Italie). Servir le message
-    //    français à un éditeur italien lui ferait chercher un défaut chez lui.
-    ui.btnPanneaux.title = !REF.sourcePanneaux
-      ? 'Aucun jeu de données de panneaux d\'entrée d\'agglomération n\'existe pour ' +
-        REF.nom + '. Le tracé se fait à la main — c\'est déjà le cas dans une bonne ' +
-        'partie de la France.'
-      : sansPanneaux
-      ? 'Aucun panneau d\'entrée d\'agglomération relevé sur cette commune dans le jeu ' +
-        'officiel de signalisation. Ce n\'est pas un défaut du script : la source est ' +
-        'très inégale. Trace l\'agglomération à la main.'
-      : (s && s.etat === 'encours')
-        ? 'Vérification de la disponibilité des panneaux…'
-        : 'Récupère les panneaux EB10 / EB20 (entrée et sortie d\'agglomération) et les ' +
-          'confronte aux polygones tracés.' +
-          (s && s.nb ? ' ' + s.nb + ' panneau(x) repéré(s) sur cette commune.' : '');
-    if (ui.btnPreTrace) {
-      // Trois raisons de le fermer, trois messages : rien à proposer tant que
-      // les panneaux ne sont pas relevés, et rien de traçable s'ils forment une
-      // ligne ou sont trop isolés.
-      const relevesMaisSteriles = panneaux.length && bilanPreTrace && !bilanPreTrace.tracables;
-      ui.btnPreTrace.disabled = !communeActive || horsFrance || !panneaux.length || !!relevesMaisSteriles;
-      ui.btnPreTrace.title = sansPanneaux
-        ? 'Aucun panneau sur cette commune : rien à proposer.'
-        : !panneaux.length
-          ? 'Relève d\'abord les panneaux (bouton au-dessus).'
-          : relevesMaisSteriles
-            ? 'Les ' + panneaux.length + ' panneaux relevés ne forment aucune surface exploitable' +
-              (bilanPreTrace.rubans ? ' : ils s\'alignent le long d\'une voie' : ' : ils sont trop isolés') +
-              '. Trace à la main.'
-            : 'Fabrique un polygone par groupe d\'entrées d\'agglomération. Tracé grossier, ' +
-              'à ajuster aux poignées.';
-    }
     // ⚠️⚠️ `renderAgglos` sort par PLUSIEURS chemins : mettre le guidage a la
     // seule fin de la fonction le rendait muet dans les deux cas ou il sert le
     // plus — pas de commune choisie, ou territoire hors de France. Chaque sortie
@@ -17827,15 +16375,6 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
         saveSansAgglo(); renderAgglos(); majResumeSections();
       };
       ui.listeAgglos.appendChild(bloc);
-      // ⚠️⚠️ LES HAMEAUX DECLARES DOIVENT SE VOIR ICI AUSSI (v2.49.01). Sans
-      // polygone, cette sortie ne passait pas par `avertissementExhaustivite` :
-      // « C'est un hameau » puis « Tout arreter » dans le pre-trace laissait une
-      // declaration INVISIBLE, donc impossible a annuler. Trouve en live sur
-      // Ploemeur le 23/09, en lisant le code avant l'essai — aucun banc ne
-      // couvrait ce chemin.
-      const decl = el('<div class="agn-hameaux-decl"></div>');
-      ajouterHameauxDeclares(decl);
-      if (decl.childNodes.length) ui.listeAgglos.appendChild(decl);
       majResumeSections();
       majBandeauPays();
       majBoutonsZone();
@@ -17916,9 +16455,11 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
     // ⚠️ Cette infobulle PROMETTAIT un cadrage inconditionnel. Depuis la 2.35.04
     // la carte ne bouge plus quand le secteur est deja sous les yeux : le texte
     // doit dire la regle, sinon l'immobilite se lit comme une panne.
+    // 2.58.00 : plus de secteurs d'entrees (ils venaient du releve des panneaux) ;
+    // le cadrage va au bourg (mairie), comme `departDuTrace` le fait desormais.
     suite.title = 'Bourg, village, ancienne commune : chaque agglomération de la commune ' +
-      'a son propre polygone. La carte se cadre sur le prochain secteur d\'entrées à ' +
-      'couvrir — sauf si tu l\'as déjà sous les yeux.';
+      'a son propre polygone. La carte se cadre sur le bourg (mairie) — sauf si tu ' +
+      'l\'as déjà sous les yeux.';
     suite.onclick = tracerAgglo;
     ui.listeAgglos.appendChild(suite);
     ui.listeAgglos.appendChild(avertissementExhaustivite());
@@ -17932,62 +16473,13 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
   /**
    * Dit ce qu'il reste a couvrir AVANT de laisser refermer le volet.
    *
-   * ⚠️ On ne se contente pas d'un conseil general : quand les panneaux ont ete
-   * releves, on SAIT quels secteurs d'entrees ne sont dans aucun polygone. Un
-   * chiffre precis vaut mieux qu'une recommandation.
+   * ⚠️ 2.58.00 : le releve des panneaux EB10/EB20 est retire (source non
+   * accreditee par Waze) ; avec lui sont partis les SECTEURS d'entrees qu'il
+   * fournissait, leur decompte, et les boutons « C'est un hameau » / « Annuler ».
+   * Reste le rappel d'exhaustivite — schema 2 compris (un hameau reste hors
+   * agglomeration, meme panneaute) — et le rappel du choix « sans agglomeration ».
    */
-  /**
-   * Liste les secteurs declares hameau de la commune, chacun avec « Annuler ».
-   * ⚠️ Une declaration doit rester VISIBLE et REVERSIBLE : sinon un clic trop
-   * rapide ferait disparaitre une agglomeration sans que rien ne le montre.
-   */
-  function ajouterHameauxDeclares(n) {
-    if (!communeActive) return;
-    const liste = hameaux[communeActive.code] || [];
-    if (!liste.length) return;
-    const t = el('<div class="agn-note"></div>');
-    t.innerHTML = '🏘 <b>' + liste.length + ' secteur(s) déclaré(s) hameau</b> — hors agglomération :';
-    n.appendChild(t);
-    liste.forEach(p => {
-      const x = secteursCourants.find(s => s.g && s.g.centre &&
-        distanceM([p.lon, p.lat], [s.g.centre.lon, s.g.centre.lat]) < TOLERANCE_HAMEAU_M);
-      const l = el('<div class="agn-hameau-l"></div>');
-      l.innerHTML = '• ' + esc(x ? (x.nom || (x.g.portes + ' entrée(s)')) : 'secteur non relevé') + ' ';
-      const b = el('<button class="agn-btn">Annuler</button>');
-      b.title = 'Ce secteur redevient à trancher : village (polygone) ou hameau.';
-      b.onclick = () => { declarerHameau({ centre: p }, false); renderAgglos(); };
-      l.appendChild(b);
-      n.appendChild(l);
-    });
-  }
-
   function avertissementExhaustivite() {
-    const restants = secteursCourants.filter(x => x.g && x.g.centre && !secteurTranche(x.g));
-    if (restants.length) {
-      const n = el('<div class="agn-avert-exh"></div>');
-      // ⚠️ SCHEMA 2 : un secteur non couvert n'est plus forcement un oubli. On
-      // pose la QUESTION, secteur par secteur, et chacun porte son bouton.
-      n.innerHTML = '⚠️ <b>' + restants.length + ' secteur(s) d\'entrées</b> ne sont ni ' +
-        'couverts par un polygone, ni déclarés hameau. Pour chacun : <b>village ou ancienne ' +
-        'commune</b> ⇒ trace-le (une agglomération oubliée passe en hors agglomération) ; ' +
-        '<b>hameau ou lieu-dit</b> ⇒ il reste hors agglomération, même avec des panneaux.';
-      restants.slice(0, 6).forEach(x => {
-        const l = el('<div class="agn-hameau-l"></div>');
-        l.innerHTML = '• ' + esc(x.nom || (x.g.portes + ' entrée(s)')) + ' ';
-        const b = el('<button class="agn-btn">C\'est un hameau</button>');
-        b.title = 'Pas de polygone pour ce secteur : il reste hors agglomération, ' +
-          'et le script ne le réclamera plus. Réversible.';
-        b.onclick = () => { declarerHameau(x.g, true); renderAgglos(); };
-        l.appendChild(b);
-        n.appendChild(l);
-      });
-      if (restants.length > 6) n.appendChild(el('<div class="agn-hameau-l">…</div>'));
-      const doute = el('<div class="agn-note"></div>');
-      doute.innerHTML = 'En cas de doute, un <b>Local Champ</b> ou un <b>Country Manager</b> tranche.';
-      n.appendChild(doute);
-      ajouterHameauxDeclares(n);
-      return n;
-    }
     const n = el('<div class="agn-avert-exh agn-avert-doux"></div>');
     // ⚠️ Une commune DECLAREE sans agglomeration n'a rien a tracer : lui reclamer
     // « toutes les agglomerations » est un contresens. On rappelle le choix fait.
@@ -17996,28 +16488,10 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) #dsx-pan
         'tous ses segments seront jugés hors agglomération. Décoche la case si ce n\'est plus vrai.';
       return n;
     }
-    // ⚠️⚠️ LA SOURCE EST-ELLE MUETTE ICI ? Sans ce test, on PROPOSAIT le relevé
-    // des panneaux alors que le bouton venait d'etre grisé faute de données —
-    // exactement la faute corrigée ailleurs en 2.25.01 (ne jamais envoyer vers un
-    // geste impossible). Mesuré sur Saint-Geniès-de-Comolas : 0 panneau.
-    const sond = sondageCourant();
-    const muette = !!(sond && sond.etat === 'aucun');
-    n.innerHTML = secteursCourants.length
-      ? '✔ Tous les secteurs d\'entrées relevés sont tranchés (polygone ou hameau). ' +
-        'Vérifie tout de même les villages sans panneau avant de terminer.'
-      : '⚠️ Assure-toi d\'avoir tracé <b>toutes</b> les agglomérations de la commune ' +
-        '(le bourg, les villages et les anciennes communes — pas les hameaux, même ' +
-        'panneautés) : une agglomération oubliée passe en hors ' +
-        'agglomération, et tous ses écarts seront faux.' +
-        // ⚠️ Depuis la 2.25.01 le guidage ne renvoie plus vers les panneaux quand un
-        // polygone existe deja. Le moyen de VERIFIER reste utile — mais il se
-        // PROPOSE ici, il ne s'impose plus comme une etape a franchir.
-        (muette ? '<br>Aucun panneau d\'agglomération n\'est disponible ici : ' +
-                  '<b>le script ne peut pas vérifier à ta place</b>.'
-                : releveFait ? ''
-                             : '<br>Au besoin, <b>🪧 Panneaux d\'agglomération</b> les recense pour toi.');
-    // Les hameaux declares restent visibles (et reversibles) une fois tout tranche.
-    ajouterHameauxDeclares(n);
+    n.innerHTML = '⚠️ Assure-toi d\'avoir tracé <b>toutes</b> les agglomérations de la commune ' +
+      '(le bourg, les villages et les anciennes communes — pas les hameaux, même ' +
+      'panneautés) : une agglomération oubliée passe en hors ' +
+      'agglomération, et tous ses écarts seront faux.';
     return n;
   }
 
