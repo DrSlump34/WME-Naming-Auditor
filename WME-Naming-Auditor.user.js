@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         WME Naming Auditor
 // @namespace    https://github.com/DrSlump34
-// @version      2.58.00
-// @description  FRANCE et ITALIE : audit du nommage et de l'adressage. Le bouton ⚡ (L6, Champs, GE, staff) écrit sans enregistrer : nom, ville, alternatif, cartouche, adresse de POI, numéro hors agglo converti en POI résidentiel (numéro supprimé) ; 500 éditions/h au plus. Sources : IGN/INSEE (geo.api.gouv.fr, data.geopf.fr, Licence Ouverte), WME Check Road Name, ISTAT/openpolis (CC BY 4.0). Échanges : GreasyFork, version-min.json (GitHub) ; coordonnées de zone, jamais d'identité.
+// @version      2.59.00
+// @description  FRANCE et ITALIE : audit du nommage et de l'adressage. Le bouton ⚡ (L5, L6, Champs, GE, staff) écrit sans enregistrer : nom, ville, alternatif, cartouche, adresse de POI, numéro hors agglo converti en POI résidentiel (numéro supprimé) ; 500 éditions/h au plus. Sources : IGN/INSEE (geo.api.gouv.fr, data.geopf.fr, Licence Ouverte), WME Check Road Name, ISTAT/openpolis (CC BY 4.0). Échanges : GreasyFork, version-min.json (GitHub) ; coordonnées de zone, jamais d'identité.
 // @author       DrSlump34
 // @license      MIT
 // @icon         data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPScyNCcgaGVpZ2h0PScyNCcgdmlld0JveD0nMCAwIDI0IDI0Jz48cmVjdCB4PScxLjUnIHk9JzMnIHdpZHRoPScxNycgaGVpZ2h0PSc5JyByeD0nMS41JyBmaWxsPScjZmZmJyBzdHJva2U9JyM2MDdkOGInIHN0cm9rZS13aWR0aD0nMicvPjxwYXRoIGQ9J001IDcuNSBIMTUnIHN0cm9rZT0nIzkwYTRhZScgc3Ryb2tlLXdpZHRoPScxLjgnIHN0cm9rZS1saW5lY2FwPSdyb3VuZCcvPjxjaXJjbGUgY3g9JzE1JyBjeT0nMTUnIHI9JzQuNicgZmlsbD0nI2ZmZicgc3Ryb2tlPScjZWY2YzAwJyBzdHJva2Utd2lkdGg9JzIuNCcvPjxwYXRoIGQ9J00xOC40IDE4LjQgTDIyIDIyJyBzdHJva2U9JyNlZjZjMDAnIHN0cm9rZS13aWR0aD0nMycgc3Ryb2tlLWxpbmVjYXA9J3JvdW5kJy8+PC9zdmc+
@@ -33,7 +33,7 @@
  * AUDIT (tout le monde) : lit le nommage et l'adressage d'une commune et signale les écarts aux
  * règles du pays. Rien n'est écrit sur la carte.
  *
- * ÉCRITURE (bouton ⚡, réservé aux L6, aux Champs — LC, GC, CC —, aux Global Editors et au staff).
+ * ÉCRITURE (bouton ⚡, réservé aux L5 et L6, aux Champs — LC, GC, CC —, aux Global Editors et au staff).
  * Le script n'enregistre JAMAIS : chaque écriture reste en attente dans WME, annulable par Ctrl+Z,
  * et c'est l'éditeur qui relit puis clique sur Enregistrer. Le ⚡ peut écrire :
  *   - le nom principal et la ville d'un ou plusieurs segments ;
@@ -5778,8 +5778,8 @@
         "Correzione",
       "Correction activée — {motifs}.<br>Les corrections ne sont <b>jamais enregistrées</b> automatiquement.":
         "Correzione attivata — {motifs}.<br>Le correzioni non vengono <b>mai salvate</b> automaticamente.",
-      "Correction désactivée : réservée aux L6, aux Champs (LC, GC, CC), aux Global Editors et au staff (ton rang : {rang}).":
-        "Correzione disattivata: riservata a L6, Champs (LC, GC, CC), Global Editor e staff (il tuo livello: {rang}).",
+      "Correction désactivée : réservée aux L5 et L6, aux Champs (LC, GC, CC), aux Global Editors et au staff (ton rang : {rang}).":
+        "Correzione disattivata: riservata a L5 e L6, Champs (LC, GC, CC), Global Editor e staff (il tuo livello: {rang}).",
       // 2.52.00 — plafond de 150 éditions scriptées par heure, doublons RPP, cartouche hors droits,
       // dictionnaire public en lecture seule.
       '⚡ indisponible : quota illisible (pseudo de l\'éditeur introuvable).':
@@ -11535,7 +11535,8 @@
   // ===========================================================================
   // CORRECTION
   //
-  // Reservee aux L6, aux Champs et aux responsables (L5 retires le 11/10/2026, decision de l'auteur) : une correction de
+  // Reservee aux L5 et L6, aux Champs et aux responsables (L5 retires le 11/10/2026, ROUVERTS en 2.59.00 le
+  // 14/11/2026, decisions de l'auteur) : une correction de
   // masse sur le nommage se voit, et se discute.
   //
   // Regles de sureté tenues ici :
@@ -11551,8 +11552,8 @@
   const _fx = t => { let x = 0x811c9dc5;
     for (let i = 0; i < t.length; i++) { x ^= t.charCodeAt(i); x = Math.imul(x, 0x01000193) >>> 0; }
     return x >>> 0; };
-  const _fz = [0x853f760, 0xb53fc19, 0x10202895, 0x851b8c9, 0x4631c6b8, 0x3e2070ff, 0x56299123];
-  const _fq = 0x3549bc41;
+  const _fz = [0x953f8f3, 0x853f760, 0xb53fc19, 0x10202895, 0x851b8c9, 0x4631c6b8, 0x3e2070ff, 0x56299123];
+  const _fq = 0x3c1a44b2;
   // Roles lus dans les groupes du forum Discuss (meme site, session de l'editeur), une fois par
   // session : le role de Champ n'existe que la. Les Emeritus n'en sont plus. `null` = pas encore lu.
   let _fr = null, _fapres = null;
@@ -11627,7 +11628,7 @@
     return { utilises: r.length, reste, max: m, libre: reste ? maintenant : _qh(r[r.length - m]) + f, garder: r };
   }
   const _fk = [0x1f4, 0x36ee80];
-  const _fs = 0x357f5335;
+  const _fs = 0x3c2cabc6;
   function _fc() {
     const m = Date.now(), [a, f] = _fk, pl = n => Array.from({ length: n }, () => m);
     return quotaEditions(pl(a), m).reste === 0 && quotaEditions(pl(a - 1), m).reste === 1 &&
@@ -14584,7 +14585,7 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
    * voir le ⚡. »
    *
    * ⚠️⚠️ LE CRITERE N'EST PAS REINVENTE ICI : c'est `droits().autorise`, celui-la
-   * meme qui commande les boutons (L6, Champs, Global Editors, staff). Un SECOND
+   * meme qui commande les boutons (L5, L6, Champs, Global Editors, staff). Un SECOND
    * critere finirait par diverger du premier, et l'aide promettrait alors une
    * fonction absente — ou la tairait a quelqu'un qui l'a. Un seul modele d'etat.
    *
@@ -15444,7 +15445,7 @@ html:is([data-wme-studio-theme="dark"],[data-wme-studio-theme="black"]) .agn-sb 
         ? trf('Correction activée — {motifs}.<br>Les corrections ne sont <b>jamais enregistrées</b> automatiquement.',
               { motifs: esc(d.motifs.join(', ')) })
         : d.rangsLus
-          ? trf('Correction désactivée : réservée aux L6, aux Champs (LC, GC, CC), aux Global Editors et au staff (ton rang : {rang}).',
+          ? trf('Correction désactivée : réservée aux L5 et L6, aux Champs (LC, GC, CC), aux Global Editors et au staff (ton rang : {rang}).',
                 { rang: esc(d.niveau) })
           : tr('Lecture du profil en cours…');
       // ⭐ La mention du pied SUIT LE PROFIL (arbitrage de l'auteur, 25/09/2026) : « ne modifie
